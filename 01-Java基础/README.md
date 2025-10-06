@@ -1842,6 +1842,228 @@ java中有三种移位运算符
 - `<<` :左移运算符,x << 1,相当于x乘以2(不溢出的情况下),低位补0
 - `>>` :带符号右移,x >> 1,相当于x除以2,正数高位补0,负数高位补1
 - `>>>` :无符号右移,忽略符号位,空位都以0补齐
+
+### 1.17  Java的8个基本类型
+- boolean/1
+- byte/8
+- char/16
+- short/16
+- int/32
+- float/32
+- long/64
+- double/64
+    - 基本类型都有对应的包装类型，基本类型与其对应的包装类型之间的赋值使用自动装箱与拆箱完成。
+```java
+Integer x = 2;     // 装箱
+int y = x;         // 拆箱
+```
+### 1.18  包装类的缓存池
+new Integer(123) 与 Integer.valueOf(123) 的区别在于:
+- new Integer(123) 每次都会新建一个对象
+- Integer.valueOf(123) 会使用缓存池中的对象，多次调用会取得同一个对象的引用。
+```java 
+Integer x = new Integer(123);
+Integer y = new Integer(123);
+System.out.println(x == y);    // false
+Integer z = Integer.valueOf(123);
+Integer k = Integer.valueOf(123);
+System.out.println(z == k);   // true
+```
+valueOf() 方法的实现比较简单，就是先判断值是否在缓存池中，如果在的话就直接返回缓存池的内容。
+```java
+public static Integer valueOf(int i) {
+    if (i >= IntegerCache.low && i <= IntegerCache.high)
+        return IntegerCache.cache[i + (-IntegerCache.low)];
+    return new Integer(i);
+}
+```
+在 Java 8 中，Integer 缓存池的大小默认为 -128~127。
+```java
+static final int low = -128;
+static final int high;
+static final Integer cache[];
+
+static {
+    // high value may be configured by property
+    int h = 127;
+    String integerCacheHighPropValue =
+        sun.misc.VM.getSavedProperty("java.lang.Integer.IntegerCache.high");
+    if (integerCacheHighPropValue != null) {
+        try {
+            int i = parseInt(integerCacheHighPropValue);
+            i = Math.max(i, 127);
+            // Maximum array size is Integer.MAX_VALUE
+            h = Math.min(i, Integer.MAX_VALUE - (-low) -1);
+        } catch( NumberFormatException nfe) {
+            // If the property cannot be parsed into an int, ignore it.
+        }
+    }
+    high = h;
+
+    cache = new Integer[(high - low) + 1];
+    int j = low;
+    for(int k = 0; k < cache.length; k++)
+        cache[k] = new Integer(j++);
+
+    // range [-128, 127] must be interned (JLS7 5.1.7)
+    assert IntegerCache.high >= 127;
+}
+```
+编译器会在缓冲池范围内的基本类型自动装箱过程调用 valueOf() 方法，因此多个 Integer 实例使用自动装箱来创建并且值相同，那么就会引用相同的对象。
+```java
+Integer m = 123;
+Integer n = 123;
+System.out.println(m == n); // true
+```
+基本类型对应的缓冲池如下:
+- boolean values true and falseall byte values
+- short values between -128 and 127
+- int values between -128 and 127
+- char in the range \u0000 to \u007
+  - 在使用这些基本类型对应的包装类型时，就可以直接使用缓冲池中的对象。如果在缓冲池之外：
+```java
+Integer m = 323;
+Integer n = 323;
+System.out.println(m == n); // false
+```
+### 1.19  String 如何实现不可变的
+- String 被声明为 final，因此它不可被继承。
+- 内部使用 char 数组存储数据，该数组被声明为 final，这意味着 value 数组初始化之后就不能再引用其它数组。并且 String 内部没有改变 value 数组的方法，因此可以保证 String 不可变。
+```java
+public final class String
+    implements java.io.Serializable, Comparable<String>, CharSequence {
+    /** The value is used for character storage. */
+    private final char value[];
+```
+### 1.20 String.intern()
+
+使用 String.intern() 可以保证相同内容的字符串变量引用同一的内存对象。下面示例中，s1 和 s2 采用 new String() 的方式新建了两个不同对象，而 s3 是通过 s1.intern() 方法取得一个对象引用。intern() 首先把 s1 引用的对象放到 String Pool(字符串常量池)中，然后返回这个对象引用。因此 s3 和 s1 引用的是同一个字符串常量池的对象。
+```java
+String s1 = new String("aaa"); // 在堆中创建一个对象同时字面量aaa被放入字符串常量池
+String s2 = new String("aaa");// 创建一个新的对象
+System.out.println(s1 == s2);           // false(两者为堆中不同对象)
+String s3 = s1.intern(); // 取常量池中的字面量对象引用
+String s4 = "aaa"; //
+System.out.println(s1 == s3);  // false(因为s1和aaa字面量引用时不同的，字面量的引用是aaa这个字符串本身)
+System.out.println(s4 == s3);  // true(均为字面量的引用)
+```
+只有在常量池中不存在该字符串时，intern()才会将当前对象放入常量池：
+
+```java
+String s4 = new String(new char[]{'a', 'a', 'a'}); // 不涉及字面量
+String s5 = s4.intern();
+System.out.println("s4 == s5: " + (s4 == s5));  // true（Java 7+）
+```
+上面的代码没有出现字面量aaa，所以调用intern()方法时把s4对象本分放入到常量池中。
+
+如果是采用 "bbb" 这种使用双引号的形式创建字符串实例，会自动地将新建的对象放入 String Pool 中。
+```java
+String s4 = "bbb";
+String s5 = "bbb";
+System.out.println(s4 == s5);  // true
+```
+### 1.21 float 与 double
+1.1 字面量属于 double 类型，不能直接将 1.1 直接赋值给 float 变量，因为这是向下转型。Java 不能隐式执行向下转型，因为这会使得精度降低。
+```java
+// float f = 1.1;
+```
+1.1f 字面量才是 float 类型。
+```java
+float f = 1.1f;
+```
+### 1.22 哪个类包含 clone 方法? 是 Cloneable 还是 Object?
+java.lang.Cloneable 是一个标示性接口，不包含任何方法，clone 方法在 object 类中定义。并且需要知道 clone() 方法是一个本地方法，这意味着它是由 c 或 c++ 或 其他本地语言实现的。
+### 1.23 Java 中 ++ 操作符是线程安全的吗?
+不是线程安全的操作。它涉及到多个指令，如读取变量值，增加，然后存储回内存，这个过程可能会出现多个线程交差。还会存在竞态条件(读取-修改-写入)。
+++ 操作实际上包含三个步骤：
+
+```java
+i++ 等价于：
+1. 读取 i 的当前值
+2. 将值加 1
+3. 将新值写回 i
+```
+这不是一个原子操作，在多线程环境下会出现竞态条件。
+
+示例证明
+
+```java
+public class IncrementExample {
+    private static int count = 0;
+    
+    public static void main(String[] args) throws InterruptedException {
+        Thread t1 = new Thread(() -> {
+            for (int i = 0; i < 10000; i++) {
+                count++;
+            }
+        });
+        
+        Thread t2 = new Thread(() -> {
+            for (int i = 0; i < 10000; i++) {
+                count++;
+            }
+        });
+        
+        t1.start();
+        t2.start();
+        t1.join();
+        t2.join();
+        
+        // 结果通常小于 20000
+        System.out.println("Final count: " + count); 
+    }
+}
+```
+可能出现的结果
+
+线程A 读取 count = 100
+线程B 也读取 count = 100
+线程A 计算 100+1=101，写入 count=101
+线程B 计算 100+1=101，写入 count=101
+结果：两次 ++ 操作，count 只增加了 1。
+
+线程安全的替代方案
+
+1. 使用 AtomicInteger
+
+```java
+private static AtomicInteger count = new AtomicInteger(0);
+
+// 线程安全的自增
+count.incrementAndGet();
+```
+2. 使用 synchronized
+
+```java
+private static int count = 0;
+private static final Object lock = new Object();
+
+public static void increment() {
+    synchronized(lock) {
+        count++;
+    }
+}
+```
+3. 使用 Lock
+
+```java
+private static final ReentrantLock lock = new ReentrantLock();
+private static int count = 0;
+
+public static void increment() {
+    lock.lock();
+    try {
+        count++;
+    } finally {
+        lock.unlock();
+    }
+}
+```
+
+
+
+
+
 ## 二、泛型
 **泛型（Generics）** 是 Java SE 5 引入的一项核心语言特性。它的本质是**参数化类型**。简单来说，就是在定义类、接口或方法时，用一个或多个“类型形参”来代替具体的类型。在使用时（创建对象、调用方法等），再传入具体的“类型实参”。这就像给类型定义了一个“模板”，使用时可填充不同的“类型材料”。
 
@@ -2557,6 +2779,1090 @@ public class UserDao extends Dao<User> {}  // 自动绑定User类型
 
 new UserDao().save(new User()); // 输出: "保存: User"
 ```
+## 三、注解
+注解是JDK1.5版本开始引入的一个特性，用于对代码进行说明，可以对包、类、接口、字段、方法参数、局部变量等进行注解。它主要的作用有以下四方面：
+- 生成文档，通过代码里标识的元数据生成javadoc文档。
+- 编译检查，通过代码里标识的元数据让编译器在编译期间进行检查验证。
+- 编译时动态处理，编译时通过代码里标识的元数据动态处理，例如动态生成代码。
+- 运行时动态处理，运行时通过代码里标识的元数据动态处理，例如使用反射注入实例。
+这么来说是比较抽象的，我们具体看下注解的常见分类：
+- Java自带的标准注解，包括@Override、@Deprecated和@SuppressWarnings，分别用于标明重写某个方法、标明某个类或方法过时、标明要忽略的警告，用这些注解标明后编译器就会进行检查。
+- 元注解，元注解是用于定义注解的注解，包括@Retention、@Target、@Inherited、@Documented，@Retention用于标明注解被保留的阶段，@Target用于标明注解使用的范围，@Inherited用于标明注解可继承，@Documented用于标明是否生成javadoc文档。自定义注解，可以根据自己的需求定义注解，并可用元注解对自定义注解进行注解。接下来我们通过这个分类角度来理解注解。
+### 3.1 内置注解
+```java
+@Override      // 检查方法重写
+@Deprecated    // 标记已过时
+@SuppressWarnings("unchecked") // 抑制警告
+```
+### 3.2 元注解
+#### @Target
+Target注解的作用是：描述注解的使用范围（即：被修饰的注解可以用在什么地方） 。
+- Target注解用来说明那些被它所注解的注解类可修饰的对象范围：注解可以用于修饰 packages、types（类、接口、枚举、注解类）、类成员（方法、构造方法、成员变量、枚举值）、方法参数和本地变量（如循环变量、catch参数），在定义注解类时使用了@Target 能够更加清晰的知道它能够被用来修饰哪些对象，它的取值范围定义在ElementType 枚举中。
+```java
+public enum ElementType {
+ 
+    TYPE, // 类、接口、枚举类
+ 
+    FIELD, // 成员变量（包括：枚举常量）
+ 
+    METHOD, // 成员方法
+ 
+    PARAMETER, // 方法参数
+ 
+    CONSTRUCTOR, // 构造方法
+ 
+    LOCAL_VARIABLE, // 局部变量
+ 
+    ANNOTATION_TYPE, // 注解类
+ 
+    PACKAGE, // 可用于修饰：包
+ 
+    TYPE_PARAMETER, // 类型参数，JDK 1.8 新增
+ 
+    TYPE_USE // 使用类型的任何地方，JDK 1.8 新增
+ 
+}
+```
+TYPE_PARAMETER/TYPE_USE为1.8新增。被这些字段修饰的注解是类型注解，被用来支持在Java的程序中做强类型检查。配合插件式的check framework，可以在编译的时候检测出runtime error，以提高代码质量。这就是类型注解的作用了。
+- 创建类实例new 
+```java
+@Interned MyObject();
+```
+- 类型映射
+```java
+myString = (@NonNull String) str;
+```
+- implements 语句中
+```java
+class UnmodifiableList<T> implements @Readonly List<@Readonly T> { … }
+```
+- throw exception声明
+```java
+void monitorTemperature() throws @Critical TemperatureException { … }
+```
+需要注意的是，类型注解只是语法而不是语义，并不会影响java的编译时间，加载时间，以及运行时间，也就是说，编译成class文件的时候并不包含类型注解。
+
+- 举例：check framework可以找到类型注解出现的地方并检查，举个简单的例子:
+```java
+import checkers.nullness.quals.*;
+public class GetStarted {
+    void sample() {
+        @NonNull Object ref = new Object();
+    }
+}
+```
+使用javac编译上面的类
+```java
+javac -processor checkers.nullness.NullnessChecker GetStarted.java
+```
+编译是通过，但如果修改成
+```java
+@NonNull Object ref = null;
+```
+再次编译，则出现
+```java
+GetStarted.java:5: incompatible types.
+found   : @Nullable <nulltype>
+required: @NonNull Object
+        @NonNull Object ref = null;
+                              ^
+1 error
+```
+- 类型注解向下兼容的解决方案如果你不想使用类型注解检测出来错误，则不需要processor，直接javac GetStarted.java是可以编译通过的，这是在java 8 with Type Annotation Support版本里面可以，但java 5,6,7版本都不行，因为javac编译器不知道@NonNull是什么东西，但check framework 有个向下兼容的解决方案，就是将类型注解nonnull用/**/注释起来，比如上面例子修改为
+```java
+import checkers.nullness.quals.*;
+public class GetStarted {
+    void sample() {
+        /*@NonNull*/ Object ref = null;
+    }
+}
+```
+这样javac编译器就会忽略掉注释块，但用check framework里面的javac编译器同样能够检测出nonnull错误。 通过类型注解+check framework我们可以看到，现在runtime error可以在编译时候就能找到.
+
+#### @Retention & @RetentionTarget
+Retention注解的作用是：描述注解保留的时间范围（即：被描述的注解在它所修饰的类中可以被保留到何时） 。
+- Retention注解用来限定那些被它所注解的注解类在注解到其他类上以后，可被保留到何时，一共有三种策略，定义在RetentionPolicy枚举中。
+```java
+public enum RetentionPolicy {
+ 
+    SOURCE,    // 源文件保留
+    CLASS,       // 编译期保留，默认值
+    RUNTIME   // 运行期保留，可通过反射去获取注解信息
+}
+```
+为了验证应用了这三种策略的注解类有何区别，分别使用三种策略各定义一个注解类做测试。
+```java
+@Retention(RetentionPolicy.SOURCE)
+public @interface SourcePolicy {
+ 
+}
+@Retention(RetentionPolicy.CLASS)
+public @interface ClassPolicy {
+ 
+}
+@Retention(RetentionPolicy.RUNTIME)
+public @interface RuntimePolicy {
+ 
+}
+```
+用定义好的三个注解类分别去注解一个方法。
+```java
+public class RetentionTest {
+ 
+	@SourcePolicy
+	public void sourcePolicy() {
+	}
+ 
+	@ClassPolicy
+	public void classPolicy() {
+	}
+ 
+	@RuntimePolicy
+	public void runtimePolicy() {
+	}
+}
+```
+通过执行 javap -verbose RetentionTest命令获取到的RetentionTest 的 class 字节码内容如下。
+```java
+{
+  public retention.RetentionTest();
+    flags: ACC_PUBLIC
+    Code:
+      stack=1, locals=1, args_size=1
+         0: aload_0
+         1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+         4: return
+      LineNumberTable:
+        line 3: 0
+
+  public void sourcePolicy();
+    flags: ACC_PUBLIC
+    Code:
+      stack=0, locals=1, args_size=1
+         0: return
+      LineNumberTable:
+        line 7: 0
+
+  public void classPolicy();
+    flags: ACC_PUBLIC
+    Code:
+      stack=0, locals=1, args_size=1
+         0: return
+      LineNumberTable:
+        line 11: 0
+    RuntimeInvisibleAnnotations:
+      0: #11()
+
+  public void runtimePolicy();
+    flags: ACC_PUBLIC
+    Code:
+      stack=0, locals=1, args_size=1
+         0: return
+      LineNumberTable:
+        line 15: 0
+    RuntimeVisibleAnnotations:
+      0: #14()
+}
+```
+从 RetentionTest 的字节码内容我们可以得出以下两点结论：编译器并没有记录下 sourcePolicy() 方法的注解信息；编译器分别使用了 RuntimeInvisibleAnnotations 和 RuntimeVisibleAnnotations 属性去记录了classPolicy()方法 和 runtimePolicy()方法 的注解信息
+#### @Documented
+Documented注解的作用是：描述在使用 javadoc 工具为类生成帮助文档时是否要保留其注解信息。以下代码在使用Javadoc工具可以生成@TestDocAnnotation注解信息。
+```java
+import java.lang.annotation.Documented;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Target;
+ 
+@Documented
+@Target({ElementType.TYPE,ElementType.METHOD})
+public @interface TestDocAnnotation {
+ 
+	public String value() default "default";
+}
+@TestDocAnnotation("myMethodDoc")
+public void testDoc() {
+
+}
+```
+#### @Inherited
+Inherited注解的作用：被它修饰的Annotation将具有继承性。如果某个类使用了被@Inherited修饰的Annotation，则其子类将自动具有该注解。
+- 我们来测试下这个注解：
+  - 定义@Inherited注解：
+```java
+@Inherited
+@Retention(RetentionPolicy.RUNTIME)
+@Target({ElementType.TYPE,ElementType.METHOD})
+public @interface TestInheritedAnnotation {
+    String [] values();
+    int number();
+}
+```
+  - 使用这个注解
+```java
+@TestInheritedAnnotation(values = {"value"}, number = 10)
+public class Person {
+}
+
+class Student extends Person{
+	@Test
+    public void test(){
+        Class clazz = Student.class;
+        Annotation[] annotations = clazz.getAnnotations();
+        for (Annotation annotation : annotations) {
+            System.out.println(annotation.toString());
+        }
+    }
+}
+```
+  - 输出
+```java
+xxxxxxx.TestInheritedAnnotation(values=[value], number=10)
+```
+即使Student类没有显示地被注解@TestInheritedAnnotation，但是它的父类Person被注解，而且@TestInheritedAnnotation被@Inherited注解，因此Student类自动有了该注解。
+#### @Repeatable (Java8)
+允许在同一申明类型(类，属性，或方法)的多次使用同一个注解
+- JDK8之前
+  - java 8之前也有重复使用注解的解决方案，但可读性不是很好，比如下面的代码:
+```java
+public @interface Authority {
+     String role();
+}
+
+public @interface Authorities {
+    Authority[] value();
+}
+
+public class RepeatAnnotationUseOldVersion {
+
+    @Authorities({@Authority(role="Admin"),@Authority(role="Manager")})
+    public void doSomeThing(){
+    }
+}
+```
+由另一个注解来存储重复注解，在使用时候，用存储注解Authorities来扩展重复注解。
+- Jdk8重复注解
+  - 我们再来看看java 8里面的做法:
+```java
+// 定义可重复注解
+@Repeatable(Authorities.class)
+public @interface Authority {
+     String role();
+}
+// 定义容器注解
+public @interface Authorities {
+    Authority[] value();
+}
+// 使用可重复注解
+public class RepeatAnnotationUseNewVersion {
+    @Authority(role="Admin")
+    @Authority(role="Manager")
+    public void doSomeThing(){ }
+}
+```
+不同的地方是，创建重复注解Authority时，加上@Repeatable,指向存储注解Authorities，在使用时候，直接可以重复使用Authority注解。从上面例子看出，java 8里面做法更适合常规的思维，可读性强一点
+####  @Native (Java8)
+使用 @Native 注解修饰成员变量，则表示这个变量可以被本地代码引用，常常被代码生成工具使用。对于 @Native 注解不常使用，了解即可
+### 3.3 注解与反射接口
+定义注解后，如何获取注解中的内容呢？
+- 反射包java.lang.reflect下的AnnotatedElement接口提供这些方法。这里注意：只有注解被定义为RUNTIME后，该注解才能是运行时可见，当class文件被装载时被保存在class文件中的Annotation才会被虚拟机读取。
+- AnnotatedElement 接口是所有程序元素（Class、Method和Constructor）的父接口，所以程序通过反射获取了某个类的AnnotatedElement对象之后，程序就可以调用该对象的方法来访问Annotation信息。我们看下具体的先关接口
+  - boolean isAnnotationPresent(Class<?extends Annotation> annotationClass)
+    - 判断该程序元素上是否包含指定类型的注解，存在则返回true，否则返回false。注意：此方法会忽略注解对应的注解容器。
+  - <T extends Annotation> T getAnnotation(Class<T> annotationClass)
+    - 返回该程序元素上存在的、指定类型的注解，如果该类型注解不存在，则返回null。
+  - Annotation[] getAnnotations()
+返回该程序元素上存在的所有注解，若没有注解，返回长度为0的数组。
+  - <T extends Annotation> T[] getAnnotationsByType(Class<T> annotationClass)
+    - 返回该程序元素上存在的、指定类型的注解数组。没有注解对应类型的注解时，返回长度为0的数组。该方法的调用者可以随意修改返回的数组，而不会对其他调用者返回的数组产生任何影响。getAnnotationsByType方法与 getAnnotation的区别在于，getAnnotationsByType会检测注解对应的重复注解容器。若程序元素为类，当前类上找不到注解，且该注解为可继承的，则会去父类上检测对应的注解。
+  - <T extends Annotation> T getDeclaredAnnotation(Class<T> annotationClass)
+    - 返回直接存在于此元素上的所有注解。与此接口中的其他方法不同，该方法将忽略继承的注释。如果没有注释直接存在于此元素上，则返回null
+  - <T extends Annotation> T[] getDeclaredAnnotationsByType(Class<T> annotationClass)
+    - 返回直接存在于此元素上的所有注解。与此接口中的其他方法不同，该方法将忽略继承的注释
+  - Annotation[] getDeclaredAnnotations()
+    - 返回直接存在于此元素上的所有注解及注解对应的重复注解容器。与此接口中的其他方法不同，该方法将忽略继承的注解。如果没有注释直接存在于此元素上，则返回长度为零的一个数组。该方法的调用者可以随意修改返回的数组，而不会对其他调用者返回的数组产生任何影响。# 
+
+下面为自定义注解示例
+
+- 定义自己的注解
+```java
+package com.pdai.java.annotation;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface MyMethodAnnotation {
+
+    public String title() default "";
+
+    public String description() default "";
+
+}
+```
+- 使用注解
+```java
+package com.pdai.java.annotation;
+
+import java.io.FileNotFoundException;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+
+public class TestMethodAnnotation {
+
+    @Override
+    @MyMethodAnnotation(title = "toStringMethod", description = "override toString method")
+    public String toString() {
+        return "Override toString method";
+    }
+
+    @Deprecated
+    @MyMethodAnnotation(title = "old static method", description = "deprecated old static method")
+    public static void oldMethod() {
+        System.out.println("old method, don't use it.");
+    }
+
+    @SuppressWarnings({"unchecked", "deprecation"})
+    @MyMethodAnnotation(title = "test method", description = "suppress warning static method")
+    public static void genericsTest() throws FileNotFoundException {
+        List l = new ArrayList();
+        l.add("abc");
+        oldMethod();
+    }
+}
+```
+- 用反射接口获取注解信息在TestMethodAnnotation中添加Main方法进行测试：
+```java
+public static void main(String[] args) {
+    try {
+        // 获取所有methods
+        Method[] methods = TestMethodAnnotation.class.getClassLoader()
+                .loadClass(("com.pdai.java.annotation.TestMethodAnnotation"))
+                .getMethods();
+
+        // 遍历
+        for (Method method : methods) {
+            // 方法上是否有MyMethodAnnotation注解
+            if (method.isAnnotationPresent(MyMethodAnnotation.class)) {
+                try {
+                    // 获取并遍历方法上的所有注解
+                    for (Annotation anno : method.getDeclaredAnnotations()) {
+                        System.out.println("Annotation in Method '"
+                                + method + "' : " + anno);
+                    }
+
+                    // 获取MyMethodAnnotation对象信息
+                    MyMethodAnnotation methodAnno = method
+                            .getAnnotation(MyMethodAnnotation.class);
+
+                    System.out.println(methodAnno.title());
+
+                } catch (Throwable ex) {
+                    ex.printStackTrace();
+                }
+            }
+        }
+    } catch (SecurityException | ClassNotFoundException e) {
+        e.printStackTrace();
+    }
+}
+```
+- 测试的输出
+```java
+Annotation in Method 'public static void com.pdai.java.annotation.TestMethodAnnotation.oldMethod()' : @java.lang.Deprecated()
+Annotation in Method 'public static void com.pdai.java.annotation.TestMethodAnnotation.oldMethod()' : @com.pdai.java.annotation.MyMethodAnnotation(title=old static method, description=deprecated old static method)
+old static method
+Annotation in Method 'public static void com.pdai.java.annotation.TestMethodAnnotation.genericsTest() throws java.io.FileNotFoundException' : @com.pdai.java.annotation.MyMethodAnnotation(title=test method, description=suppress warning static method)
+test method
+Annotation in Method 'public java.lang.String com.pdai.java.annotation.TestMethodAnnotation.toString()' : @com.pdai.java.annotation.MyMethodAnnotation(title=toStringMethod, description=override toString method)
+toStringMethod
+```
+### 3.4 注解本身不能继承其他注解
+- 注解本身不能继承其他注解，因为注解默认继承自java.lang.annotation.Annotation，并且不能显式继承其他类或注解。但是，可以通过元注解（meta-annotation）@Inherited来实现类继承时注解的继承。
+- 可以通过注解组合的形式来间接实现注解的继承效果
+```java
+// 推荐：使用清晰的组合方式而不是试图"继承"注解
+public @interface ApplicationConfiguration {
+    DatabaseConfig database();
+    CacheConfig cache();
+    SecurityConfig security();
+    LoggingConfig logging() default @LoggingConfig;
+}
+
+public @interface DatabaseConfig {
+    String url();
+    String username();
+    String password();
+    int connectionTimeout() default 30;
+}
+
+// 使用
+@ApplicationConfiguration(
+    database = @DatabaseConfig(
+        url = "jdbc:mysql://localhost:3306/app",
+        username = "appuser",
+        password = "password"
+    ),
+    cache = @CacheConfig(
+        redisHost = "localhost"
+    ),
+    security = @SecurityConfig(
+        enabled = true
+    )
+)
+public class MyApplication {
+}
+```
+### spring框架通过@AliasFor注解实现组合的高级封装
+- Spring @AliasFor 的实现原理：
+
+  - 元注解机制：通过标记元注解建立注解间的关联
+  - 属性映射：使用 @AliasFor 建立属性间的别名关系
+  - 运行时处理：通过 AnnotationUtils 和 AnnotatedElementUtils 进行属性合并和解析
+  - 类型安全：在编译时和运行时进行类型和默认值验证
+- 这种机制让 Spring 能够：
+
+  - 创建语义更清晰的组合注解
+  - 减少注解配置的冗余
+  - 保持向后兼容性
+  - 提供灵活的注解扩展机制
+  - 通过 @AliasFor，Spring 实现了真正意义上的注解"继承"和组合，大大提升了注解系统的表达能力和灵活性。
+
+#### Spring @AliasFor 注解的深度解析
+
+Spring Framework 的 @AliasFor 注解是实现注解组合和属性别名的核心机制。让我们深入分析它的工作原理。
+
+- 1. @AliasFor 的基本概念
+
+定义
+
+```java
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface AliasFor {
+    @AliasFor("attribute")
+    String value() default "";
+    
+    String attribute() default "";
+    
+    Class<? extends Annotation> annotation() default Annotation.class;
+}
+```
+- 2. 同一注解内的属性别名
+
+示例：让多个属性指向同一个配置
+
+```java
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface RequestMapping {
+    
+    @AliasFor("path")
+    String[] value() default {};
+    
+    @AliasFor("value")
+    String[] path() default {};
+    
+    RequestMethod[] method() default {};
+    String[] params() default {};
+    String[] headers() default {};
+    String[] consumes() default {};
+    String[] produces() default {};
+}
+
+// 使用示例 - 以下两种写法完全等价
+@RequestMapping(value = "/users")
+@RequestMapping(path = "/users")
+public class UserController {
+}
+```
+- 3. 元注解的属性覆盖（组合注解的核心）
+
+基础元注解
+
+```java
+// 基础服务注解
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Service {
+    String value() default "";
+}
+
+// 基础组件注解  
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Component {
+    String value() default "";
+}
+```
+组合注解实现
+
+```java
+// 组合注解：组合了 @Service 和 @Component 的功能
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Component  // 元注解
+@Service    // 元注解
+public @interface MyService {
+    
+    // 将 MyService 的 value 属性作为 @Component 的 value 属性的别名
+    @AliasFor(annotation = Component.class, attribute = "value")
+    String value() default "";
+    
+    // 将 MyService 的 name 属性作为 @Service 的 value 属性的别名
+    @AliasFor(annotation = Service.class, attribute = "value")
+    String name() default "";
+    
+    // 自定义属性
+    boolean transactional() default true;
+}
+```
+- 4. Spring 内部的实现原理
+
+核心处理类：AnnotationUtils
+
+Spring 通过 AnnotationUtils 和 AnnotatedElementUtils 来处理注解别名。
+
+```java
+import org.springframework.core.annotation.AnnotationUtils;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+
+public class AliasForProcessor {
+    
+    public static void processAnnotations(Class<?> clazz) {
+        // 获取合并后的注解属性（包含别名解析）
+        MyService myService = AnnotatedElementUtils.findMergedAnnotation(
+            clazz, MyService.class);
+        
+        // 获取原始注解（不解析别名）
+        MyService rawAnnotation = clazz.getAnnotation(MyService.class);
+        
+        if (myService != null) {
+            System.out.println("合并后的 value: " + myService.value());
+            System.out.println("合并后的 name: " + myService.name());
+        }
+    }
+}
+```
+- 别名解析流程
+
+    - 扫描注解：发现使用了 @AliasFor 的注解
+    - 构建属性映射：建立别名属性与目标属性的映射关系
+    - 值合并：当存在多个来源时，进行值解析和合并
+    - 验证：检查别名配置是否合法（循环引用、类型匹配等）
+- 5. 实际源码分析
+
+Spring MVC 中的 @GetMapping 实现
+
+```java
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+@Documented
+@RequestMapping(method = RequestMethod.GET)  // 元注解
+public @interface GetMapping {
+    
+    /**
+     * 别名设置：GetMapping 的 value/path 都映射到 @RequestMapping 的 value
+     */
+    @AliasFor(annotation = RequestMapping.class)
+    String[] value() default {};
+    
+    @AliasFor(annotation = RequestMapping.class)
+    String[] path() default {};
+    
+    @AliasFor(annotation = RequestMapping.class)
+    String[] params() default {};
+    
+    @AliasFor(annotation = RequestMapping.class)
+    String[] headers() default {};
+    
+    @AliasFor(annotation = RequestMapping.class)
+    String[] consumes() default {};
+    
+    @AliasFor(annotation = RequestMapping.class)
+    String[] produces() default {};
+}
+```
+- 6. 自定义组合注解的完整示例
+
+步骤1：定义基础注解
+
+```java
+// 数据库配置注解
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface DatabaseConfig {
+    String url();
+    String username();
+    String password() default "";
+    int poolSize() default 10;
+}
+
+// 缓存配置注解
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface CacheConfig {
+    String redisHost() default "localhost";
+    int redisPort() default 6379;
+    int ttl() default 3600;
+}
+```
+步骤2：创建组合注解
+
+```java
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@DatabaseConfig  // 元注解
+@CacheConfig     // 元注解
+public @interface AppConfiguration {
+    
+    // 映射到 @DatabaseConfig 的属性
+    @AliasFor(annotation = DatabaseConfig.class, attribute = "url")
+    String dbUrl();
+    
+    @AliasFor(annotation = DatabaseConfig.class, attribute = "username") 
+    String dbUser();
+    
+    @AliasFor(annotation = DatabaseConfig.class, attribute = "password")
+    String dbPassword() default "";
+    
+    @AliasFor(annotation = DatabaseConfig.class, attribute = "poolSize")
+    int dbPoolSize() default 20;
+    
+    // 映射到 @CacheConfig 的属性
+    @AliasFor(annotation = CacheConfig.class, attribute = "redisHost")
+    String cacheHost() default "localhost";
+    
+    @AliasFor(annotation = CacheConfig.class, attribute = "redisPort")
+    int cachePort() default 6379;
+    
+    @AliasFor(annotation = CacheConfig.class, attribute = "ttl")
+    int cacheTtl() default 1800;
+    
+    // 自定义属性
+    String appName();
+    boolean debug() default false;
+}
+```
+步骤3：使用组合注解
+
+```java
+@AppConfiguration(
+    dbUrl = "jdbc:mysql://localhost:3306/myapp",
+    dbUser = "admin", 
+    dbPassword = "secret",
+    dbPoolSize = 25,
+    cacheHost = "redis.example.com",
+    cachePort = 6380,
+    cacheTtl = 900,
+    appName = "用户服务",
+    debug = true
+)
+public class UserServiceApplication {
+    // 应用代码
+}
+```
+步骤4：注解处理器
+
+```java
+import org.springframework.core.annotation.AnnotationUtils;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+
+public class ConfigProcessor {
+    
+    public static void processConfiguration(Class<?> clazz) {
+        // 获取合并后的配置（包含别名解析）
+        AppConfiguration appConfig = AnnotatedElementUtils.findMergedAnnotation(
+            clazz, AppConfiguration.class);
+        
+        if (appConfig != null) {
+            System.out.println("应用名称: " + appConfig.appName());
+            System.out.println("数据库URL: " + appConfig.dbUrl());
+            System.out.println("缓存主机: " + appConfig.cacheHost());
+        }
+        
+        // 也可以获取底层的基础注解
+        DatabaseConfig dbConfig = AnnotatedElementUtils.findMergedAnnotation(
+            clazz, DatabaseConfig.class);
+        CacheConfig cacheConfig = AnnotatedElementUtils.findMergedAnnotation(
+            clazz, CacheConfig.class);
+            
+        if (dbConfig != null) {
+            System.out.println("底层数据库配置 - URL: " + dbConfig.url());
+            System.out.println("底层数据库配置 - 用户: " + dbConfig.username());
+        }
+    }
+}
+```
+- 7. 别名解析的验证规则
+
+Spring 对 @AliasFor 有严格的验证：
+
+类型必须匹配
+
+```java
+// 错误示例：类型不匹配
+public @interface InvalidAlias {
+    @AliasFor(annotation = DatabaseConfig.class, attribute = "url")
+    int dbUrl(); // 编译错误：类型必须与目标属性一致
+}
+```
+默认值必须一致
+
+```java
+public @interface ValidAlias {
+    // 默认值必须与目标注解的默认值语义一致
+    @AliasFor(annotation = DatabaseConfig.class, attribute = "poolSize")
+    int connectionPool() default 10; // 正确：与 DatabaseConfig.poolSize 默认值一致
+}
+```
+- 8. 高级用法：桥接多个元注解
+
+```java
+// 桥接注解：将多个基础注解的属性统一到一个组合注解中
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Service
+@Transactional(readOnly = true)
+@Scope("prototype")
+public @interface ReadOnlyService {
+    
+    @AliasFor(annotation = Service.class, attribute = "value")
+    String beanName() default "";
+    
+    @AliasFor(annotation = Transactional.class, attribute = "timeout")
+    int txTimeout() default 30;
+    
+    @AliasFor(annotation = Scope.class, attribute = "value")
+    String scope() default "prototype";
+}
+
+// 使用
+@ReadOnlyService(beanName = "userService", txTimeout = 60)
+public class UserService {
+    // 这个类同时具有 @Service、@Transactional(readOnly=true) 和 @Scope("prototype") 的效果
+}
+```
+#### 扩展：Spring 组合注解机制详解
+1. Java 注解的元注解机制
+
+在 Java 层面，@Controller 和 @ResponseBody 只是 @RestController 的元注解：
+
+```java
+// Java 层面：这只是注解的声明，没有自动的行为继承
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Documented
+@Controller          // 元注解
+@ResponseBody        // 元注解  
+public @interface RestController {
+    @AliasFor(annotation = Controller.class)
+    String value() default "";
+}
+```
+在纯 Java 层面：
+
+@RestController 只是一个注解接口
+@Controller 和 @ResponseBody 只是它的元数据
+没有任何自动的功能继承
+
+2. Spring 框架的处理机制
+
+Spring 通过自己的注解处理逻辑来识别和解释这些组合注解：
+
+Spring 的注解扫描和处理流程
+
+```java
+// Spring 内部的处理逻辑（简化版）
+public class SpringAnnotationProcessor {
+    
+    public void processAnnotation(Class<?> beanClass) {
+        // 1. 检查类上的所有注解（包括元注解）
+        Set<Annotation> allAnnotations = 
+            AnnotatedElementUtils.getMergedAnnotations(beanClass);
+        
+        // 2. 递归查找元注解
+        for (Annotation annotation : allAnnotations) {
+            if (isRestController(annotation)) {
+                // 3. 将 @RestController 解释为 @Controller + @ResponseBody
+                handleControllerAnnotation(beanClass);
+                handleResponseBodyAnnotation(beanClass);
+            }
+        }
+    }
+    
+    private boolean isRestController(Annotation annotation) {
+        // 检查注解本身是否是 @RestController
+        if (annotation instanceof RestController) {
+            return true;
+        }
+        
+        // 或者检查注解的元注解中是否包含 @RestController
+        return AnnotatedElementUtils.hasMetaAnnotationTypes(
+            annotation.annotationType(), RestController.class);
+    }
+}
+```
+3. Spring 如何识别组合注解
+
+核心类：AnnotatedElementUtils
+
+```java
+import org.springframework.core.annotation.AnnotatedElementUtils;
+
+public class SpringAnnotationDetection {
+    
+    public static void detectAnnotations(Class<?> clazz) {
+        // 1. 检查直接注解
+        if (clazz.isAnnotationPresent(RestController.class)) {
+            System.out.println("直接标注了 @RestController");
+        }
+        
+        // 2. Spring 的方式：检查元注解（包括组合注解）
+        if (AnnotatedElementUtils.hasAnnotation(clazz, Controller.class)) {
+            System.out.println("具有 @Controller 语义（可能是通过 @RestController）");
+        }
+        
+        if (AnnotatedElementUtils.hasAnnotation(clazz, ResponseBody.class)) {
+            System.out.println("具有 @ResponseBody 语义（可能是通过 @RestController）");
+        }
+        
+        // 3. 获取合并后的注解属性
+        Controller controllerAnn = AnnotatedElementUtils.findMergedAnnotation(
+            clazz, Controller.class);
+        if (controllerAnn != null) {
+            System.out.println("Controller value: " + controllerAnn.value());
+        }
+    }
+}
+```
+4. Spring MVC 中的实际处理
+
+DispatcherServlet 的请求处理流程
+
+```java
+// Spring MVC 处理控制器的简化流程
+public class DispatcherServlet {
+    
+    protected HandlerExecutionChain getHandler(HttpServletRequest request) {
+        // 1. 扫描所有控制器
+        for (Object handler : handlerMappings) {
+            Class<?> handlerType = handler.getClass();
+            
+            // 2. 使用 Spring 的方式检查注解（包含组合注解）
+            if (AnnotatedElementUtils.hasAnnotation(handlerType, Controller.class) ||
+                AnnotatedElementUtils.hasAnnotation(handlerType, RequestMapping.class)) {
+                
+                // 3. 检查是否有 @ResponseBody 语义
+                if (AnnotatedElementUtils.hasAnnotation(handlerType, ResponseBody.class)) {
+                    // 使用消息转换器处理响应（JSON/XML等）
+                    return createResponseBodyHandler(handler);
+                } else {
+                    // 使用视图解析器处理
+                    return createViewHandler(handler);
+                }
+            }
+        }
+        return null;
+    }
+}
+```
+5. 自定义组合注解的完整示例
+
+让我们创建一个类似的组合注解来理解这个机制：
+
+步骤1：定义基础注解
+
+```java
+// 基础服务注解
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Component
+public @interface Service {
+    String value() default "";
+}
+
+// 基础事务注解
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Transactional {
+    boolean readOnly() default false;
+    int timeout() default -1;
+}
+
+// 基础日志注解
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Loggable {
+    String level() default "INFO";
+}
+```
+步骤2：创建组合注解（类似 @RestController）
+
+```java
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Service
+@Transactional(readOnly = true)
+@Loggable(level = "DEBUG")
+public @interface ReadOnlyService {
+    
+    @AliasFor(annotation = Service.class, attribute = "value")
+    String beanName() default "";
+    
+    @AliasFor(annotation = Transactional.class, attribute = "timeout")
+    int txTimeout() default 30;
+}
+```
+步骤3：使用组合注解
+
+```java
+// 使用组合注解 - 相当于同时具有 @Service, @Transactional, @Loggable 的功能
+@ReadOnlyService(beanName = "userService", txTimeout = 60)
+public class UserService {
+    public User findUser(Long id) {
+        return userRepository.findById(id);
+    }
+}
+```
+步骤4：Spring 风格的注解处理器
+
+```java
+import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.core.annotation.AnnotationUtils;
+
+@Component
+public class CustomAnnotationProcessor implements BeanPostProcessor {
+    
+    @Override
+    public Object postProcessBeforeInitialization(Object bean, String beanName) {
+        Class<?> beanClass = bean.getClass();
+        
+        // Spring 方式：检查组合注解
+        if (AnnotatedElementUtils.hasAnnotation(beanClass, ReadOnlyService.class)) {
+            processReadOnlyService(bean, beanClass);
+        }
+        
+        // 或者分别检查元注解
+        if (AnnotatedElementUtils.hasAnnotation(beanClass, Service.class)) {
+            processServiceComponent(bean);
+        }
+        
+        if (AnnotatedElementUtils.hasAnnotation(beanClass, Transactional.class)) {
+            processTransactional(bean);
+        }
+        
+        if (AnnotatedElementUtils.hasAnnotation(beanClass, Loggable.class)) {
+            processLoggable(bean);
+        }
+        
+        return bean;
+    }
+    
+    private void processReadOnlyService(Object bean, Class<?> beanClass) {
+        System.out.println("处理 ReadOnlyService: " + beanClass.getName());
+        
+        // 获取合并后的注解属性
+        Service serviceAnn = AnnotatedElementUtils.findMergedAnnotation(
+            beanClass, Service.class);
+        Transactional txAnn = AnnotatedElementUtils.findMergedAnnotation(
+            beanClass, Transactional.class);
+        Loggable logAnn = AnnotatedElementUtils.findMergedAnnotation(
+            beanClass, Loggable.class);
+        
+        System.out.println("Bean名称: " + serviceAnn.value());
+        System.out.println("事务超时: " + txAnn.timeout());
+        System.out.println("日志级别: " + logAnn.level());
+        
+        // 实际 Spring 会在这里创建代理、设置事务管理、配置日志等
+    }
+}
+```
+6. 与纯 Java 注解的对比
+
+纯 Java 注解处理（有限的功能）
+
+```java
+// 纯 Java 方式只能看到直接注解
+public class JavaAnnotationProcessor {
+    public void process(Class<?> clazz) {
+        // 只能检测直接注解
+        RestController restController = clazz.getAnnotation(RestController.class);
+        if (restController != null) {
+            System.out.println("找到 @RestController");
+        }
+        
+        // 无法自动检测元注解！
+        Controller controller = clazz.getAnnotation(Controller.class); // 返回 null
+        ResponseBody responseBody = clazz.getAnnotation(ResponseBody.class); // 返回 null
+    }
+}
+```
+Spring 注解处理（完整的功能）
+
+```java
+// Spring 方式可以处理组合注解
+public class SpringAnnotationProcessor {
+    public void process(Class<?> clazz) {
+        // 检测直接注解
+        if (AnnotatedElementUtils.isAnnotated(clazz, RestController.class)) {
+            System.out.println("找到 @RestController");
+        }
+        
+        // 检测元注解（关键区别！）
+        if (AnnotatedElementUtils.hasAnnotation(clazz, Controller.class)) {
+            System.out.println("具有 @Controller 功能");
+            // Spring 会将其作为控制器处理
+        }
+        
+        if (AnnotatedElementUtils.hasAnnotation(clazz, ResponseBody.class)) {
+            System.out.println("具有 @ResponseBody 功能");  
+            // Spring 会使用消息转换器
+        }
+    }
+}
+```
+7. 总结
+
+关键点：
+
+- Java 注解本身：只有元数据声明，没有行为继承
+- Spring 框架：通过 AnnotatedElementUtils 等工具类实现组合注解的语义解释
+- 处理时机：在 Spring 容器启动、Bean 创建、请求处理等各个环节
+- 实际效果：让开发者可以通过组合注解简化配置，但底层仍然是多个独立注解的功能组合
+
+所以 @RestController 能够具有 @Controller 和 @ResponseBody 的能力，完全是因为 Spring 框架在扫描和处理注解时，主动识别和解释了这种组合关系，而不是 Java 注解语言的固有特性。
+
+### JVM层面下类，接口，注解的异同点
+
+# JVM 层面接口、类、注解三者的对比异同点
+
+| 特性维度 | 类 (Class) | 接口 (Interface) | 注解 (Annotation) |
+|---------|------------|------------------|-------------------|
+| **Class文件访问标志** | `ACC_PUBLIC`, `ACC_FINAL`, `ACC_SUPER`, `ACC_ABSTRACT` 等 | `ACC_PUBLIC`, `ACC_INTERFACE`, `ACC_ABSTRACT` | `ACC_PUBLIC`, `ACC_INTERFACE`, `ACC_ABSTRACT`, `ACC_ANNOTATION` |
+| **继承体系** | 单继承，指向父类 (`super_class`) | 多继承，指向多个父接口 (`interfaces`) | 隐式继承 `java.lang.annotation.Annotation` |
+| **常量池引用** | 指向类、字段、方法引用 | 指向接口、方法引用 | 额外包含注解默认值常量 |
+| **方法表结构** | 虚方法表 (vtable)，包含实例方法、静态方法 | 接口方法表 (itable)，包含抽象方法、默认方法 | 只有注解属性方法，无实际可执行代码 |
+| **字段表结构** | 实例字段、静态字段，各种访问权限 | 只有常量字段 (`public static final`) | 无实际字段，只有注解属性声明 |
+| **方法调用指令** | `invokevirtual`(实例方法)<br>`invokestatic`(静态方法)<br>`invokespecial`(构造/私有方法) | `invokeinterface`(接口方法)<br>`invokestatic`(静态方法) | 无专门指令，通过反射 `Method.invoke()` |
+| **初始化时机** | 首次主动使用（创建实例、访问静态成员等） | 首次访问接口的静态成员时 | 通过反射获取时动态创建代理对象 |
+| **初始化方法** | `<clinit>` - 类初始化<br>`<init>` - 实例初始化 | `<clinit>` - 接口初始化 | 无初始化方法 |
+| **内存分配** | 堆中分配对象实例 | 无实例，只有接口引用指向实现类对象 | 堆中分配动态代理对象 |
+| **对象头结构** | Mark Word + 类型指针（指向类元数据） | 无对象头（接口不能实例化） | 代理对象的对象头 |
+| **方法分派机制** | 虚方法表 (vtable) 分派，基于对象实际类型 | 接口方法表 (itable) 分派，需要搜索方法表 | 通过 `InvocationHandler` 分派 |
+| **内联优化** | 容易内联，特别是 final 方法/类 | 较难内联，需要运行时信息 | 无法内联，完全通过反射 |
+| **默认值处理** | 字段初始值在 `<init>` 或 `<clinit>` 中设置 | 常量值在常量池中直接定义 | 通过 `AnnotationDefault` 属性存储 |
+| **运行时表示** | 具体的对象实例，包含对象头和实例数据 | 接口引用，指向实现类的实例 | `java.lang.reflect.Proxy` 动态代理对象 |
+| **反射支持** | `Class.newInstance()`<br>`Field.get/set`<br>`Method.invoke()` | `Class.getInterfaces()`<br>`Method.invoke()` | `Class.isAnnotation()`<br>`getAnnotation()`<br>`getAnnotations()` |
+| **属性表** | `SourceFile`, `LineNumberTable`, `LocalVariableTable` 等 | 同左 | 额外包含 `RuntimeVisibleAnnotations`, `AnnotationDefault` 等 |
+| **类型检查** | `checkcast` 指令进行类型检查 | `checkcast` 指令检查接口类型 | 无专门类型检查，通过反射验证 |
+| **泛型处理** | 类型擦除，生成桥接方法 | 类型擦除，生成桥接方法 | 不支持泛型 |
+| **异常表** | 包含异常处理信息 | 同左 | 无异常表（无执行代码） |
+| **栈映射帧** | 包含栈状态信息用于验证 | 同左 | 无栈映射帧（无执行代码） |
+
 
 
 
