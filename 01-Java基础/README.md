@@ -7430,22 +7430,748 @@ enerate() 详情。
     - **渐进式优化**：符合JVM"让常见情况快速"的设计哲学
 
     这个阈值机制体现了经典的工程权衡：在即时性能、长期性能、内存使用和实现复杂度之间找到最佳平衡点。
+## 六、SPI机制详解
+### 5.1 什么是SPI机制
+SPI（Service Provider Interface），是JDK内置的一种 服务提供发现机制，可以用来启用框架扩展和替换组件，主要是被框架的开发人员使用，比如java.sql.Driver接口，其他不同厂商可以针对同一接口做出不同的实现，MySQL和PostgreSQL都有不同的实现提供给用户，而Java的SPI机制可以为某个接口寻找服务实现。Java中SPI机制主要思想是将装配的控制权移到程序之外，在模块化设计中这个机制尤其重要，其核心思想就是 解耦。
 
+SPI整体机制图如下：
+![SPI示意图](../assets/images/01-Java基础/6.SPI示意图.png)
 
+当服务的提供者提供了一种接口的实现之后，需要在classpath下的META-INF/services/目录里创建一个以服务接口命名的文件，这个文件里的内容就是这个接口的具体的实现类。当其他的程序需要这个服务的时候，就可以通过查找这个jar包（一般都是以jar包做依赖）的META-INF/services/中的配置文件，配置文件中有接口的具体实现类名，可以根据这个类名进行加载实例化，就可以使用该服务了。JDK中查找服务的实现的工具类是：java.util.ServiceLoader。
+### 5.2 SPI的简单示例
 
+我们现在需要使用一个内容搜索接口，搜索的实现可能是基于文件系统的搜索，也可能是基于数据库的搜索。
+- 先定义好接口
+```java
+public interface Search {
+    public List<String> searchDoc(String keyword);   
+}
+```
+- 文件搜索实现
+```java
+public class FileSearch implements Search{
+    @Override
+    public List<String> searchDoc(String keyword) {
+        System.out.println("文件搜索 "+keyword);
+        return null;
+    }
+}
+```
+- 数据库搜索实现
+```java
+public class DatabaseSearch implements Search{
+    @Override
+    public List<String> searchDoc(String keyword) {
+        System.out.println("数据搜索 "+keyword);
+        return null;
+    }
+}
+```
+- resources 接下来可以在resources下新建META-INF/services/目录，然后新建接口全限定名的文件：com.cainiao.ys.spi.learn.Search，里面加上我们需要用到的实现类com.cainiao.ys.spi.learn.FileSearch
+测试方法
+```java
+public class TestCase {
+    public static void main(String[] args) {
+        ServiceLoader<Search> s = ServiceLoader.load(Search.class);
+        Iterator<Search> iterator = s.iterator();
+        while (iterator.hasNext()) {
+           Search search =  iterator.next();
+           search.searchDoc("hello world");
+        }
+    }
+}
+```
+可以看到输出结果：文件搜索 hello world
 
+如果在com.cainiao.ys.spi.learn.Search文件里写上两个实现类，那最后的输出结果就是两行了。
 
+这就是因为ServiceLoader.load(Search.class)在加载某接口时，会去META-INF/services下找接口的全限定名文件，再根据里面的内容加载相应的实现类。
 
+这就是spi的思想，接口的实现由provider实现，provider只用在提交的jar包里的META-INF/services下根据平台定义的接口新建文件，并添加进相应的实现类内容就好。
 
+### 5.2 SPI的广泛应用
 
+#### 5.2.1 SPI机制 - JDBC DriverManager
+在JDBC4.0之前，我们开发有连接数据库的时候，通常会用Class.forName("com.mysql.jdbc.Driver")这句先加载数据库相关的驱动，然后再进行获取连接等的操作。而JDBC4.0之后不需要用Class.forName("com.mysql.jdbc.Driver")来加载驱动，直接获取连接就可以了，现在这种方式就是使用了Java的SPI扩展机制来实现。
+- JDBC接口定义
+首先在java中定义了接口java.sql.Driver，并没有具体的实现，具体的实现都是由不同厂商来提供的。
 
+- mysql实现
+在mysql的jar包mysql-connector-java-6.0.6.jar中，可以找到META-INF/services目录，该目录下会有一个名字为java.sql.Driver的文件，文件内容是com.mysql.cj.jdbc.Driver，这里面的内容就是针对Java中定义的接口的实现。
+- postgresql实现
+同样在postgresql的jar包postgresql-42.0.0.jar中，也可以找到同样的配置文件，文件内容是org.postgresql.Driver，这是postgresql对Java的java.sql.Driver的实现。
+- 使用方法
+上面说了，现在使用SPI扩展来加载具体的驱动，我们在Java中写连接数据库的代码的时候，不需要再使用Class.forName("com.mysql.jdbc.Driver")来加载驱动了，而是直接使用如下代码：
+```java
+String url = "jdbc:xxxx://xxxx:xxxx/xxxx";
+Connection conn = DriverManager.getConnection(url,username,password);
+.....
+```
+这里并没有涉及到spi的使用，接着看下面的解析。
 
+- 源码实现(以JDK11为例)
+上面的使用方法，就是我们普通的连接数据库的代码，并没有涉及到SPI的东西，但是有一点我们可以确定的是，我们没有写有关具体驱动的硬编码Class.forName("com.mysql.jdbc.Driver")！上面的代码可以直接获取数据库连接进行操作，但是跟SPI有啥关系呢？上面代码没有了加载驱动的代码，我们怎么去确定使用哪个数据库连接的驱动呢？这里就涉及到使用Java的SPI扩展机制来查找相关驱动的东西了，关于驱动的查找其实都在DriverManager中，DriverManager是Java中的实现，用来获取数据库连接，在DriverManager中：
+```java
+private static Connection getConnection(
+        String url, java.util.Properties info, Class<?> caller) throws SQLException {
+       
+       ......
 
+        ensureDriversInitialized();
 
+       ......
+    }
+```
+ensureDriversInitialized()方法实现了Driver的装配
 
+```java
+private static void ensureDriversInitialized() {
+        if (driversInitialized) {
+            return;
+        }
 
+        synchronized (lockForInitDrivers) {
+            if (driversInitialized) {
+                return;
+            }
+            String drivers;
+            try {
+                drivers = AccessController.doPrivileged(new PrivilegedAction<String>() {
+                    public String run() {
+                        return System.getProperty(JDBC_DRIVERS_PROPERTY);
+                    }
+                });
+            } catch (Exception ex) {
+                drivers = null;
+            }
+            // If the driver is packaged as a Service Provider, load it.
+            // Get all the drivers through the classloader
+            // exposed as a java.sql.Driver.class service.
+            // ServiceLoader.load() replaces the sun.misc.Providers()
 
+            AccessController.doPrivileged(new PrivilegedAction<Void>() {
+                public Void run() {
 
+                    ServiceLoader<Driver> loadedDrivers = ServiceLoader.load(Driver.class);
+                    Iterator<Driver> driversIterator = loadedDrivers.iterator();
+
+                    /* Load these drivers, so that they can be instantiated.
+                     * It may be the case that the driver class may not be there
+                     * i.e. there may be a packaged driver with the service class
+                     * as implementation of java.sql.Driver but the actual class
+                     * may be missing. In that case a java.util.ServiceConfigurationError
+                     * will be thrown at runtime by the VM trying to locate
+                     * and load the service.
+                     *
+                     * Adding a try catch block to catch those runtime errors
+                     * if driver not available in classpath but it's
+                     * packaged as service and that service is there in classpath.
+                     */
+                    try {
+                        while (driversIterator.hasNext()) {
+                            driversIterator.next();// 这里实现了Driver类的实例化
+                        }
+                    } catch (Throwable t) {
+                        // Do nothing
+                    }
+                    return null;
+                }
+            });
+
+            println("DriverManager.initialize: jdbc.drivers = " + drivers);
+
+            if (drivers != null && !drivers.equals("")) {
+                String[] driversList = drivers.split(":");
+                println("number of Drivers:" + driversList.length);
+                for (String aDriver : driversList) {
+                    try {
+                        println("DriverManager.Initialize: loading " + aDriver);
+                        Class.forName(aDriver, true,
+                                ClassLoader.getSystemClassLoader());
+                    } catch (Exception ex) {
+                        println("DriverManager.Initialize: load failed: " + ex);
+                    }
+                }
+            }
+
+            driversInitialized = true;
+            println("JDBC DriverManager initialized");
+        }
+    }
+```
+
+ driversIterator.next();但看类似于只是通过迭代器迭代了一遍，并没有做任何实例化的动作，而实际上是ServiceLoader.iterator()在实现过程中进行了实例化
+ - JDK 11 ServiceLoader 源码分析：迭代的奥秘
+
+  - 核心机制：懒加载与实例化触发
+
+    ```java
+    // ServiceLoader.iterator() 方法中的关键实现
+    public Iterator<S> iterator() {
+        if (lookupIterator1 == null) {
+            lookupIterator1 = newLookupIterator();  // 创建查找迭代器
+        }
+
+        return new Iterator<S>() {
+            int index;  // 缓存索引
+            
+            public S next() {
+                checkReloadCount();
+                S next;
+                if (index < instantiatedProviders.size()) {
+                    // 从缓存获取
+                    next = instantiatedProviders.get(index);
+                } else {
+                    // ⭐ 关键：调用 lookupIterator1.next().get()
+                    next = lookupIterator1.next().get();
+                    instantiatedProviders.add(next);  // 加入缓存
+                }
+                index++;
+                return next;
+            }
+        };
+    }
+    ```
+
+  - 迭代器内部的实例化过程
+
+    - **LazyClassPathLookupIterator 的工作流程**
+      ```java
+      private final class LazyClassPathLookupIterator<T>
+          implements Iterator<Provider<T>> 
+      {
+          public boolean hasNext() {
+              while (nextProvider == null && nextError == null) {
+                  // ...
+                  Class<?> clazz = nextProviderClass();  // 加载提供者类
+                  if (clazz == null) return false;
+                  
+                  // 创建 Provider 实例（但尚未调用 get()）
+                  ProviderImpl<S> p = new ProviderImpl<S>(service, type, ctor, acc);
+                  nextProvider = (ProviderImpl<T>) p;
+              }
+              return true;
+          }
+      }
+      ```
+
+    - **ProviderImpl.get() 触发实际实例化**
+      ```java
+      class ProviderImpl<S> implements Provider<S> {
+          public S get() {
+              if (factoryMethod != null) {
+                  return invokeFactoryMethod();  // 调用工厂方法
+              } else {
+                  return newInstance();          // 调用构造函数
+              }
+          }
+          
+          private S newInstance() {
+              // ⭐ 这里实际实例化服务提供者
+              S p = ctor.newInstance();
+              return p;
+          }
+      }
+      ```
+
+  - JDBC 驱动的自动注册机制
+
+    - **MySQL 驱动的静态初始化块**
+      ```java
+      public class com.mysql.cj.jdbc.Driver {
+          static {
+              try {
+                  // ⭐ 类加载时自动执行注册
+                  java.sql.DriverManager.registerDriver(new Driver());
+              } catch (SQLException e) {
+                  throw new RuntimeException("Can't register driver!");
+              }
+          }
+      }
+      ```
+
+    - **触发时机链条**
+      ```
+      driversIterator.next() 
+          → lookupIterator1.next().get() 
+          → ProviderImpl.get() 
+          → ProviderImpl.newInstance() 
+          → Constructor.newInstance() 
+          → 加载 Driver 类
+          → 执行静态初始化块
+          → DriverManager.registerDriver()
+      ```
+
+  - JDK 11 中的模块化适配
+
+    - **模块系统下的服务发现**
+      ```java
+      private Iterator<Provider<S>> newLookupIterator() {
+          if (layer != null) {
+              return new LayerLookupIterator<>();  // 模块层查找
+          } else {
+              // 组合迭代器：模块服务 + 类路径服务
+              Iterator<Provider<S>> first = new ModuleServicesLookupIterator<>();
+              Iterator<Provider<S>> second = new LazyClassPathLookupIterator<>();
+              return new Iterator<Provider<S>>() {
+                  public boolean hasNext() {
+                      return (first.hasNext() || second.hasNext());
+                  }
+                  public Provider<S> next() {
+                      if (first.hasNext()) return first.next();
+                      else if (second.hasNext()) return second.next();
+                      else throw new NoSuchElementException();
+                  }
+              };
+          }
+      }
+      ```
+
+    - **类路径服务的特殊处理**
+      ```java
+      private class LazyClassPathLookupIterator<T> {
+          private Class<?> nextProviderClass() {
+              // 忽略命名模块中的类（它们应该通过模块声明提供服务）
+              if (clazz.getModule().isNamed()) {
+                  continue;  // 跳过
+              }
+              // 只处理非模块化的 JAR 文件中的服务提供者
+          }
+      }
+      ```
+
+  - 缓存机制的重要性
+
+    - **性能优化设计**
+      ```java
+      public class ServiceLoader<S> implements Iterable<S> {
+          private final List<S> instantiatedProviders = new ArrayList<>();
+          private final List<Provider<S>> loadedProviders = new ArrayList<>();
+          
+          public void reload() {
+              // 清空缓存，强制重新加载
+              instantiatedProviders.clear();
+              loadedProviders.clear();
+          }
+      }
+      ```
+
+    - **避免重复实例化**
+      ```java
+      public Iterator<S> iterator() {
+          // 先返回缓存中的实例
+          if (index < instantiatedProviders.size()) {
+              return instantiatedProviders.get(index);
+          }
+          // 缓存中没有时才创建新实例
+      }
+      ```
+
+  - 错误处理与健壮性
+
+    - **容错设计**
+      ```java
+      try {
+          while(driversIterator.hasNext()) {
+              driversIterator.next();
+          }
+      } catch(Throwable t) {
+          // Do nothing - 静默处理单个驱动加载失败
+      }
+      ```
+
+    - **ServiceConfigurationError 机制**
+      ```java
+      private static void fail(Class<?> service, String msg) {
+          throw new ServiceConfigurationError(service.getName() + ": " + msg);
+      }
+      ```
+
+  - 现代 JDBC 驱动的实际行为
+
+    - **JDBC 4.0+ 驱动的自动注册**
+      ```java
+      // 现代驱动（如 MySQL 8.0+）的完整注册流程
+      public class com.mysql.cj.jdbc.Driver extends NonRegisteringDriver 
+          implements java.sql.Driver {
+          
+          static {
+              try {
+                  DriverManager.registerDriver(new Driver());
+              } catch (SQLException var1) {
+                  throw new RuntimeException("Can't register driver!");
+              }
+          }
+          
+          public Driver() throws SQLException {
+              // 空构造函数
+          }
+      }
+      ```
+
+    - **验证实验（JDK 11）**
+      ```java
+      public class JDK11DriverLoadingTest {
+          public static void main(String[] args) throws Exception {
+              // 清空已注册驱动
+              clearDriverManager();
+              
+              System.out.println("加载前驱动数: " + getDriverCount());
+              
+              // 模拟 DriverManager 的加载过程
+              ServiceLoader<Driver> loader = ServiceLoader.load(Driver.class);
+              Iterator<Driver> iterator = loader.iterator();
+              
+              int callCount = 0;
+              while (iterator.hasNext()) {
+                  callCount++;
+                  Driver driver = iterator.next();  // ⭐ 触发实例化
+                  System.out.println("第" + callCount + "次调用 next()");
+                  System.out.println("  获取驱动: " + driver.getClass().getName());
+                  System.out.println("  当前注册驱动数: " + getDriverCount());
+              }
+          }
+      }
+      ```
+
+  - 设计模式的演进
+
+    - **从显式注册到自动发现**
+      ```java
+      // JDBC 1.0 - 显式注册
+      Class.forName("com.mysql.jdbc.Driver");
+      
+      // JDBC 4.0 - 自动发现（Java 6+）
+      // 只需调用 ServiceLoader 迭代，无需硬编码类名
+      
+      // 现代框架 - 更高级的抽象
+      @Configuration
+      public class DataSourceConfig {
+          @Bean
+          public DataSource dataSource() {
+              // Spring Boot 自动配置，底层仍使用 ServiceLoader
+              return DataSourceBuilder.create().build();
+          }
+      }
+      ```
+
+  - 总结：为什么迭代调用是必要的
+
+    - **触发类加载**：`iterator.next()` → `Provider.get()` → 构造函数调用 → 类加载
+    - **执行静态初始化**：类加载时执行静态块中的 `DriverManager.registerDriver()`
+    - **完成自动注册**：驱动实例被添加到 DriverManager 的注册列表
+    - **支持模块化**：JDK 11 中同时支持模块声明和传统 META-INF/services/ 方式
+
+    这个"看似无用"的迭代实际上是 Java SPI（Service Provider Interface）机制的核心：
+    通过简单的 API 调用触发了完整的服务发现、加载、注册流程。
+#### 5.2.2 SPI机制 - Common-Logging
+
+common-logging（也称Jakarta Commons Logging，缩写 JCL）是常用的日志库门面，具体日志库相关可以看这篇。我们看下它是怎么解耦的。
+
+首先，日志实例是通过LogFactory的getLog(String)方法创建的：
+```java
+public static getLog(Class clazz) throws LogConfigurationException {
+    return getFactory().getInstance(clazz);
+}
+```
+LogFatory是一个抽象类，它负责加载具体的日志实现，分析其Factory getFactory()方法：
+```java
+public static org.apache.commons.logging.LogFactory getFactory() throws LogConfigurationException {
+    // Identify the class loader we will be using
+    ClassLoader contextClassLoader = getContextClassLoaderInternal();
+
+    if (contextClassLoader == null) {
+        // This is an odd enough situation to report about. This
+        // output will be a nuisance on JDK1.1, as the system
+        // classloader is null in that environment.
+        if (isDiagnosticsEnabled()) {
+            logDiagnostic("Context classloader is null.");
+        }
+    }
+
+    // Return any previously registered factory for this class loader
+    org.apache.commons.logging.LogFactory factory = getCachedFactory(contextClassLoader);
+    if (factory != null) {
+        return factory;
+    }
+
+    if (isDiagnosticsEnabled()) {
+        logDiagnostic(
+                "[LOOKUP] LogFactory implementation requested for the first time for context classloader " +
+                        objectId(contextClassLoader));
+        logHierarchy("[LOOKUP] ", contextClassLoader);
+    }
+
+    // Load properties file.
+    //
+    // If the properties file exists, then its contents are used as
+    // "attributes" on the LogFactory implementation class. One particular
+    // property may also control which LogFactory concrete subclass is
+    // used, but only if other discovery mechanisms fail..
+    //
+    // As the properties file (if it exists) will be used one way or
+    // another in the end we may as well look for it first.
+    // classpath根目录下寻找commons-logging.properties
+    Properties props = getConfigurationFile(contextClassLoader, FACTORY_PROPERTIES);
+
+    // Determine whether we will be using the thread context class loader to
+    // load logging classes or not by checking the loaded properties file (if any).
+    // classpath根目录下commons-logging.properties是否配置use_tccl
+    ClassLoader baseClassLoader = contextClassLoader;
+    if (props != null) {
+        String useTCCLStr = props.getProperty(TCCL_KEY);
+        if (useTCCLStr != null) {
+            // The Boolean.valueOf(useTCCLStr).booleanValue() formulation
+            // is required for Java 1.2 compatibility.
+            if (Boolean.valueOf(useTCCLStr).booleanValue() == false) {
+                // Don't use current context classloader when locating any
+                // LogFactory or Log classes, just use the class that loaded
+                // this abstract class. When this class is deployed in a shared
+                // classpath of a container, it means webapps cannot deploy their
+                // own logging implementations. It also means that it is up to the
+                // implementation whether to load library-specific config files
+                // from the TCCL or not.
+                baseClassLoader = thisClassLoader;
+            }
+        }
+    }
+
+    // 这里真正开始决定使用哪个factory
+    // 首先，尝试查找vm系统属性org.apache.commons.logging.LogFactory，其是否指定factory
+    // Determine which concrete LogFactory subclass to use.
+    // First, try a global system property
+    if (isDiagnosticsEnabled()) {
+        logDiagnostic("[LOOKUP] Looking for system property [" + FACTORY_PROPERTY +
+                "] to define the LogFactory subclass to use...");
+    }
+
+    try {
+        String factoryClass = getSystemProperty(FACTORY_PROPERTY, null);
+        if (factoryClass != null) {
+            if (isDiagnosticsEnabled()) {
+                logDiagnostic("[LOOKUP] Creating an instance of LogFactory class '" + factoryClass +
+                        "' as specified by system property " + FACTORY_PROPERTY);
+            }
+            factory = newFactory(factoryClass, baseClassLoader, contextClassLoader);
+        } else {
+            if (isDiagnosticsEnabled()) {
+                logDiagnostic("[LOOKUP] No system property [" + FACTORY_PROPERTY + "] defined.");
+            }
+        }
+    } catch (SecurityException e) {
+        if (isDiagnosticsEnabled()) {
+            logDiagnostic("[LOOKUP] A security exception occurred while trying to create an" +
+                    " instance of the custom factory class" + ": [" + trim(e.getMessage()) +
+                    "]. Trying alternative implementations...");
+        }
+        // ignore
+    } catch (RuntimeException e) {
+        // This is not consistent with the behaviour when a bad LogFactory class is
+        // specified in a services file.
+        //
+        // One possible exception that can occur here is a ClassCastException when
+        // the specified class wasn't castable to this LogFactory type.
+        if (isDiagnosticsEnabled()) {
+            logDiagnostic("[LOOKUP] An exception occurred while trying to create an" +
+                    " instance of the custom factory class" + ": [" +
+                    trim(e.getMessage()) +
+                    "] as specified by a system property.");
+        }
+        throw e;
+    }
+
+    // 第二，尝试使用java spi服务发现机制，载META-INF/services下寻找org.apache.commons.logging.LogFactory实现
+    // Second, try to find a service by using the JDK1.3 class
+    // discovery mechanism, which involves putting a file with the name
+    // of an interface class in the META-INF/services directory, where the
+    // contents of the file is a single line specifying a concrete class
+    // that implements the desired interface.
+
+    if (factory == null) {
+        if (isDiagnosticsEnabled()) {
+            logDiagnostic("[LOOKUP] Looking for a resource file of name [" + SERVICE_ID +
+                    "] to define the LogFactory subclass to use...");
+        }
+        try {
+            // META-INF/services/org.apache.commons.logging.LogFactory, SERVICE_ID
+            final InputStream is = getResourceAsStream(contextClassLoader, SERVICE_ID);
+
+            if (is != null) {
+                // This code is needed by EBCDIC and other strange systems.
+                // It's a fix for bugs reported in xerces
+                BufferedReader rd;
+                try {
+                    rd = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+                } catch (java.io.UnsupportedEncodingException e) {
+                    rd = new BufferedReader(new InputStreamReader(is));
+                }
+
+                String factoryClassName = rd.readLine();
+                rd.close();
+
+                if (factoryClassName != null && !"".equals(factoryClassName)) {
+                    if (isDiagnosticsEnabled()) {
+                        logDiagnostic("[LOOKUP]  Creating an instance of LogFactory class " +
+                                factoryClassName +
+                                " as specified by file '" + SERVICE_ID +
+                                "' which was present in the path of the context classloader.");
+                    }
+                    factory = newFactory(factoryClassName, baseClassLoader, contextClassLoader);
+                }
+            } else {
+                // is == null
+                if (isDiagnosticsEnabled()) {
+                    logDiagnostic("[LOOKUP] No resource file with name '" + SERVICE_ID + "' found.");
+                }
+            }
+        } catch (Exception ex) {
+            // note: if the specified LogFactory class wasn't compatible with LogFactory
+            // for some reason, a ClassCastException will be caught here, and attempts will
+            // continue to find a compatible class.
+            if (isDiagnosticsEnabled()) {
+                logDiagnostic(
+                        "[LOOKUP] A security exception occurred while trying to create an" +
+                                " instance of the custom factory class" +
+                                ": [" + trim(ex.getMessage()) +
+                                "]. Trying alternative implementations...");
+            }
+            // ignore
+        }
+    }
+
+    // 第三，尝试从classpath根目录下的commons-logging.properties中查找org.apache.commons.logging.LogFactory属性指定的factory
+    // Third try looking into the properties file read earlier (if found)
+
+    if (factory == null) {
+        if (props != null) {
+            if (isDiagnosticsEnabled()) {
+                logDiagnostic(
+                        "[LOOKUP] Looking in properties file for entry with key '" + FACTORY_PROPERTY +
+                                "' to define the LogFactory subclass to use...");
+            }
+            String factoryClass = props.getProperty(FACTORY_PROPERTY);
+            if (factoryClass != null) {
+                if (isDiagnosticsEnabled()) {
+                    logDiagnostic(
+                            "[LOOKUP] Properties file specifies LogFactory subclass '" + factoryClass + "'");
+                }
+                factory = newFactory(factoryClass, baseClassLoader, contextClassLoader);
+
+                // TODO: think about whether we need to handle exceptions from newFactory
+            } else {
+                if (isDiagnosticsEnabled()) {
+                    logDiagnostic("[LOOKUP] Properties file has no entry specifying LogFactory subclass.");
+                }
+            }
+        } else {
+            if (isDiagnosticsEnabled()) {
+                logDiagnostic("[LOOKUP] No properties file available to determine" + " LogFactory subclass from..");
+            }
+        }
+    }
+
+    // 最后，使用后备factory实现，org.apache.commons.logging.impl.LogFactoryImpl
+    // Fourth, try the fallback implementation class
+
+    if (factory == null) {
+        if (isDiagnosticsEnabled()) {
+            logDiagnostic(
+                    "[LOOKUP] Loading the default LogFactory implementation '" + FACTORY_DEFAULT +
+                            "' via the same classloader that loaded this LogFactory" +
+                            " class (ie not looking in the context classloader).");
+        }
+
+        // Note: unlike the above code which can try to load custom LogFactory
+        // implementations via the TCCL, we don't try to load the default LogFactory
+        // implementation via the context classloader because:
+        // * that can cause problems (see comments in newFactory method)
+        // * no-one should be customising the code of the default class
+        // Yes, we do give up the ability for the child to ship a newer
+        // version of the LogFactoryImpl class and have it used dynamically
+        // by an old LogFactory class in the parent, but that isn't
+        // necessarily a good idea anyway.
+        factory = newFactory(FACTORY_DEFAULT, thisClassLoader, contextClassLoader);
+    }
+
+    if (factory != null) {
+        /**
+            * Always cache using context class loader.
+            */
+        cacheFactory(contextClassLoader, factory);
+
+        if (props != null) {
+            Enumeration names = props.propertyNames();
+            while (names.hasMoreElements()) {
+                String name = (String) names.nextElement();
+                String value = props.getProperty(name);
+                factory.setAttribute(name, value);
+            }
+        }
+    }
+
+    return factory;
+}
+```
+可以看出，抽象类LogFactory加载具体实现的步骤如下：
+- 从vm系统属性org.apache.commons.logging.LogFactory
+- 使用SPI服务发现机制，发现org.apache.commons.logging.
+- LogFactory的实现查找classpath根目录commons-logging.properties的org.apache.commons.logging.LogFactory属性是否指定factory实现
+- 使用默认factory实现，org.apache.commons.logging.impl.LogFactoryImplLog
+Factory的getLog()方法返回类型是org.apache.commons.logging.Log接口，提供了从trace到fatal方法。可以确定，如果日志实现提供者只要实现该接口，并且使用继承自org.apache.commons.logging.LogFactory的子类创建Log，必然可以构建一个松耦合的日志系统。
+#### 5.2.3 SPI机制 - 插件体系
+其实最具spi思想的应该属于插件开发，具体说一下eclipse的插件思想。
+
+Eclipse使用OSGi作为插件系统的基础，动态添加新插件和停止现有插件，以动态的方式管理组件生命周期。
+
+一般来说，插件的文件结构必须在指定目录下包含以下三个文件：
+- META-INF/MANIFEST.MF: 项目基本配置信息，版本、名称、启动器等
+- build.properties: 项目的编译配置信息，包括，源代码路径、输出路径
+- plugin.xml：插件的操作配置信息，包含弹出菜单及点击菜单后对应的操作执行类等
+
+当eclipse启动时，会遍历plugins文件夹中的目录，扫描每个插件的清单文件MANIFEST.MF，并建立一个内部模型来记录它所找到的每个插件的信息，就实现了动态添加新的插件。
+
+这也意味着是eclipse制定了一系列的规则，像是文件结构、类型、参数等。插件开发者遵循这些规则去开发自己的插件，eclipse并不需要知道插件具体是怎样开发的，只需要在启动的时候根据配置文件解析、加载到系统里就好了，是spi思想的一种体现。
+#### 5.2.4 SPI机制 - Spring中SPI机制
+在springboot的自动装配过程中，最终会加载META-INF/spring.factories文件，而加载的过程是由SpringFactoriesLoader加载的。从CLASSPATH下的每个Jar包中搜寻所有META-INF/spring.factories配置文件，然后将解析properties文件，找到指定名称的配置后返回。需要注意的是，其实这里不仅仅是会去ClassPath路径下查找，会扫描所有路径下的Jar包，只不过这个文件只会在Classpath下的jar包中。
+```java
+public static final String FACTORIES_RESOURCE_LOCATION = "META-INF/spring.factories";
+// spring.factories文件的格式为：key=value1,value2,value3
+// 从所有的jar包中找到META-INF/spring.factories文件
+// 然后从文件中解析出key=factoryClass类名称的所有value值
+public static List<String> loadFactoryNames(Class<?> factoryClass, ClassLoader classLoader) {
+    String factoryClassName = factoryClass.getName();
+    // 取得资源文件的URL
+    Enumeration<URL> urls = (classLoader != null ? classLoader.getResources(FACTORIES_RESOURCE_LOCATION) : ClassLoader.getSystemResources(FACTORIES_RESOURCE_LOCATION));
+    List<String> result = new ArrayList<String>();
+    // 遍历所有的URL
+    while (urls.hasMoreElements()) {
+        URL url = urls.nextElement();
+        // 根据资源文件URL解析properties文件，得到对应的一组@Configuration类
+        Properties properties = PropertiesLoaderUtils.loadProperties(new UrlResource(url));
+        String factoryClassNames = properties.getProperty(factoryClassName);
+        // 组装数据，并返回
+        result.addAll(Arrays.asList(StringUtils.commaDelimitedListToStringArray(factoryClassNames)));
+    }
+    return result;
+}
+```
+### 5.3 SPI 与 API 的区别是什么
+
+这里实际包含两个问题，第一个SPI和API的区别？第二个什么时候用API，什么时候用SPI？
+
+- SPI - “接口”位于“调用方”所在的“包”中
+  - 概念上更依赖调用方。
+  - 组织上位于调用方所在的包中。
+  - 实现位于独立的包中。常见的例子是：插件模式的插件。
+- API - “接口”位于“实现方”所在的“包”中
+  - 概念上更接近实现方。
+  - 组织上位于实现方所在的包中。
+  - 实现和接口在一个包中。
+### 5.4 SPI机制的缺陷
+通过上面的解析，可以发现，我们使用SPI机制的缺陷：
+- 不能按需加载，需要遍历所有的实现，并实例化，然后在循环中才能找到我们需要的实现。如果不想用某些实现类，或者某些类实例化很耗时，它也被载入并实例化了，这就造成了浪费。
+- 获取某个实现类的方式不够灵活，只能通过 Iterator 形式获取，不能根据某个参数来获取对应的实现类。
+- 多个并发多线程使用 ServiceLoader 类的实例是不安全的。
 
 
 
