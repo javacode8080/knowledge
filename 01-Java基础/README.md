@@ -4438,9 +4438,2998 @@ https://www.iteye.com/blog/icyfenix-857722
 
 
 ## 五、反射
-### 5.1 异常的层次结构
+### 5.1 反射基础
+
+JAVA反射机制是在运行状态中，对于任意一个类，都能够知道这个类的所有属性和方法；对于任意一个对象，都能够调用它的任意一个方法和属性；这种动态获取的信息以及动态调用对象的方法的功能称为java语言的反射机制。
+
+RTTI（Run-Time Type Identification）运行时类型识别。在《Thinking in Java》一书第十四章中有提到，其作用是在运行时识别一个对象的类型和类的信息。主要有两种方式：一种是“传统的”RTTI，它假定我们在编译时已经知道了所有的类型；另一种是“反射”机制，它允许我们在运行时发现和使用类的信息。
+
+反射就是把java类中的各种成分映射成一个个的Java对象例如：一个类有：成员变量、方法、构造方法、包等等信息，利用反射技术可以对一个类进行解剖，把个个组成部分映射成一个个对象。
+
+#### 5.1.1 Class类
+Class类，Class类也是一个实实在在的类，存在于JDK的java.lang包中。Class类的实例表示java应用运行时的类(class ans enum)或接口(interface and annotation)（每个java类运行时都在JVM里表现为一个class对象，可通过类名.class、类型.getClass()、Class.forName("类名")等方法获取class对象）。数组同样也被映射为class 对象的一个类，所有具有相同元素类型和维数的数组都共享该 Class 对象。基本类型boolean，byte，char，short，int，long，float，double和关键字void同样表现为 class 对象。
+```java
+public final class Class<T> implements java.io.Serializable,
+                              GenericDeclaration,
+                              Type,
+                              AnnotatedElement {
+    private static final int ANNOTATION= 0x00002000;
+    private static final int ENUM      = 0x00004000;
+    private static final int SYNTHETIC = 0x00001000;
+
+    private static native void registerNatives();
+    static {
+        registerNatives();
+    }
+
+    /*
+     * Private constructor. Only the Java Virtual Machine creates Class objects.   //私有构造器，只有JVM才能调用创建Class对象
+     * This constructor is not used and prevents the default constructor being
+     * generated.
+     */
+    private Class(ClassLoader loader) {
+        // Initialize final field for classLoader.  The initialization value of non-null
+        // prevents future JIT optimizations from assuming this final field is null.
+        classLoader = loader;
+    }
+```
+到这我们也就可以得出以下几点信息：
+- Class类也是类的一种，与class关键字是不一样的。
+- 手动编写的类被编译后会产生一个Class对象，其表示的是创建的类的类型信息，而且这个Class对象保存在同名.class的文件中(字节码文件)
+- 每个通过关键字class标识的类，在内存中有且只有一个与之对应的Class对象来描述其类型信息，无论创建多少个实例对象，其依据的都是用一个Class对象。
+- Class类只存私有构造函数，因此对应Class对象只能有JVM创建和加载
+- Class类的对象作用是运行时提供或获得某个对象的类型信息，这点对于反射技术很重要(关于反射稍后分析)。
+
+#### 5.1.2 类加载机制（此处为简介，详细介绍参考JVM）
+- 类加载机制流程
+![类加载示意图](../assets/images/01-Java基础/4.类加载示意图.png)
+
+- 类加载示例
+
+![类加载示例](../assets/images/01-Java基础/5.类加载示例.png)
+
+### 5.2 反射的使用
+在Java中，Class类与java.lang.reflect类库一起对反射技术进行了全力的支持。在反射包中，我们常用的类主要有Constructor类表示的是Class 对象所表示的类的构造方法，利用它可以在运行时动态创建对象、Field表示Class对象所表示的类的成员变量，通过它可以在运行时动态修改成员变量的属性值(包含private)、Method表示Class对象所表示的类的成员方法，通过它可以动态调用对象的方法(包含private)，下面将对这几个重要类进行分别说明。# 
+
+#### 5.2.1 Class类对象的获取
+
+在类加载的时候，jvm会创建一个class对象
+
+class对象是可以说是反射中最常用的，获取class对象的方式的主要有三种
+- 根据类名：类名.class
+- 根据对象：对象.getClass()
+- 根据全限定类名：Class.forName(全限定类名)
+
+Class类的方法：
+
+| 分类 | 方法名 | 返回值类型 | 描述 | 版本 | 重要度 |
+|------|--------|------------|------|------|--------|
+| **实例化相关** | `newInstance()` | `T` | 创建类的新实例（已废弃，现在推荐使用Class类的getDeclaredConstructor()方法获取构造器对象，再调用其newInstance()方法来创建实例） | 1.0 | ⭐ |
+| | `getDeclaredConstructor(Class<?>...)` | `Constructor<T>` | 获取指定参数类型的构造函数 | 1.1 | ⭐⭐⭐⭐⭐ |
+| | `getConstructor(Class<?>...)` | `Constructor<T>` | 获取公共构造函数 | 1.1 | ⭐⭐⭐⭐ |
+| | `getDeclaredConstructors()` | `Constructor<?>[]` | 获取所有声明的构造函数 | 1.1 | ⭐⭐⭐ |
+| | `getConstructors()` | `Constructor<?>[]` | 获取所有公共构造函数 | 1.1 | ⭐⭐⭐ |
+| **类信息获取** | `getName()` | `String` | 返回类的全限定名 | 1.0 | ⭐⭐⭐⭐⭐ |
+| | `getSimpleName()` | `String` | 返回类的简单名称 | 1.1 | ⭐⭐⭐⭐⭐ |
+| | `getCanonicalName()` | `String` | 返回类的规范名称 | 1.5 | ⭐⭐⭐⭐ |
+| | `getTypeName()` | `String` | 返回类型名称 | 1.8 | ⭐⭐⭐ |
+| | `getPackage()` | `Package` | 返回类所在的包 | 1.2 | ⭐⭐⭐ |
+| | `getModule()` | `Module` | 返回类所在的模块 | 9 | ⭐⭐ |
+| | `getSuperclass()` | `Class<? super T>` | 返回直接父类 | 1.0 | ⭐⭐⭐⭐ |
+| | `getGenericSuperclass()` | `Type` | 返回带泛型的父类 | 1.5 | ⭐⭐⭐ |
+| **类型检查** | `isInterface()` | `boolean` | 检查是否是接口 | 1.0 | ⭐⭐⭐⭐ |
+| | `isAnnotation()` | `boolean` | 检查是否是注解 | 1.5 | ⭐⭐⭐ |
+| | `isArray()` | `boolean` | 检查是否是数组 | 1.1 | ⭐⭐⭐ |
+| | `isPrimitive()` | `boolean` | 检查是否是基本类型 | 1.1 | ⭐⭐⭐⭐ |
+| | `isEnum()` | `boolean` | 检查是否是枚举 | 1.5 | ⭐⭐⭐ |
+| | `isSynthetic()` | `boolean` | 检查是否是合成类 | 1.1 | ⭐⭐ |
+| | `isAnonymousClass()` | `boolean` | 检查是否是匿名类 | 1.5 | ⭐⭐ |
+| | `isLocalClass()` | `boolean` | 检查是否是局部类 | 1.5 | ⭐⭐ |
+| | `isMemberClass()` | `boolean` | 检查是否是成员类 | 1.5 | ⭐⭐ |
+| **修饰符相关** | `getModifiers()` | `int` | 返回类的修饰符 | 1.1 | ⭐⭐⭐⭐ |
+| | `getComponentType()` | `Class<?>` | 返回数组组件类型 | 1.1 | ⭐⭐⭐ |
+| | `getEnclosingClass()` | `Class<?>` | 返回封闭类 | 1.5 | ⭐⭐ |
+| | `getEnclosingMethod()` | `Method` | 返回封闭方法 | 1.5 | ⭐⭐ |
+| | `getEnclosingConstructor()` | `Constructor<?>` | 返回封闭构造函数 | 1.5 | ⭐⭐ |
+| **字段相关** | `getField(String)` | `Field` | 获取指定公共字段 | 1.1 | ⭐⭐⭐⭐ |
+| | `getDeclaredField(String)` | `Field` | 获取指定声明字段 | 1.1 | ⭐⭐⭐⭐ |
+| | `getFields()` | `Field[]` | 获取所有公共字段 | 1.1 | ⭐⭐⭐ |
+| | `getDeclaredFields()` | `Field[]` | 获取所有声明字段，默认但是不包括父类声明的任何字段。类似的还有getDeclaredMethods和getDeclaredConstructors。 | 1.1 | ⭐⭐⭐ |
+| **方法相关** | `getMethod(String, Class<?>...)` | `Method` | 获取指定公共方法 | 1.1 | ⭐⭐⭐⭐⭐ |
+| | `getDeclaredMethod(String, Class<?>...)` | `Method` | 获取指定声明方法 | 1.1 | ⭐⭐⭐⭐⭐ |
+| | `getMethods()` | `Method[]` | 获取所有公共方法 | 1.1 | ⭐⭐⭐ |
+| | `getDeclaredMethods()` | `Method[]` | 获取所有声明方法 | 1.1 | ⭐⭐⭐ |
+| **接口相关** | `getInterfaces()` | `Class<?>[]` | 返回实现的接口 | 1.0 | ⭐⭐⭐⭐ |
+| | `getGenericInterfaces()` | `Type[]` | 返回带泛型的接口 | 1.5 | ⭐⭐⭐ |
+| **注解相关** | `getAnnotation(Class<A>)` | `<A extends Annotation> A` | 获取指定类型注解 | 1.5 | ⭐⭐⭐⭐ |
+| | `getAnnotations()` | `Annotation[]` | 获取所有注解 | 1.5 | ⭐⭐⭐ |
+| | `getDeclaredAnnotations()` | `Annotation[]` | 获取所有声明注解 | 1.5 | ⭐⭐⭐ |
+| | `getAnnotationsByType(Class<A>)` | `<A extends Annotation> A[]` | 获取指定类型注解（包括继承） | 1.8 | ⭐⭐⭐ |
+| | `getDeclaredAnnotationsByType(Class<A>)` | `<A extends Annotation> A[]` | 获取声明注解 | 1.8 | ⭐⭐⭐ |
+| | `isAnnotationPresent(Class<? extends Annotation>)` | `boolean` | 检查注解是否存在 | 1.5 | ⭐⭐⭐⭐ |
+| **泛型相关** | `getTypeParameters()` | `TypeVariable<Class<T>>[]` | 返回类型参数 | 1.5 | ⭐⭐ |
+| | `getSigners()` | `Object[]` | 返回类的签名者 | 1.1 | ⭐ |
+| **资源相关** | `getResource(String)` | `URL` | 查找资源 | 1.1 | ⭐⭐⭐ |
+| | `getResourceAsStream(String)` | `InputStream` | 查找资源作为流 | 1.1 | ⭐⭐⭐ |
+| | `getProtectionDomain()` | `ProtectionDomain` | 返回保护域 | 1.2 | ⭐ |
+| **类加载相关** | `getClassLoader()` | `ClassLoader` | 返回类加载器 | 1.0 | ⭐⭐⭐⭐ |
+| | `forName(String)` | `Class<?>` | 根据类名加载类 | 1.0 | ⭐⭐⭐⭐⭐ |
+| | `forName(String, boolean, ClassLoader)` | `Class<?>` | 加载类（指定初始化） | 1.0 | ⭐⭐⭐ |
+| **枚举相关** | `getEnumConstants()` | `T[]` | 返回枚举常量 | 1.5 | ⭐⭐ |
+| | `asSubclass(Class<U>)` | `<U> Class<? extends U>` | 转换为子类 | 1.5 | ⭐⭐ |
+| | `cast(Object)` | `T` | 将对象转换为此类类型 | 1.5 | ⭐⭐⭐ |
+| | `desiredAssertionStatus()` | `boolean` | 返回断言状态 | 1.4 | ⭐ |
+| **数组相关** | `isAssignableFrom(Class<?>)` | `boolean` | 检查是否可赋值 | 1.1 | ⭐⭐⭐⭐ |
+| | `isInstance(Object)` | `boolean` | 检查对象是否此类实例 | 1.1 | ⭐⭐⭐⭐ |
+| **字符串表示** | `toString()` | `String` | 返回字符串表示 | 1.0 | ⭐⭐⭐⭐ |
+| | `toGenericString()` | `String` | 返回带泛型的字符串表示 | 1.5 | ⭐⭐⭐ |
+| **嵌套类相关** | `getNestHost()` | `Class<?>` | 返回嵌套宿主类 | 11 | ⭐⭐ |
+| | `getNestMembers()` | `Class<?>[]` | 返回所有嵌套成员 | 11 | ⭐⭐ |
+| | `isNestmateOf(Class<?>)` | `boolean` | 检查是否是嵌套伙伴 | 11 | ⭐⭐ |
+| **记录类相关** | `isRecord()` | `boolean` | 检查是否是记录类 | 16 | ⭐⭐ |
+| | `getRecordComponents()` | `RecordComponent[]` | 返回记录组件 | 16 | ⭐⭐ |
+| **权限检查** | `getPermittedSubclasses()` | `Class<?>[]` | 返回允许的子类（密封类） | 17 | ⭐⭐ |
+
+使用示例
+
+```java
+
+package com.cry;
+import java.lang.reflect.Field;
+interface I1 {
+}
+interface I2 {
+}
+class Cell{
+    public int mCellPublic;
+}
+class Animal extends  Cell{
+    private int mAnimalPrivate;
+    protected int mAnimalProtected;
+    int mAnimalDefault;
+    public int mAnimalPublic;
+    private static int sAnimalPrivate;
+    protected static int sAnimalProtected;
+    static int sAnimalDefault;
+    public static int sAnimalPublic;
+}
+class Dog extends Animal implements I1, I2 {
+    private int mDogPrivate;
+    public int mDogPublic;
+    protected int mDogProtected;
+    private int mDogDefault;
+    private static int sDogPrivate;
+    protected static int sDogProtected;
+    static int sDogDefault;
+    public static int sDogPublic;
+}
+public class Test {
+    public static void main(String[] args) throws IllegalAccessException, InstantiationException {
+        Class<Dog> dog = Dog.class;
+        //类名打印
+        System.out.println(dog.getName()); //com.cry.Dog
+        System.out.println(dog.getSimpleName()); //Dog
+        System.out.println(dog.getCanonicalName());//com.cry.Dog
+        //接口
+        System.out.println(dog.isInterface()); //false
+        for (Class iI : dog.getInterfaces()) {
+            System.out.println(iI);
+        }
+         /*
+          interface com.cry.I1
+          interface com.cry.I2
+         */
+
+        //父类
+        System.out.println(dog.getSuperclass());//class com.cry.Animal
+        //创建对象
+        Dog d = dog.newInstance();
+        //字段
+        for (Field f : dog.getFields()) {
+            System.out.println(f.getName());
+        }
+        /*
+            mDogPublic
+            sDogPublic
+            mAnimalPublic
+            sAnimalPublic
+            mCellPublic  //父类的父类的公共字段也打印出来了
+         */
+        System.out.println("---------");
+        for (Field f : dog.getDeclaredFields()) {
+            System.out.println(f.getName());
+        }
+        /** 只有自己类声明的字段
+         mDogPrivate
+         mDogPublic
+         mDogProtected
+         mDogDefault
+         sDogPrivate
+         sDogProtected
+         sDogDefault
+         sDogPublic
+         */
+    }
+}
+```
+getName、getCanonicalName与getSimpleName的区别：
+- getSimpleName：只获取类名
+- getName：类的全限定名，jvm中Class的表示，可以用于动态加载Class对象，例如Class.forName。
+- getCanonicalName：返回更容易理解的表示，主要用于输出（toString）或log打印，大多数情况下和getName一样，但是在内部类、数组等类型的表示形式就不同了。
+
+#### 5.2.2 Constructor类及其用法
+```java
+public class ConstructionTest implements Serializable {
+    public static void main(String[] args) throws Exception {
+
+        Class<?> clazz = null;
+
+        //获取Class对象的引用
+        clazz = Class.forName("com.example.javabase.User");
+
+        //第一种方法，实例化默认构造方法，User必须无参构造函数,否则将抛异常(这种方式已经弃用)
+        User user = (User) clazz.newInstance();
+        user.setAge(20);
+        user.setName("Jack");
+        System.out.println(user);
+
+        System.out.println("--------------------------------------------");
+
+        //获取带String参数的public构造函数
+        Constructor cs1 =clazz.getConstructor(String.class);
+        //创建User
+        User user1= (User) cs1.newInstance("hiway");
+        user1.setAge(22);
+        System.out.println("user1:"+user1.toString());
+
+        System.out.println("--------------------------------------------");
+
+        //取得指定带int和String参数构造函数,该方法是私有构造private
+        Constructor cs2=clazz.getDeclaredConstructor(int.class,String.class);
+        //由于是private必须设置可访问
+        cs2.setAccessible(true);
+        //创建user对象
+        User user2= (User) cs2.newInstance(25,"hiway2");
+        System.out.println("user2:"+user2.toString());
+
+        System.out.println("--------------------------------------------");
+
+        //获取所有构造包含private
+        Constructor<?> cons[] = clazz.getDeclaredConstructors();
+        // 查看每个构造方法需要的参数
+        for (int i = 0; i < cons.length; i++) {
+            //获取构造函数参数类型
+            Class<?> clazzs[] = cons[i].getParameterTypes();
+            System.out.println("构造函数["+i+"]:"+cons[i].toString() );
+            System.out.print("参数类型["+i+"]:(");
+            for (int j = 0; j < clazzs.length; j++) {
+                if (j == clazzs.length - 1)
+                    System.out.print(clazzs[j].getName());
+                else
+                    System.out.print(clazzs[j].getName() + ",");
+            }
+            System.out.println(")");
+        }
+    }
+}
 
 
+class User {
+    private int age;
+    private String name;
+    public User() {
+        super();
+    }
+    public User(String name) {
+        super();
+        this.name = name;
+    }
+
+    /**
+     * 私有构造
+     * @param age
+     * @param name
+     */
+    private User(int age, String name) {
+        super();
+        this.age = age;
+        this.name = name;
+    }
+
+    public int getAge() {
+        return age;
+    }
+
+    public void setAge(int age) {
+        this.age = age;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    @Override
+    public String toString() {
+        return "User{" +
+                "age=" + age +
+                ", name='" + name + '\'' +
+                '}';
+    }
+}
+```
+输出结果
+```java
+/* output 
+User{age=20, name='Jack'}
+--------------------------------------------
+user1:User{age=22, name='hiway'}
+--------------------------------------------
+user2:User{age=25, name='hiway2'}
+--------------------------------------------
+构造函数[0]:private com.example.javabase.User(int,java.lang.String)
+参数类型[0]:(int,java.lang.String)
+构造函数[1]:public com.example.javabase.User(java.lang.String)
+参数类型[1]:(java.lang.String)
+构造函数[2]:public com.example.javabase.User()
+参数类型[2]:()
+```
+关于Constructor类本身一些常用方法如下(仅部分，其他可查API)
+
+| 方法名称 | 返回值类型 | 方法说明 |
+|---------|------------|----------|
+| `getDeclaringClass()` | `Class<?>` | 返回 Class 对象，该对象表示声明由此 Constructor 对象表示的构造方法的类，其实就是返回真实类型（不包含参数） |
+| `getGenericParameterTypes()` | `Type[]` | 按照声明顺序返回一组 Type 对象，返回的就是 Constructor 对象构造函数的形参类型 |
+| `getName()` | `String` | 以字符串形式返回此构造方法的名称 |
+| `getParameterTypes()` | `Class<?>[]` | 按照声明顺序返回一组 Class 对象，即返回 Constructor 对象所表示构造方法的形参类型 |
+| `newInstance(Object... initargs)` | `T` | 使用此 Constructor 对象表示的构造函数来创建新实例 |
+| `toGenericString()` | `String` | 返回描述此 Constructor 的字符串，其中包括类型参数 |
+
+示例：
+```java
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Type;
+
+public class ConstructorExample {
+    
+    static class Person {
+        private String name;
+        private int age;
+        
+        public Person() {}
+        
+        public Person(String name, int age) {
+            this.name = name;
+            this.age = age;
+        }
+        
+        @Override
+        public String toString() {
+            return "Person{name='" + name + "', age=" + age + "}";
+        }
+    }
+    
+    public static void main(String[] args) throws Exception {
+        // 获取有参构造器
+        Constructor<Person> constructor = Person.class.getDeclaredConstructor(String.class, int.class);
+        
+        // 使用各个方法
+        System.out.println("Declaring Class: " + constructor.getDeclaringClass());
+        System.out.println("Name: " + constructor.getName());
+        
+        Type[] genericParamTypes = constructor.getGenericParameterTypes();
+        System.out.println("Generic Parameter Types:");
+        for (Type type : genericParamTypes) {
+            System.out.println("  - " + type.getTypeName());
+        }
+        
+        Class<?>[] paramTypes = constructor.getParameterTypes();
+        System.out.println("Parameter Types:");
+        for (Class<?> clazz : paramTypes) {
+            System.out.println("  - " + clazz.getSimpleName());
+        }
+        
+        System.out.println("Generic String: " + constructor.toGenericString());
+        
+        // 创建新实例
+        Person person = constructor.newInstance("张三", 25);
+        System.out.println("New Instance: " + person);
+    }
+}
+```
+输出：
+
+```java
+Declaring Class: class ConstructorExample$Person
+Name: ConstructorExample$Person
+Generic Parameter Types:
+  - java.lang.String
+  - int
+Parameter Types:
+  - String
+  - int
+Generic String: public ConstructorExample$Person(java.lang.String,int)
+New Instance: Person{name='张三', age=25}
+```
+#### 5.2.3 Field类及其用法
+
+Field 提供有关类或接口的单个字段的信息，以及对它的动态访问权限。反射的字段可能是一个类（静态）字段或实例字段。
+
+```java
+public class ReflectField {
+
+    public static void main(String[] args) throws ClassNotFoundException, NoSuchFieldException {
+        Class<?> clazz = Class.forName("reflect.Student");
+        //获取指定字段名称的Field类,注意字段修饰符必须为public而且存在该字段,
+        // 否则抛NoSuchFieldException
+        Field field = clazz.getField("age");
+        System.out.println("field:"+field);
+
+        //获取所有修饰符为public的字段,包含父类字段,注意修饰符为public才会获取
+        Field fields[] = clazz.getFields();
+        for (Field f:fields) {
+            System.out.println("f:"+f.getDeclaringClass());
+        }
+
+        System.out.println("================getDeclaredFields====================");
+        //获取当前类所字段(包含private字段),注意不包含父类的字段
+        Field fields2[] = clazz.getDeclaredFields();
+        for (Field f:fields2) {
+            System.out.println("f2:"+f.getDeclaringClass());
+        }
+        //获取指定字段名称的Field类,可以是任意修饰符的自动,注意不包含父类的字段
+        Field field2 = clazz.getDeclaredField("desc");
+        System.out.println("field2:"+field2);
+    }
+    /**
+      输出结果: 
+     field:public int reflect.Person.age
+     f:public java.lang.String reflect.Student.desc
+     f:public int reflect.Person.age
+     f:public java.lang.String reflect.Person.name
+
+     ================getDeclaredFields====================
+     f2:public java.lang.String reflect.Student.desc
+     f2:private int reflect.Student.score
+     field2:public java.lang.String reflect.Student.desc
+     */
+}
+
+class Person{
+    public int age;
+    public String name;
+    //省略set和get方法
+}
+
+class Student extends Person{
+    public String desc;
+    private int score;
+    //省略set和get方法
+}
+```
+
+上述方法需要注意的是，如果我们不期望获取其父类的字段，则需使用Class类的getDeclaredField/getDeclaredFields方法来获取字段即可，倘若需要连带获取到父类的字段，那么请使用Class类的getField/getFields，但是也**只能获取到public修饰的的字段，无法获取父类的私有字段**。
+
+下面将通过Field类本身的方法对指定类属性赋值，代码演示如下：
+```java
+//获取Class对象引用
+Class<?> clazz = Class.forName("reflect.Student");
+
+Student st= (Student) clazz.newInstance();
+//获取父类public字段并赋值
+Field ageField = clazz.getField("age");
+ageField.set(st,18);
+Field nameField = clazz.getField("name");
+nameField.set(st,"Lily");
+
+//只获取当前类的字段,不获取父类的字段
+Field descField = clazz.getDeclaredField("desc");
+descField.set(st,"I am student");
+Field scoreField = clazz.getDeclaredField("score");
+//设置可访问，score是private的
+scoreField.setAccessible(true);
+scoreField.set(st,88);
+System.out.println(st.toString());
+
+//输出结果：Student{age=18, name='Lily ,desc='I am student', score=88} 
+
+//获取字段值
+System.out.println(scoreField.get(st));
+//88
+```
+其中的set(Object obj, Object value)方法是Field类本身的方法，用于设置字段的值，而get(Object obj)则是获取字段的值，当然关于Field类还有其他常用的方法如下
+
+| 方法名称 | 返回值类型 | 方法说明 |
+|---------|------------|----------|
+| `set(Object obj, Object value)` | `void` | 将指定对象变量上此 Field 对象表示的字段设置为指定的新值 |
+| `get(Object obj)` | `Object` | 返回指定对象上此 Field 表示的字段的值 |
+| `getType()` | `Class<?>` | 返回一个 Class 对象，它标识了此 Field 对象所表示字段的声明类型 |
+| `isEnumConstant()` | `boolean` | 如果此字段表示枚举类型的元素则返回 true；否则返回 false |
+| `toGenericString()` | `String` | 返回一个描述此 Field（包括其一般类型）的字符串 |
+| `getName()` | `String` | 返回此 Field 对象表示的字段的名称 |
+| `getDeclaringClass()` | `Class<?>` | 返回表示类或接口的 Class 对象，该类或接口声明由此 Field 对象表示的字段 |
+| `setAccessible(boolean flag)` | `void` | 将此对象的 accessible 标志设置为指示的布尔值，即设置其可访问性 |
+
+上述方法可能是较为常用的，事实上在设置值的方法上，Field类还提供了专门针对基本数据类型的方法，如setInt()/getInt()、setBoolean()/getBoolean、setChar()/getChar()等等方法，这里就不全部列出了，需要时查API文档即可。
+
+**需要特别注意的是被final关键字修饰的Field字段是安全的，在运行时可以接收任何修改，但最终其实际值是不会发生改变的。**
+
+使用示例：
+```java
+import java.lang.reflect.Field;
+
+public class FieldExample {
+    
+    static class Person {
+        private String name;
+        private int age;
+        public static final String SPECIES = "Human";
+        
+        public Person(String name, int age) {
+            this.name = name;
+            this.age = age;
+        }
+        
+        @Override
+        public String toString() {
+            return "Person{name='" + name + "', age=" + age + "}";
+        }
+    }
+    
+    enum Color {
+        RED, GREEN, BLUE
+    }
+    
+    public static void main(String[] args) throws Exception {
+        Person person = new Person("张三", 25);
+        
+        // 获取字段并演示各种方法
+        Field nameField = Person.class.getDeclaredField("name");
+        Field ageField = Person.class.getDeclaredField("age");
+        Field speciesField = Person.class.getDeclaredField("SPECIES");
+        Field colorField = Color.class.getDeclaredField("RED");
+        
+        // 设置可访问性
+        nameField.setAccessible(true);
+        ageField.setAccessible(true);
+        
+        // 使用各个方法
+        System.out.println("字段名称: " + nameField.getName());
+        System.out.println("字段类型: " + nameField.getType());
+        System.out.println("声明类: " + nameField.getDeclaringClass());
+        System.out.println("泛型字符串: " + nameField.toGenericString());
+        
+        // 获取和设置字段值
+        System.out.println("原始name值: " + nameField.get(person));
+        nameField.set(person, "李四");
+        System.out.println("修改后name值: " + nameField.get(person));
+        
+        System.out.println("age值: " + ageField.get(person));
+        
+        // 检查枚举常量
+        System.out.println("species是枚举常量: " + speciesField.isEnumConstant());
+        System.out.println("RED是枚举常量: " + colorField.isEnumConstant());
+        
+        // 静态字段访问
+        System.out.println("SPECIES值: " + speciesField.get(null));// 静态字段不需要指定示例话对象
+    }
+}
+```
+输出结果：
+```java
+字段名称: name
+字段类型: class java.lang.String
+声明类: class FieldExample$Person
+泛型字符串: private java.lang.String FieldExample$Person.name
+原始name值: 张三
+修改后name值: 李四
+age值: 25
+species是枚举常量: false
+RED是枚举常量: true
+SPECIES值: Human
+```
+#### 5.2.4 Method类及其用法
+Method 提供关于类或接口上单独某个方法（以及如何访问该方法）的信息，所反映的方法可能是类方法或实例方法（包括抽象方法）。
+
+```java
+import java.lang.reflect.Method;
+
+public class ReflectMethod  {
+
+
+    public static void main(String[] args) throws ClassNotFoundException, NoSuchMethodException {
+
+        Class clazz = Class.forName("reflect.Circle");
+
+        //根据参数获取public的Method,包含继承自父类的方法
+        Method method = clazz.getMethod("draw",int.class,String.class);
+
+        System.out.println("method:"+method);
+
+        //获取所有public的方法:
+        Method[] methods =clazz.getMethods();
+        for (Method m:methods){
+            System.out.println("m::"+m);
+        }
+
+        System.out.println("=========================================");
+
+        //获取当前类的方法包含private,该方法无法获取继承自父类的method
+        Method method1 = clazz.getDeclaredMethod("drawCircle");
+        System.out.println("method1::"+method1);
+        //获取当前类的所有方法包含private,该方法无法获取继承自父类的method
+        Method[] methods1=clazz.getDeclaredMethods();
+        for (Method m:methods1){
+            System.out.println("m1::"+m);
+        }
+    }
+}
+
+class Shape {
+    public void draw(){
+        System.out.println("draw");
+    }
+
+    public void draw(int count , String name){
+        System.out.println("draw "+ name +",count="+count);
+    }
+
+}
+class Circle extends Shape{
+
+    private void drawCircle(){
+        System.out.println("drawCircle");
+    }
+    public int getAllCount(){
+        return 100;
+    }
+}
+```
+输出结果：
+```java
+method:public void reflect.Shape.draw(int,java.lang.String)
+
+m::public int reflect.Circle.getAllCount()
+m::public void reflect.Shape.draw()
+m::public void reflect.Shape.draw(int,java.lang.String)
+m::public final void java.lang.Object.wait(long,int) throws java.lang.InterruptedException
+m::public final native void java.lang.Object.wait(long) throws java.lang.InterruptedException
+m::public final void java.lang.Object.wait() throws java.lang.InterruptedException
+m::public boolean java.lang.Object.equals(java.lang.Object)
+m::public java.lang.String java.lang.Object.toString()
+m::public native int java.lang.Object.hashCode()
+m::public final native java.lang.Class java.lang.Object.getClass()
+m::public final native void java.lang.Object.notify()
+m::public final native void java.lang.Object.notifyAll()
+
+=========================================
+method1::private void reflect.Circle.drawCircle()
+
+m1::public int reflect.Circle.getAllCount()
+m1::private void reflect.Circle.drawCircle()
+```
+在通过getMethods方法获取Method对象时，会把父类的方法也获取到，如上的输出结果，把Object类的方法都打印出来了。**而getDeclaredMethod/getDeclaredMethods方法都只能获取当前类的方法**。我们在使用时根据情况选择即可。
+
+下面将演示通过Method对象调用指定类的方法：
+
+```java
+Class clazz = Class.forName("reflect.Circle");
+//创建对象
+Circle circle = (Circle) clazz.newInstance();
+
+//获取指定参数的方法对象Method
+Method method = clazz.getMethod("draw",int.class,String.class);
+
+//通过Method对象的invoke(Object obj,Object... args)方法调用
+method.invoke(circle,15,"圈圈");
+
+//对私有无参方法的操作
+Method method1 = clazz.getDeclaredMethod("drawCircle");
+//修改私有方法的访问标识
+method1.setAccessible(true);
+method1.invoke(circle);
+
+//对有返回值得方法操作
+Method method2 =clazz.getDeclaredMethod("getAllCount");
+Integer count = (Integer) method2.invoke(circle);
+System.out.println("count:"+count);
+```
+输出：
+```java
+draw 圈圈,count=15
+drawCircle
+count:100
+```
+Method 类主要方法整理
+
+| 方法名称 | 返回值类型 | 方法说明 |
+|---------|------------|----------|
+| `invoke(Object obj, Object... args)` | `Object` | 对带有指定参数的指定对象调用由此 Method 对象表示的底层方法 |
+| `getReturnType()` | `Class<?>` | 返回一个 Class 对象，该对象描述了此 Method 对象所表示的方法的正式返回类型，即方法的返回类型 |
+| `getGenericReturnType()` | `Type` | 返回表示由此 Method 对象所表示方法的正式返回类型的 Type 对象，也是方法的返回类型 |
+| `getParameterTypes()` | `Class<?>[]` | 按照声明顺序返回 Class 对象的数组，这些对象描述了此 Method 对象所表示的方法的形参类型，即返回方法的参数类型组成的数组 |
+| `getGenericParameterTypes()` | `Type[]` | 按照声明顺序返回 Type 对象的数组，这些对象描述了此 Method 对象所表示的方法的形参类型的，也是返回方法的参数类型 |
+| `getName()` | `String` | 以 String 形式返回此 Method 对象表示的方法名称，即返回方法的名称 |
+| `isVarArgs()` | `boolean` | 判断方法是否带可变参数，如果将此方法声明为带有可变数量的参数，则返回 true；否则，返回 false |
+| `toGenericString()` | `String` | 返回描述此 Method 的字符串，包括类型参数 |
+
+使用示例:
+```java
+import java.lang.reflect.Method;
+import java.lang.reflect.Type;
+import java.util.Arrays;
+
+public class MethodExample {
+    
+    static class Calculator {
+        public int add(int a, int b) {
+            return a + b;
+        }
+        
+        public String concat(String... strings) {
+            return String.join("", strings);
+        }
+        
+        public <T> T process(T input) {
+            return input;
+        }
+        
+        private double multiply(double a, double b) {
+            return a * b;
+        }
+    }
+    
+    public static void main(String[] args) throws Exception {
+        Calculator calc = new Calculator();
+        
+        // 获取方法并演示各种方法
+        Method addMethod = Calculator.class.getMethod("add", int.class, int.class);
+        Method concatMethod = Calculator.class.getMethod("concat", String[].class);
+        Method processMethod = Calculator.class.getMethod("process", Object.class);
+        Method multiplyMethod = Calculator.class.getDeclaredMethod("multiply", double.class, double.class);
+        
+        // 使用各个方法
+        System.out.println("方法名称: " + addMethod.getName());
+        System.out.println("返回类型: " + addMethod.getReturnType());
+        System.out.println("泛型返回类型: " + addMethod.getGenericReturnType());
+        
+        System.out.println("参数类型: " + Arrays.toString(addMethod.getParameterTypes()));
+        System.out.println("泛型参数类型: " + Arrays.toString(addMethod.getGenericParameterTypes()));
+        
+        System.out.println("processMethod参数类型: " + Arrays.toString(processMethod.getParameterTypes()));
+        System.out.println("processMethod泛型参数类型: " + Arrays.toString(processMethod.getGenericParameterTypes()));
+
+        System.out.println("是否可变参数: " + concatMethod.isVarArgs());
+        System.out.println("泛型字符串: " + processMethod.toGenericString());
+        
+        // 调用方法
+        Object result = addMethod.invoke(calc, 5, 3);
+        System.out.println("调用add方法结果: " + result);
+        
+        // 调用可变参数方法
+        Object concatResult = concatMethod.invoke(calc, new Object[]{new String[]{"Hello", " ", "World"}});
+        System.out.println("调用concat方法结果: " + concatResult);
+        
+        // 调用泛型方法
+        Object processResult = processMethod.invoke(calc, "测试数据");
+        System.out.println("调用process方法结果: " + processResult);
+        
+        // 调用私有方法
+        multiplyMethod.setAccessible(true);
+        Object multiplyResult = multiplyMethod.invoke(calc, 2.5, 4.0);
+        System.out.println("调用multiply方法结果: " + multiplyResult);
+    }
+}
+```
+输出：
+```java
+方法名称: add
+返回类型: int
+泛型返回类型: int
+参数类型: [int, int]
+泛型参数类型: [int, int]
+processMethod参数类型: [class java.lang.Object]
+processMethod泛型参数类型: [T]
+是否可变参数: true
+泛型字符串: public java.lang.Object MethodExample$Calculator.process(java.lang.Object)
+调用add方法结果: 8
+调用concat方法结果: Hello World
+调用process方法结果: 测试数据
+调用multiply方法结果: 10.0
+```
+方法说明补充
+
+- getReturnType() vs getGenericReturnType(): 前者返回原始类型，后者返回包含泛型信息的类型
+- getParameterTypes() vs getGenericParameterTypes(): 同样，前者返回原始参数类型，后者返回包含泛型信息的参数类型
+- isVarArgs(): 对于可变参数方法返回 true，如 method(String... args)
+- toGenericString(): 返回包含泛型信息的完整方法签名，比 toString() 更详细
+### 5.3 反射机制执行的流程
+举例：
+```java
+public class HelloReflect {
+    public static void main(String[] args) {
+        try {
+            // 1. 使用外部配置的实现，进行动态加载类
+            TempFunctionTest test = (TempFunctionTest)Class.forName("com.tester.HelloReflect").newInstance();
+            test.sayHello("call directly");
+            // 2. 根据配置的函数名，进行方法调用（不需要通用的接口抽象）
+            Object t2 = new TempFunctionTest();
+            Method method = t2.getClass().getDeclaredMethod("sayHello", String.class);
+            method.invoke(test, "method invoke");
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        } catch (InstantiationException e) {
+            e.printStackTrace();
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+        } catch (NoSuchMethodException e ) {
+            e.printStackTrace();
+        } catch (InvocationTargetException e) {
+            e.printStackTrace();
+        }
+    }
+    
+    public void sayHello(String word) {
+        System.out.println("hello," + word);
+    }
+
+}
+```
+#### 5.3.1 反射获取类示例
+
+##### 5.3.1.1 示例
+首先调用了 java.lang.Class 的静态方法，获取类信息。 
+```java
+   @CallerSensitive
+    public static Class<?> forName(String className)
+                throws ClassNotFoundException {
+        // 先通过反射，获取调用进来的类信息，从而获取当前的 classLoader
+        Class<?> caller = Reflection.getCallerClass();
+        // 调用native方法进行获取class信息
+        return forName0(className, true, ClassLoader.getClassLoader(caller), caller);
+    }
+```
+forName()反射获取类信息，并没有将实现留给了java,而是交给了jvm去加载。主要是先获取 ClassLoader, 然后调用 native 方法，获取信息，加载类则是回调 java.lang.ClassLoader.
+
+最后，jvm又会回调 ClassLoader 进类加载。
+```java
+// 
+    public Class<?> loadClass(String name) throws ClassNotFoundException {
+        return loadClass(name, false);
+    }
+    
+        // sun.misc.Launcher
+        public Class<?> loadClass(String var1, boolean var2) throws ClassNotFoundException {
+            int var3 = var1.lastIndexOf(46);
+            if(var3 != -1) {
+                SecurityManager var4 = System.getSecurityManager();
+                if(var4 != null) {
+                    var4.checkPackageAccess(var1.substring(0, var3));
+                }
+            }
+
+            if(this.ucp.knownToNotExist(var1)) {
+                Class var5 = this.findLoadedClass(var1);
+                if(var5 != null) {
+                    if(var2) {
+                        this.resolveClass(var5);
+                    }
+
+                    return var5;
+                } else {
+                    throw new ClassNotFoundException(var1);
+                }
+            } else {
+                return super.loadClass(var1, var2);
+            }
+        }
+    // java.lang.ClassLoader
+    protected Class<?> loadClass(String name, boolean resolve)
+        throws ClassNotFoundException
+    {
+        // 先获取锁
+        synchronized (getClassLoadingLock(name)) {
+            // First, check if the class has already been loaded
+            // 如果已经加载了的话，就不用再加载了
+            Class<?> c = findLoadedClass(name);
+            if (c == null) {
+                long t0 = System.nanoTime();
+                try {
+                    // 双亲委托加载
+                    if (parent != null) {
+                        c = parent.loadClass(name, false);
+                    } else {
+                        c = findBootstrapClassOrNull(name);
+                    }
+                } catch (ClassNotFoundException e) {
+                    // ClassNotFoundException thrown if class not found
+                    // from the non-null parent class loader
+                }
+
+                // 父类没有加载到时，再自己加载
+                if (c == null) {
+                    // If still not found, then invoke findClass in order
+                    // to find the class.
+                    long t1 = System.nanoTime();
+                    c = findClass(name);
+
+                    // this is the defining class loader; record the stats
+                    sun.misc.PerfCounter.getParentDelegationTime().addTime(t1 - t0);
+                    sun.misc.PerfCounter.getFindClassTime().addElapsedTimeFrom(t1);
+                    sun.misc.PerfCounter.getFindClasses().increment();
+                }
+            }
+            if (resolve) {
+                resolveClass(c);
+            }
+            return c;
+        }
+    }
+    
+    protected Object getClassLoadingLock(String className) {
+        Object lock = this;
+        if (parallelLockMap != null) {
+            // 使用 ConcurrentHashMap来保存锁
+            Object newLock = new Object();
+            lock = parallelLockMap.putIfAbsent(className, newLock);
+            if (lock == null) {
+                lock = newLock;
+            }
+        }
+        return lock;
+    }
+    
+    protected final Class<?> findLoadedClass(String name) {
+        if (!checkName(name))
+            return null;
+        return findLoadedClass0(name);
+    }
+```
+##### 5.3.1.2  Class对象的newInstance() 的实现方式
+下面来看一下 Class对象的newInstance() 的实现方式。newInstance() 主要做了三件事：
+
+- 权限检测，如果不通过直接抛出异常；
+- 查找无参构造器，并将其缓存起来；
+- 调用具体方法的无参构造方法，生成实例并返回；
+```java
+ // 首先肯定是 Class.newInstance
+    @CallerSensitive
+    public T newInstance()
+        throws InstantiationException, IllegalAccessException
+    {
+        if (System.getSecurityManager() != null) {
+            checkMemberAccess(Member.PUBLIC, Reflection.getCallerClass(), false);
+        }
+
+        // NOTE: the following code may not be strictly correct under
+        // the current Java memory model.
+
+        // Constructor lookup
+        // newInstance() 其实相当于调用类的无参构造函数，所以，首先要找到其无参构造器
+        if (cachedConstructor == null) {
+            if (this == Class.class) {
+                // 不允许调用 Class 的 newInstance() 方法
+                throw new IllegalAccessException(
+                    "Can not call newInstance() on the Class for java.lang.Class"
+                );
+            }
+            try {
+                // 获取无参构造器
+                Class<?>[] empty = {};
+                final Constructor<T> c = getConstructor0(empty, Member.DECLARED);
+                // Disable accessibility checks on the constructor
+                // since we have to do the security check here anyway
+                // (the stack depth is wrong for the Constructor's
+                // security check to work)
+                java.security.AccessController.doPrivileged(
+                    new java.security.PrivilegedAction<Void>() {
+                        public Void run() {
+                                c.setAccessible(true);
+                                return null;
+                            }
+                        });
+                cachedConstructor = c;
+            } catch (NoSuchMethodException e) {
+                throw (InstantiationException)
+                    new InstantiationException(getName()).initCause(e);
+            }
+        }
+        Constructor<T> tmpConstructor = cachedConstructor;
+        // Security check (same as in java.lang.reflect.Constructor)
+        int modifiers = tmpConstructor.getModifiers();
+        if (!Reflection.quickCheckMemberAccess(this, modifiers)) {
+            Class<?> caller = Reflection.getCallerClass();
+            if (newInstanceCallerCache != caller) {
+                Reflection.ensureMemberAccess(caller, this, null, modifiers);
+                newInstanceCallerCache = caller;
+            }
+        }
+        // Run constructor
+        try {
+            // 调用无参构造器
+            return tmpConstructor.newInstance((Object[])null);
+        } catch (InvocationTargetException e) {
+            Unsafe.getUnsafe().throwException(e.getTargetException());
+            // Not reached
+            return null;
+        }
+    }
+```
+
+下面是获取构造器的过程：
+
+```java
+private Constructor<T> getConstructor0(Class<?>[] parameterTypes,
+                                        int which) throws NoSuchMethodException
+    {
+        // 获取所有构造器
+        Constructor<T>[] constructors = privateGetDeclaredConstructors((which == Member.PUBLIC));
+        for (Constructor<T> constructor : constructors) {
+            if (arrayContentsEq(parameterTypes,
+                                constructor.getParameterTypes())) {
+                return getReflectionFactory().copyConstructor(constructor);
+            }
+        }
+        throw new NoSuchMethodException(getName() + ".<init>" + argumentTypesToString(parameterTypes));
+    }
+```
+getConstructor0() 为获取匹配的构造器；分三步：
+- 先获取所有的constructors, 然后通过进行参数类型比较；
+- 找到匹配后，通过 ReflectionFactory copy一份constructor返回；
+- 否则抛出 NoSuchMethodException;
+```java
+ // 获取当前类所有的构造方法，通过jvm或者缓存
+    // Returns an array of "root" constructors. These Constructor
+    // objects must NOT be propagated to the outside world, but must
+    // instead be copied via ReflectionFactory.copyConstructor.
+    private Constructor<T>[] privateGetDeclaredConstructors(boolean publicOnly) {
+        checkInitted();
+        Constructor<T>[] res;
+        // 调用 reflectionData(), 获取保存的信息，使用软引用保存，从而使内存不够可以回收
+        ReflectionData<T> rd = reflectionData();
+        if (rd != null) {
+            res = publicOnly ? rd.publicConstructors : rd.declaredConstructors;
+            // 存在缓存，则直接返回
+            if (res != null) return res;
+        }
+        // No cached value available; request value from VM
+        if (isInterface()) {
+            @SuppressWarnings("unchecked")
+            Constructor<T>[] temporaryRes = (Constructor<T>[]) new Constructor<?>[0];
+            res = temporaryRes;
+        } else {
+            // 使用native方法从jvm获取构造器
+            res = getDeclaredConstructors0(publicOnly);
+        }
+        if (rd != null) {
+            // 最后，将从jvm中读取的内容，存入缓存
+            if (publicOnly) {
+                rd.publicConstructors = res;
+            } else {
+                rd.declaredConstructors = res;
+            }
+        }
+        return res;
+    }
+    
+    // Lazily create and cache ReflectionData
+    private ReflectionData<T> reflectionData() {
+        SoftReference<ReflectionData<T>> reflectionData = this.reflectionData;
+        int classRedefinedCount = this.classRedefinedCount;
+        ReflectionData<T> rd;
+        if (useCaches &&
+            reflectionData != null &&
+            (rd = reflectionData.get()) != null &&
+            rd.redefinedCount == classRedefinedCount) {
+            return rd;
+        }
+        // else no SoftReference or cleared SoftReference or stale ReflectionData
+        // -> create and replace new instance
+        return newReflectionData(reflectionData, classRedefinedCount);
+    }
+    
+    // 新创建缓存，保存反射信息
+    private ReflectionData<T> newReflectionData(SoftReference<ReflectionData<T>> oldReflectionData,
+                                                int classRedefinedCount) {
+        if (!useCaches) return null;
+
+        // 使用cas保证更新的线程安全性，所以反射是保证线程安全的
+        while (true) {
+            ReflectionData<T> rd = new ReflectionData<>(classRedefinedCount);
+            // try to CAS it...
+            if (Atomic.casReflectionData(this, oldReflectionData, new SoftReference<>(rd))) {
+                return rd;
+            }
+            // 先使用CAS更新，如果更新成功，则立即返回，否则测查当前已被其他线程更新的情况，如果和自己想要更新的状态一致，则也算是成功了
+            oldReflectionData = this.reflectionData;
+            classRedefinedCount = this.classRedefinedCount;
+            if (oldReflectionData != null &&
+                (rd = oldReflectionData.get()) != null &&
+                rd.redefinedCount == classRedefinedCount) {
+                return rd;
+            }
+        }
+    }
+```
+如上，privateGetDeclaredConstructors(), 获取所有的构造器主要步骤；
+- 先尝试从缓存中获取；
+- 如果缓存没有，则从jvm中重新获取，并存入缓存，缓存使用软引用进行保存，保证内存可用；
+
+##### 5.3.1.3 relactionData()缓存一级缓存失效
+
+另外，使用 relactionData() 进行缓存保存；ReflectionData 的数据结构如下。
+```java
+    // reflection data that might get invalidated when JVM TI RedefineClasses() is called
+    private static class ReflectionData<T> {
+        volatile Field[] declaredFields;
+        volatile Field[] publicFields;
+        volatile Method[] declaredMethods;
+        volatile Method[] publicMethods;
+        volatile Constructor<T>[] declaredConstructors;
+        volatile Constructor<T>[] publicConstructors;
+        // Intermediate results for getFields and getMethods
+        volatile Field[] declaredPublicFields;
+        volatile Method[] declaredPublicMethods;
+        volatile Class<?>[] interfaces;
+
+        // Value of classRedefinedCount when we created this ReflectionData instance
+        final int redefinedCount;
+
+        ReflectionData(int redefinedCount) {
+            this.redefinedCount = redefinedCount;
+        }
+    }
+```
+注意ReflectionData中有字段redefinedCount，核心作用是校验**缓存失效检测**缓存一致性保证
+
+- redefinedCount 用于检测类是否被重新定义
+- 当类被重定义时，该计数递增
+- 确保反射缓存数据与实际的类定义保持同步
+
+什么情况下会出现类重新定义场景导致缓存失效呢？
+
+- 应用服务器热部署
+- JRebel、Spring Boot DevTools 等热重载工具
+- IDE 的调试模式下的代码热替换
+- 动态类重定义
+```java
+// 通过 Instrumentation API 重定义类
+instrumentation.redefineClasses(new ClassDefinition(clazz, newBytecode));
+// 此时类的 redefinedCount 会递增
+```
+Class 类中的对应字段
+
+```java
+public final class Class<T> {
+    // 类的重定义计数，与 ReflectionData 中的 redefinedCount 对应
+    private volatile int redefinedCount = 0;
+    
+    // ReflectionData 缓存
+    private volatile transient ReflectionData<T> reflectionData;
+}
+```
+##### 5.3.1.4 如何比较构造是否是要查找构造器
+```java
+private static boolean arrayContentsEq(Object[] a1, Object[] a2) {
+        if (a1 == null) {
+            return a2 == null || a2.length == 0;
+        }
+
+        if (a2 == null) {
+            return a1.length == 0;
+        }
+
+        if (a1.length != a2.length) {
+            return false;
+        }
+
+        for (int i = 0; i < a1.length; i++) {
+            if (a1[i] != a2[i]) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+    // sun.reflect.ReflectionFactory
+    /** Makes a copy of the passed constructor. The returned
+        constructor is a "child" of the passed one; see the comments
+        in Constructor.java for details. */
+    public <T> Constructor<T> copyConstructor(Constructor<T> arg) {
+        return langReflectAccess().copyConstructor(arg);
+    }
+    
+    // java.lang.reflect.Constructor, copy 其实就是新new一个 Constructor 出来
+    Constructor<T> copy() {
+        // This routine enables sharing of ConstructorAccessor objects
+        // among Constructor objects which refer to the same underlying
+        // method in the VM. (All of this contortion is only necessary
+        // because of the "accessibility" bit in AccessibleObject,
+        // which implicitly requires that new java.lang.reflect
+        // objects be fabricated for each reflective call on Class
+        // objects.)
+        if (this.root != null)
+            throw new IllegalArgumentException("Can not copy a non-root Constructor");
+
+        Constructor<T> res = new Constructor<>(clazz,
+                                               parameterTypes,
+                                               exceptionTypes, modifiers, slot,
+                                               signature,
+                                               annotations,
+                                               parameterAnnotations);
+        // root 指向当前 constructor
+        res.root = this;
+        // Might as well eagerly propagate this if already present
+        res.constructorAccessor = constructorAccessor;
+        return res;
+    }
+```
+##### 5.3.1.5 调用其相应构造器的 newInstance()，即返回实例
+```java
+// return tmpConstructor.newInstance((Object[])null); 
+    // java.lang.reflect.Constructor
+    @CallerSensitive
+    public T newInstance(Object ... initargs)
+        throws InstantiationException, IllegalAccessException,
+               IllegalArgumentException, InvocationTargetException
+    {
+        if (!override) {
+            if (!Reflection.quickCheckMemberAccess(clazz, modifiers)) {
+                Class<?> caller = Reflection.getCallerClass();
+                checkAccess(caller, clazz, null, modifiers);
+            }
+        }
+        if ((clazz.getModifiers() & Modifier.ENUM) != 0)
+            throw new IllegalArgumentException("Cannot reflectively create enum objects");
+        ConstructorAccessor ca = constructorAccessor;   // read volatile
+        if (ca == null) {
+            ca = acquireConstructorAccessor();
+        }
+        @SuppressWarnings("unchecked")
+        T inst = (T) ca.newInstance(initargs);
+        return inst;
+    }
+    // sun.reflect.DelegatingConstructorAccessorImpl
+    public Object newInstance(Object[] args)
+      throws InstantiationException,
+             IllegalArgumentException,
+             InvocationTargetException
+    {
+        return delegate.newInstance(args);
+    }
+    // sun.reflect.NativeConstructorAccessorImpl
+    public Object newInstance(Object[] args)
+        throws InstantiationException,
+               IllegalArgumentException,
+               InvocationTargetException
+    {
+        // We can't inflate a constructor belonging to a vm-anonymous class
+        // because that kind of class can't be referred to by name, hence can't
+        // be found from the generated bytecode.
+        if (++numInvocations > ReflectionFactory.inflationThreshold()
+                && !ReflectUtil.isVMAnonymousClass(c.getDeclaringClass())) {
+            ConstructorAccessorImpl acc = (ConstructorAccessorImpl)
+                new MethodAccessorGenerator().
+                    generateConstructor(c.getDeclaringClass(),
+                                        c.getParameterTypes(),
+                                        c.getExceptionTypes(),
+                                        c.getModifiers());
+            parent.setDelegate(acc);
+        }
+
+        // 调用native方法，进行调用 constructor
+        return newInstance0(c, args);
+    }
+```
+#### 5.3.2 反射获取方法
+
+```java
+    // java.lang.Class
+    @CallerSensitive
+    public Method getDeclaredMethod(String name, Class<?>... parameterTypes)
+        throws NoSuchMethodException, SecurityException {
+        checkMemberAccess(Member.DECLARED, Reflection.getCallerClass(), true);
+        Method method = searchMethods(privateGetDeclaredMethods(false), name, parameterTypes);
+        if (method == null) {
+            throw new NoSuchMethodException(getName() + "." + name + argumentTypesToString(parameterTypes));
+        }
+        return method;
+    }
+```
+忽略第一个检查权限，剩下就只有两个动作了。
+
+- 获取所有方法列表；
+- 根据方法名称和方法列表，选出符合要求的方法；
+- 如果没有找到相应方法，抛出异常，否则返回对应方法；
+
+##### 5.3.2.1 获取类声明的所有方法
+
+```java
+// Returns an array of "root" methods. These Method objects must NOT
+    // be propagated to the outside world, but must instead be copied
+    // via ReflectionFactory.copyMethod.
+    private Method[] privateGetDeclaredMethods(boolean publicOnly) {
+        checkInitted();
+        Method[] res;
+        ReflectionData<T> rd = reflectionData();
+        if (rd != null) {
+            res = publicOnly ? rd.declaredPublicMethods : rd.declaredMethods;
+            if (res != null) return res;
+        }
+        // No cached value available; request value from VM
+        res = Reflection.filterMethods(this, getDeclaredMethods0(publicOnly));
+        if (rd != null) {
+            if (publicOnly) {
+                rd.declaredPublicMethods = res;
+            } else {
+                rd.declaredMethods = res;
+            }
+        }
+        return res;
+    }
+```
+很相似，和获取所有构造器的方法很相似，都是先从缓存中获取方法，如果没有，则从jvm中获取。
+
+##### 5.3.2.2 据方法名和参数类型过滤指定方法返回
+```java
+  private static Method searchMethods(Method[] methods,
+                                        String name,
+                                        Class<?>[] parameterTypes)
+    {
+        Method res = null;
+        // 使用常量池，避免重复创建String
+        String internedName = name.intern();
+        for (int i = 0; i < methods.length; i++) {
+            Method m = methods[i];
+            if (m.getName() == internedName
+                && arrayContentsEq(parameterTypes, m.getParameterTypes())
+                && (res == null
+                    || res.getReturnType().isAssignableFrom(m.getReturnType())))
+                res = m;
+        }
+
+        return (res == null ? res : getReflectionFactory().copyMethod(res));
+    }
+```
+大概意思看得明白，就是匹配到方法名，然后参数类型匹配，才可以。
+- 但是可以看到，匹配到一个方法，并没有退出for循环，而是继续进行匹配。
+- 这里是匹配最精确的子类进行返回（最优匹配）
+- 最后，还是通过 ReflectionFactory, copy 方法后返回。
+
+##### 5.3.2.3 调用 method.invoke() 方法
+```java
+@CallerSensitive
+    public Object invoke(Object obj, Object... args)
+        throws IllegalAccessException, IllegalArgumentException,
+           InvocationTargetException
+    {
+        if (!override) {
+            if (!Reflection.quickCheckMemberAccess(clazz, modifiers)) {
+                Class<?> caller = Reflection.getCallerClass();
+                checkAccess(caller, clazz, obj, modifiers);
+            }
+        }
+        MethodAccessor ma = methodAccessor;             // read volatile
+        if (ma == null) {
+            ma = acquireMethodAccessor();
+        }
+        return ma.invoke(obj, args);
+    }
+```
+invoke时，是通过 MethodAccessor 进行调用的，而 MethodAccessor 是个接口，在第一次时调用 acquireMethodAccessor() 进行新创建。
+```java
+ // probably make the implementation more scalable.
+    private MethodAccessor acquireMethodAccessor() {
+        // First check to see if one has been created yet, and take it
+        // if so
+        MethodAccessor tmp = null;
+        if (root != null) tmp = root.getMethodAccessor();
+        if (tmp != null) {
+            // 存在缓存时，存入 methodAccessor，否则调用 ReflectionFactory 创建新的 MethodAccessor
+            methodAccessor = tmp;
+        } else {
+            // Otherwise fabricate one and propagate it up to the root
+            tmp = reflectionFactory.newMethodAccessor(this);
+            setMethodAccessor(tmp);
+        }
+
+        return tmp;
+    }
+    // sun.reflect.ReflectionFactory
+    public MethodAccessor newMethodAccessor(Method method) {
+        checkInitted();
+
+        if (noInflation && !ReflectUtil.isVMAnonymousClass(method.getDeclaringClass())) {
+            return new MethodAccessorGenerator().
+                generateMethod(method.getDeclaringClass(),
+                               method.getName(),
+                               method.getParameterTypes(),
+                               method.getReturnType(),
+                               method.getExceptionTypes(),
+                               method.getModifiers());
+        } else {
+            NativeMethodAccessorImpl acc =
+                new NativeMethodAccessorImpl(method);
+            DelegatingMethodAccessorImpl res =
+                new DelegatingMethodAccessorImpl(acc);
+            acc.setParent(res);
+            return res;
+        }
+    }
+```
+两个Accessor详情：
+```java
+//     NativeMethodAccessorImpl / DelegatingMethodAccessorImpl
+class NativeMethodAccessorImpl extends MethodAccessorImpl {
+    private final Method method;
+    private DelegatingMethodAccessorImpl parent;
+    private int numInvocations;
+
+    NativeMethodAccessorImpl(Method method) {
+        this.method = method;
+    }
+
+    public Object invoke(Object obj, Object[] args)
+        throws IllegalArgumentException, InvocationTargetException
+    {
+        // We can't inflate methods belonging to vm-anonymous classes because
+        // that kind of class can't be referred to by name, hence can't be
+        // found from the generated bytecode.
+        if (++numInvocations > ReflectionFactory.inflationThreshold()
+                && !ReflectUtil.isVMAnonymousClass(method.getDeclaringClass())) {
+            MethodAccessorImpl acc = (MethodAccessorImpl)
+                new MethodAccessorGenerator().
+                    generateMethod(method.getDeclaringClass(),
+                                   method.getName(),
+                                   method.getParameterTypes(),
+                                   method.getReturnType(),
+                                   method.getExceptionTypes(),
+                                   method.getModifiers());
+            parent.setDelegate(acc);
+        }
+
+        return invoke0(method, obj, args);
+    }
+
+    void setParent(DelegatingMethodAccessorImpl parent) {
+        this.parent = parent;
+    }
+
+    private static native Object invoke0(Method m, Object obj, Object[] args);
+}
+//-----------------------------------------------//
+class DelegatingMethodAccessorImpl extends MethodAccessorImpl {
+    private MethodAccessorImpl delegate;
+
+    DelegatingMethodAccessorImpl(MethodAccessorImpl delegate) {
+        setDelegate(delegate);
+    }
+
+    public Object invoke(Object obj, Object[] args)
+        throws IllegalArgumentException, InvocationTargetException
+    {
+        return delegate.invoke(obj, args);
+    }
+
+    void setDelegate(MethodAccessorImpl delegate) {
+        this.delegate = delegate;
+    }
+}
+```
+
+进行 ma.invoke(obj, args); 调用时，调用 DelegatingMethodAccessorImpl.invoke();最后被委托到 NativeMethodAccessorImpl.invoke(), 即：
+
+```java
+    public Object invoke(Object obj, Object[] args)
+        throws IllegalArgumentException, InvocationTargetException
+    {
+        // We can't inflate methods belonging to vm-anonymous classes because
+        // that kind of class can't be referred to by name, hence can't be
+        // found from the generated bytecode.
+        if (++numInvocations > ReflectionFactory.inflationThreshold()
+                && !ReflectUtil.isVMAnonymousClass(method.getDeclaringClass())) {
+            MethodAccessorImpl acc = (MethodAccessorImpl)
+                new MethodAccessorGenerator().
+                    generateMethod(method.getDeclaringClass(),
+                                   method.getName(),
+                                   method.getParameterTypes(),
+                                   method.getReturnType(),
+                                   method.getExceptionTypes(),
+                                   method.getModifiers());
+            parent.setDelegate(acc);
+        }
+
+        // invoke0 是个 native 方法，由jvm进行调用业务方法。从而完成反射调用功能。
+        return invoke0(method, obj, args);
+    }
+```
+其中， generateMethod() 是生成具体类的方法：
+```java
+ /** This routine is not thread-safe */
+    public MethodAccessor generateMethod(Class<?> declaringClass,
+                                         String   name,
+                                         Class<?>[] parameterTypes,
+                                         Class<?>   returnType,
+                                         Class<?>[] checkedExceptions,
+                                         int modifiers)
+    {
+        return (MethodAccessor) generate(declaringClass,
+                                         name,
+                                         parameterTypes,
+                                         returnType,
+                                         checkedExceptions,
+                                         modifiers,
+                                         false,
+                                         false,
+                                         null);
+    }
+```
+enerate() 详情。
+```java
+/** This routine is not thread-safe */
+    private MagicAccessorImpl generate(final Class<?> declaringClass,
+                                       String name,
+                                       Class<?>[] parameterTypes,
+                                       Class<?>   returnType,
+                                       Class<?>[] checkedExceptions,
+                                       int modifiers,
+                                       boolean isConstructor,
+                                       boolean forSerialization,
+                                       Class<?> serializationTargetClass)
+    {
+        ByteVector vec = ByteVectorFactory.create();
+        asm = new ClassFileAssembler(vec);
+        this.declaringClass = declaringClass;
+        this.parameterTypes = parameterTypes;
+        this.returnType = returnType;
+        this.modifiers = modifiers;
+        this.isConstructor = isConstructor;
+        this.forSerialization = forSerialization;
+
+        asm.emitMagicAndVersion();
+
+        // Constant pool entries:
+        // ( * = Boxing information: optional)
+        // (+  = Shared entries provided by AccessorGenerator)
+        // (^  = Only present if generating SerializationConstructorAccessor)
+        //     [UTF-8] [This class's name]
+        //     [CONSTANT_Class_info] for above
+        //     [UTF-8] "sun/reflect/{MethodAccessorImpl,ConstructorAccessorImpl,SerializationConstructorAccessorImpl}"
+        //     [CONSTANT_Class_info] for above
+        //     [UTF-8] [Target class's name]
+        //     [CONSTANT_Class_info] for above
+        // ^   [UTF-8] [Serialization: Class's name in which to invoke constructor]
+        // ^   [CONSTANT_Class_info] for above
+        //     [UTF-8] target method or constructor name
+        //     [UTF-8] target method or constructor signature
+        //     [CONSTANT_NameAndType_info] for above
+        //     [CONSTANT_Methodref_info or CONSTANT_InterfaceMethodref_info] for target method
+        //     [UTF-8] "invoke" or "newInstance"
+        //     [UTF-8] invoke or newInstance descriptor
+        //     [UTF-8] descriptor for type of non-primitive parameter 1
+        //     [CONSTANT_Class_info] for type of non-primitive parameter 1
+        //     ...
+        //     [UTF-8] descriptor for type of non-primitive parameter n
+        //     [CONSTANT_Class_info] for type of non-primitive parameter n
+        // +   [UTF-8] "java/lang/Exception"
+        // +   [CONSTANT_Class_info] for above
+        // +   [UTF-8] "java/lang/ClassCastException"
+        // +   [CONSTANT_Class_info] for above
+        // +   [UTF-8] "java/lang/NullPointerException"
+        // +   [CONSTANT_Class_info] for above
+        // +   [UTF-8] "java/lang/IllegalArgumentException"
+        // +   [CONSTANT_Class_info] for above
+        // +   [UTF-8] "java/lang/InvocationTargetException"
+        // +   [CONSTANT_Class_info] for above
+        // +   [UTF-8] "<init>"
+        // +   [UTF-8] "()V"
+        // +   [CONSTANT_NameAndType_info] for above
+        // +   [CONSTANT_Methodref_info] for NullPointerException's constructor
+        // +   [CONSTANT_Methodref_info] for IllegalArgumentException's constructor
+        // +   [UTF-8] "(Ljava/lang/String;)V"
+        // +   [CONSTANT_NameAndType_info] for "<init>(Ljava/lang/String;)V"
+        // +   [CONSTANT_Methodref_info] for IllegalArgumentException's constructor taking a String
+        // +   [UTF-8] "(Ljava/lang/Throwable;)V"
+        // +   [CONSTANT_NameAndType_info] for "<init>(Ljava/lang/Throwable;)V"
+        // +   [CONSTANT_Methodref_info] for InvocationTargetException's constructor
+        // +   [CONSTANT_Methodref_info] for "super()"
+        // +   [UTF-8] "java/lang/Object"
+        // +   [CONSTANT_Class_info] for above
+        // +   [UTF-8] "toString"
+        // +   [UTF-8] "()Ljava/lang/String;"
+        // +   [CONSTANT_NameAndType_info] for "toString()Ljava/lang/String;"
+        // +   [CONSTANT_Methodref_info] for Object's toString method
+        // +   [UTF-8] "Code"
+        // +   [UTF-8] "Exceptions"
+        //  *  [UTF-8] "java/lang/Boolean"
+        //  *  [CONSTANT_Class_info] for above
+        //  *  [UTF-8] "(Z)V"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "booleanValue"
+        //  *  [UTF-8] "()Z"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "java/lang/Byte"
+        //  *  [CONSTANT_Class_info] for above
+        //  *  [UTF-8] "(B)V"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "byteValue"
+        //  *  [UTF-8] "()B"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "java/lang/Character"
+        //  *  [CONSTANT_Class_info] for above
+        //  *  [UTF-8] "(C)V"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "charValue"
+        //  *  [UTF-8] "()C"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "java/lang/Double"
+        //  *  [CONSTANT_Class_info] for above
+        //  *  [UTF-8] "(D)V"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "doubleValue"
+        //  *  [UTF-8] "()D"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "java/lang/Float"
+        //  *  [CONSTANT_Class_info] for above
+        //  *  [UTF-8] "(F)V"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "floatValue"
+        //  *  [UTF-8] "()F"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "java/lang/Integer"
+        //  *  [CONSTANT_Class_info] for above
+        //  *  [UTF-8] "(I)V"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "intValue"
+        //  *  [UTF-8] "()I"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "java/lang/Long"
+        //  *  [CONSTANT_Class_info] for above
+        //  *  [UTF-8] "(J)V"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "longValue"
+        //  *  [UTF-8] "()J"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "java/lang/Short"
+        //  *  [CONSTANT_Class_info] for above
+        //  *  [UTF-8] "(S)V"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+        //  *  [UTF-8] "shortValue"
+        //  *  [UTF-8] "()S"
+        //  *  [CONSTANT_NameAndType_info] for above
+        //  *  [CONSTANT_Methodref_info] for above
+
+        short numCPEntries = NUM_BASE_CPOOL_ENTRIES + NUM_COMMON_CPOOL_ENTRIES;
+        boolean usesPrimitives = usesPrimitiveTypes();
+        if (usesPrimitives) {
+            numCPEntries += NUM_BOXING_CPOOL_ENTRIES;
+        }
+        if (forSerialization) {
+            numCPEntries += NUM_SERIALIZATION_CPOOL_ENTRIES;
+        }
+
+        // Add in variable-length number of entries to be able to describe
+        // non-primitive parameter types and checked exceptions.
+        numCPEntries += (short) (2 * numNonPrimitiveParameterTypes());
+
+        asm.emitShort(add(numCPEntries, S1));
+
+        final String generatedName = generateName(isConstructor, forSerialization);
+        asm.emitConstantPoolUTF8(generatedName);
+        asm.emitConstantPoolClass(asm.cpi());
+        thisClass = asm.cpi();
+        if (isConstructor) {
+            if (forSerialization) {
+                asm.emitConstantPoolUTF8
+                    ("sun/reflect/SerializationConstructorAccessorImpl");
+            } else {
+                asm.emitConstantPoolUTF8("sun/reflect/ConstructorAccessorImpl");
+            }
+        } else {
+            asm.emitConstantPoolUTF8("sun/reflect/MethodAccessorImpl");
+        }
+        asm.emitConstantPoolClass(asm.cpi());
+        superClass = asm.cpi();
+        asm.emitConstantPoolUTF8(getClassName(declaringClass, false));
+        asm.emitConstantPoolClass(asm.cpi());
+        targetClass = asm.cpi();
+        short serializationTargetClassIdx = (short) 0;
+        if (forSerialization) {
+            asm.emitConstantPoolUTF8(getClassName(serializationTargetClass, false));
+            asm.emitConstantPoolClass(asm.cpi());
+            serializationTargetClassIdx = asm.cpi();
+        }
+        asm.emitConstantPoolUTF8(name);
+        asm.emitConstantPoolUTF8(buildInternalSignature());
+        asm.emitConstantPoolNameAndType(sub(asm.cpi(), S1), asm.cpi());
+        if (isInterface()) {
+            asm.emitConstantPoolInterfaceMethodref(targetClass, asm.cpi());
+        } else {
+            if (forSerialization) {
+                asm.emitConstantPoolMethodref(serializationTargetClassIdx, asm.cpi());
+            } else {
+                asm.emitConstantPoolMethodref(targetClass, asm.cpi());
+            }
+        }
+        targetMethodRef = asm.cpi();
+        if (isConstructor) {
+            asm.emitConstantPoolUTF8("newInstance");
+        } else {
+            asm.emitConstantPoolUTF8("invoke");
+        }
+        invokeIdx = asm.cpi();
+        if (isConstructor) {
+            asm.emitConstantPoolUTF8("([Ljava/lang/Object;)Ljava/lang/Object;");
+        } else {
+            asm.emitConstantPoolUTF8
+                ("(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;");
+        }
+        invokeDescriptorIdx = asm.cpi();
+
+        // Output class information for non-primitive parameter types
+        nonPrimitiveParametersBaseIdx = add(asm.cpi(), S2);
+        for (int i = 0; i < parameterTypes.length; i++) {
+            Class<?> c = parameterTypes[i];
+            if (!isPrimitive(c)) {
+                asm.emitConstantPoolUTF8(getClassName(c, false));
+                asm.emitConstantPoolClass(asm.cpi());
+            }
+        }
+
+        // Entries common to FieldAccessor, MethodAccessor and ConstructorAccessor
+        emitCommonConstantPoolEntries();
+
+        // Boxing entries
+        if (usesPrimitives) {
+            emitBoxingContantPoolEntries();
+        }
+
+        if (asm.cpi() != numCPEntries) {
+            throw new InternalError("Adjust this code (cpi = " + asm.cpi() +
+                                    ", numCPEntries = " + numCPEntries + ")");
+        }
+
+        // Access flags
+        asm.emitShort(ACC_PUBLIC);
+
+        // This class
+        asm.emitShort(thisClass);
+
+        // Superclass
+        asm.emitShort(superClass);
+
+        // Interfaces count and interfaces
+        asm.emitShort(S0);
+
+        // Fields count and fields
+        asm.emitShort(S0);
+
+        // Methods count and methods
+        asm.emitShort(NUM_METHODS);
+
+        emitConstructor();
+        emitInvoke();
+
+        // Additional attributes (none)
+        asm.emitShort(S0);
+
+        // Load class
+        vec.trim();
+        final byte[] bytes = vec.getData();
+        // Note: the class loader is the only thing that really matters
+        // here -- it's important to get the generated code into the
+        // same namespace as the target class. Since the generated code
+        // is privileged anyway, the protection domain probably doesn't
+        // matter.
+        return AccessController.doPrivileged(
+            new PrivilegedAction<MagicAccessorImpl>() {
+                public MagicAccessorImpl run() {
+                        try {
+                        return (MagicAccessorImpl)
+                        ClassDefiner.defineClass
+                                (generatedName,
+                                 bytes,
+                                 0,
+                                 bytes.length,
+                                 declaringClass.getClassLoader()).newInstance();
+                        } catch (InstantiationException | IllegalAccessException e) {
+                            throw new InternalError(e);
+                        }
+                    }
+                });
+    }
+```
+咱们主要看这一句：ClassDefiner.defineClass(xx, declaringClass.getClassLoader()).newInstance();
+
+在ClassDefiner.defineClass方法实现中，每被调用一次都会生成一个DelegatingClassLoader类加载器对象 ，这里每次都生成新的类加载器，是为了性能考虑，在某些情况下可以卸载这些生成的类，因为类的卸载是只有在类加载器可以被回收的情况下才会被回收的，如果用了原来的类加载器，那可能导致这些新创建的类一直无法被卸载。
+
+而反射生成的类，有时候可能用了就可以卸载了，所以使用其独立的类加载器，从而使得更容易控制反射类的生命周期。下面进行类卸载的详细内容：
+
+- 动态类加载器与类卸载机制
+
+  - 核心概念：类加载器与类生命周期
+
+    - 类加载器的作用
+      - 每个类都由其类加载器唯一标识
+      - JVM 通过 `类 + 类加载器` 来识别类的唯一性
+      - 类的生命周期与其类加载器绑定
+
+    - ClassDefiner.defineClass 的工作方式
+      ```java
+      public class ClassDefiner {
+          public static Class<?> defineClass(byte[] bytecode, ClassLoader parentLoader) {
+              DelegatingClassLoader loader = new DelegatingClassLoader(parentLoader);
+              return loader.defineClass(null, bytecode, 0, bytecode.length);
+          }
+      }
+      
+      class DelegatingClassLoader extends ClassLoader {
+          public DelegatingClassLoader(ClassLoader parent) {
+              super(parent);
+          }
+      }
+      ```
+
+  - 为什么需要每次创建新的类加载器
+
+    - 类卸载的必要条件
+      ```java
+      // 类可以被卸载的条件：
+      // 1. 该类的所有实例都已被回收
+      // 2. 加载该类的 ClassLoader 实例已被回收  
+      // 3. 该类对应的 java.lang.Class 对象没有被任何地方引用
+      ```
+
+    - 使用原有类加载器的问题
+      ```java
+      // 如果使用原有类加载器
+      Class<?> dynamicClass = originalLoader.defineClass(bytecode);
+      
+      // 问题：
+      // 1. 动态类会一直存在于 originalLoader 的类缓存中
+      // 2. 即使动态类不再使用，也无法被卸载
+      // 3. 导致元空间(metaspace)内存泄漏
+      ```
+
+  - 独立类加载器的优势
+
+    - 精确的类生命周期控制
+      ```java
+      for (int i = 0; i < 1000; i++) {
+          DelegatingClassLoader loader = new DelegatingClassLoader(parent);
+          Class<?> tempClass = loader.defineClass(generateBytecode(i));
+          Object instance = tempClass.newInstance();
+          useInstance(instance);
+          // 使用完成后，loader 和 tempClass 可以被 GC 回收
+      }
+      ```
+
+    - 内存管理对比
+      ```java
+      // ❌ 不好的做法：使用原有类加载器
+      ClassLoader originalLoader = declaringClass.getClassLoader();
+      for (int i = 0; i < 1000; i++) {
+          Class<?> tempClass = originalLoader.defineClass(generateBytecode(i));
+          // 所有临时类累积在缓存中，无法卸载
+      }
+
+      // ✅ 好的做法：使用独立类加载器  
+      for (int i = 0; i < 1000; i++) {
+          ClassLoader tempLoader = new DelegatingClassLoader(originalLoader);
+          Class<?> tempClass = tempLoader.defineClass(generateBytecode(i));
+          // 使用后，tempLoader 和 tempClass 可以被 GC 回收
+      }
+      ```
+
+  - 实际应用场景分析
+
+    - 动态代理场景
+      ```java
+      public class Proxy {
+          public static Object newProxyInstance(ClassLoader loader,
+                                               Class<?>[] interfaces,
+                                               InvocationHandler h) {
+              byte[] proxyClassFile = generateProxyClass(interfaces);
+              Class<?> proxyClass = defineClass0(loader, proxyClassFile);
+              return proxyClass.newInstance();
+          }
+      }
+      ```
+
+    - 序列化/反序列化优化
+      ```java
+      public class FastSerializer {
+          public Object deserialize(byte[] data, Class<?> targetClass) {
+              byte[] readerClassBytes = generateReaderClass(targetClass);
+              ClassLoader tempLoader = new DelegatingClassLoader(
+                  targetClass.getClassLoader());
+              Class<?> readerClass = tempLoader.defineClass(readerClassBytes);
+              Object reader = readerClass.newInstance();
+              return ((Reader)reader).read(data);
+          }
+      }
+      ```
+
+  - 类卸载的具体机制
+
+    - GC 触发类卸载的过程
+      ```java
+      void demonstrateClassUnloading() {
+          ClassLoader loader = new DelegatingClassLoader(parentLoader);
+          Class<?> dynamicClass = loader.defineClass(bytecode);
+          Object instance = dynamicClass.newInstance();
+          use(instance);
+          
+          instance = null;           // 移除实例引用
+          dynamicClass = null;       // 移除 Class 对象引用
+          loader = null;             // 移除类加载器引用
+          
+          System.gc();               // 触发 GC
+      }
+      ```
+
+    - 元空间内存管理
+      ```java
+      public class MetaspaceMonitor {
+          public static void printMetaspaceInfo() {
+              MemoryPoolMXBean metaspace = ManagementFactory.getMemoryPoolMXBeans()
+                  .stream()
+                  .filter(b -> "Metaspace".equals(b.getName()))
+                  .findFirst()
+                  .orElse(null);
+                  
+              if (metaspace != null) {
+                  MemoryUsage usage = metaspace.getUsage();
+                  System.out.printf("Metaspace: used=%d, max=%d%n",
+                      usage.getUsed(), usage.getMax());
+              }
+          }
+      }
+      ```
+
+  - 性能权衡考虑
+
+    - 创建类加载器的开销
+      ```java
+      public class ClassLoaderPerformance {
+          public void testOriginalLoader() {
+              ClassLoader loader = getClass().getClassLoader();
+              for (int i = 0; i < 1000; i++) {
+                  Class<?> clazz = loader.defineClass(generateBytecode(i));
+              }
+          }
+          
+          public void testNewLoader() {
+              for (int i = 0; i < 1000; i++) {
+                  ClassLoader loader = new DelegatingClassLoader(getClass().getClassLoader());
+                  Class<?> clazz = loader.defineClass(generateBytecode(i));
+              }
+          }
+      }
+      ```
+
+    - 适用场景判断
+      ```java
+      public boolean shouldUseIsolatedLoader(ClassGenerationContext context) {
+          return 
+              context.isTemporary() ||
+              context.getExpectedClassCount() > 100 ||
+              context.isDynamicContent() ||
+              context.isMemorySensitive();
+      }
+      ```
+
+  - 实际框架中的实现
+
+    - Spring Framework 中的类似模式
+      ```java
+      public class CglibAopProxy {
+          protected Object createProxyClassAndInstance(Enhancer enhancer, Callback[] callbacks) {
+              ClassLoader loader = getClass().getClassLoader();
+              ClassLoader visibilityAwareLoader = new VisibilityAwareClassLoader(loader);
+              enhancer.setClassLoader(visibilityAwareLoader);
+              Class<?> proxyClass = enhancer.createClass();
+              return createProxyInstance(proxyClass, callbacks);
+          }
+      }
+      ```
+
+    - Hibernate 字节码增强
+      ```java
+      public class BytecodeProvider {
+          public Class<?> enhanceClass(Class<?> originalClass, byte[] enhancedBytecode) {
+              ClassLoader enhancerLoader = new EnhancementClassLoader(
+                  originalClass.getClassLoader());
+              return enhancerLoader.defineClass(
+                  originalClass.getName(), enhancedBytecode);
+          }
+      }
+      ```
+
+  - 最佳实践总结
+
+    - 内存管理策略
+      ```java
+      public class DynamicClassManager {
+          private final Map<String, SoftReference<ClassLoader>> loaderCache = 
+              new ConcurrentHashMap<>();
+          
+          public Class<?> defineClass(byte[] bytecode, String key) {
+              return loaderCache.compute(key, (k, ref) -> {
+                  if (ref != null && ref.get() != null) {
+                      ClassLoader loader = ref.get();
+                      try {
+                          return loader.defineClass(bytecode);
+                      } catch (Exception e) {
+                          // 定义失败，创建新的加载器
+                      }
+                  }
+                  
+                  ClassLoader newLoader = new DelegatingClassLoader(parentLoader);
+                  newLoader.defineClass(bytecode);
+                  return new SoftReference<>(newLoader);
+              });
+          }
+      }
+      ```
+
+    - 资源清理模式
+      ```java
+      public class DynamicClassScope implements AutoCloseable {
+          private final List<ClassLoader> temporaryLoaders = new ArrayList<>();
+          
+          public Class<?> defineTemporaryClass(byte[] bytecode) {
+              ClassLoader loader = new DelegatingClassLoader(parentLoader);
+              temporaryLoaders.add(loader);
+              return loader.defineClass(bytecode);
+          }
+          
+          @Override
+          public void close() {
+              temporaryLoaders.clear();
+          }
+      }
+
+      // 使用示例
+      try (DynamicClassScope scope = new DynamicClassScope()) {
+          Class<?> tempClass = scope.defineTemporaryClass(bytecode);
+          // 使用临时类...
+      }
+      ```
+- ‌类卸载‌：当满足以下条件时触发：
+    - 该类的所有实例已被回收（Java堆中不存在该类的实例） ‌
+    - 加载该类的ClassLoader已被回收 ‌
+    - java.lang.Class对象没有任何地方被引用（如通过反射访问） ‌
+- ‌类加载器回收‌：当加载器的生命周期结束且其加载的所有类均被卸载时触发。例如，在Web应用中，若Servlet被卸载且自定义加载器无其他用途，则该加载器可被回收。 ‌
+
+资源释放范围
+
+- ‌类卸载‌：移除类元数据（如常量池、方法字节码）、释放内存空间，但静态变量持有的对象引用仍可能存在 ‌
+- ‌类加载器回收‌：直接影响其加载的所有类资源，可能导致依赖这些类的程序逻辑失效 ‌
+
+性能影响
+
+- ‌类卸载‌：可减少内存占用，防止内存泄漏，但需避免因反射或动态代理等场景导致类无法卸载 ‌
+- ‌类加载器回收‌：优化内存结构，降低方法区压力，但需谨慎处理生命周期以避免程序逻辑中断 ‌
+
+值得注意的是：类卸载和类对象的资源回收是两个概念：
+- ‌类卸载‌作用于类级别资源，涉及移除类的元数据、常量池等静态资源，释放方法区内存。
+- ‌对象回收‌是垃圾回收的组成部分，仅处理对象实例的动态内存释放，不涉及类定义本身。 ‌
+#### 5.3.3  反射调用流程小结
+最后，用几句话总结反射的实现原理：
+- 反射类及反射方法的获取，都是通过从列表中搜寻查找匹配的方法，所以查找性能会随类的大小方法多少而变化；（这也是为什么不推荐一个类文件过于庞大的原因）
+- 每个类都会有一个与之对应的Class实例，从而每个类都可以获取method反射方法，并作用到其他实例身上；
+- 反射也是考虑了线程安全的，放心使用；
+- 反射使用软引用relectionData缓存class信息，避免每次重新从jvm获取带来的开销；
+- 反射调用多次生成新代理Accessor, 而通过字节码生存的则考虑了卸载功能，所以会使用独立的类加载器；
+- 当找到需要的方法，都会copy一份出来，而不是使用原来的实例，从而保证数据隔离；
+- 调度反射方法，最终是由jvm执行invoke0()执行；
+
+- 反射方法调用执行机制
+
+  - 反射方法调用的基本流程
+
+    - 标准反射调用路径
+      ```java
+      // Java层反射调用
+      Method.invoke(Object obj, Object... args)
+          ↓
+      native Method.invoke0(Object obj, Object[] args)
+          ↓
+      JVM层方法分发
+          ↓
+      实际方法执行
+      ```
+
+    - 初始实现的性能问题
+      - 每次反射调用都需要JNI边界跨越
+      - 需要参数打包/解包
+      - 需要访问权限检查
+      - 方法解析和验证开销
+
+  - JVM层面的优化策略
+
+    - 内联缓存机制
+      ```java
+      // JVM内部维护的反射调用缓存
+      class ReflectionInvocationCache {
+          Method method;          // 方法对象
+          Class<?> caller;        // 调用者类
+          int callCount;          // 调用次数
+          long lastCallTime;      // 最后调用时间
+          Object compiledCode;    // 编译后的本地代码
+      }
+      ```
+
+    - JIT编译器优化
+      - 热点反射调用被JIT编译为直接调用
+      - 基于调用频率的动态去虚拟化
+      - 方法内联优化
+
+  - 反射调用方法的多级缓存
+
+    - 方法访问器缓存
+      ```java
+      public class Method {
+          private volatile MethodAccessor methodAccessor;
+          
+          public Object invoke(Object obj, Object... args) {
+              // 首次调用时生成方法访问器
+              if (methodAccessor == null) {
+                  acquireMethodAccessor();
+              }
+              // 后续调用使用缓存的方法访问器
+              return methodAccessor.invoke(obj, args);
+          }
+          
+          private void acquireMethodAccessor() {
+              MethodAccessor tmp = null;
+              if (root != null) tmp = root.getMethodAccessor();
+              if (tmp != null) {
+                  methodAccessor = tmp;
+              } else {
+                  // 创建新的方法访问器并缓存
+                  tmp = reflectionFactory.newMethodAccessor(this);
+                  setMethodAccessor(tmp);
+              }
+          }
+      }
+      ```
+
+    - 方法访问器生成策略
+      ```java
+      public class ReflectionFactory {
+          public MethodAccessor newMethodAccessor(Method method) {
+              // 检查是否使用本地代码生成器
+              if (noInflation && !ReflectUtil.isVMAnonymousClass(method.getDeclaringClass())) {
+                  // 直接生成优化的字节码访问器
+                  return new MethodAccessorGenerator()
+                      .generateMethod(method.getDeclaringClass(),
+                                     method.getName(),
+                                     method.getParameterTypes(),
+                                     method.getReturnType(),
+                                     method.getExceptionTypes(),
+                                     method.getModifiers());
+              } else {
+                  // 使用本地方法实现（初始阶段）
+                  NativeMethodAccessorImpl acc = new NativeMethodAccessorImpl(method);
+                  // 包装为可优化的访问器
+                  return new DelegatingMethodAccessorImpl(acc);
+              }
+          }
+      }
+      ```
+
+  - 自适应优化机制
+
+    - 调用次数阈值检测
+      ```java
+      class DelegatingMethodAccessorImpl extends MethodAccessorImpl {
+          private final MethodAccessorImpl delegate;
+          private volatile int invocationCount;
+          
+          public Object invoke(Object obj, Object[] args) throws Exception {
+              // 调用次数计数
+              invocationCount++;
+              
+              // 超过阈值时切换到生成的访问器
+              if (invocationCount > ReflectionFactory.inflationThreshold) {
+                  MethodAccessorImpl acc = generateMethodAccessor();
+                  delegate = acc;
+              }
+              
+              return delegate.invoke(obj, args);
+          }
+      }
+      ```
+
+    - 阈值配置
+      ```java
+      public class ReflectionFactory {
+          // 默认调用阈值：15次
+          private static int inflationThreshold = 15;
+          
+          // 可以通过JVM参数调整
+          // -Dsun.reflect.inflationThreshold=20
+      }
+      ```
+
+  - 字节码生成优化
+
+    - 动态字节码生成
+      ```java
+      class MethodAccessorGenerator {
+          public MethodAccessor generateMethod(Class<?> declaringClass,
+                                              String name,
+                                              Class<?>[] parameterTypes,
+                                              Class<?> returnType,
+                                              Class<?>[] exceptionTypes,
+                                              int modifiers) {
+              // 生成直接调用的字节码，避免反射开销
+              byte[] bytecode = generateDirectInvocationBytecode(
+                  declaringClass, name, parameterTypes, returnType, 
+                  exceptionTypes, modifiers);
+              
+              // 定义新类
+              Class<?> accessorClass = defineClass(bytecode);
+              return (MethodAccessor) accessorClass.newInstance();
+          }
+      }
+      ```
+
+    - 生成的访问器类示例
+      ```java
+      // 生成的优化访问器类似：
+      public class GeneratedMethodAccessor1 extends MethodAccessorImpl {
+          public Object invoke(Object obj, Object[] args) throws Exception {
+              // 直接调用，无需反射查找
+              TargetClass target = (TargetClass) obj;
+              return target.targetMethod((String)args[0], (Integer)args[1]);
+          }
+      }
+      ```
+
+  - 性能对比分析
+
+    - 不同阶段的性能特征
+      ```java
+      public class ReflectionPerformance {
+          void testMethodInvocation() {
+              Method method = TargetClass.class.getMethod("testMethod", String.class, int.class);
+              Object[] args = new Object[]{"test", 123};
+              
+              // 阶段1：初始调用（最慢）
+              // 使用NativeMethodAccessorImpl，需要JNI调用（Java Native Interface）是Java提供的一种标准编程接口，用于实现Java代码与本地（Native）代码（如C、C++）之间的交互。通过JNI，Java程序可以调用本地代码函数，反之亦然，从而扩展功能或提升性能。 ‌
+
+              for (int i = 0; i < 10; i++) {
+                  method.invoke(target, args); // 较慢
+              }
+              
+              // 阶段2：优化后调用（快速）
+              // 超过阈值后使用生成的字节码访问器
+              for (int i = 0; i < 1000; i++) {
+                  method.invoke(target, args); // 快速，接近直接调用
+              }
+          }
+      }
+      ```
+
+    - 性能数据对比
+      | 调用方式 | 相对性能 | 说明 |
+      |---------|---------|------|
+      | 直接调用 | 1x | 基准性能 |
+      | 反射调用(初始) | 10-20x 慢 | JNI开销+权限检查 |
+      | 反射调用(优化后) | 2-3x 慢 | 生成的字节码访问器 |
+      | 方法句柄 | 1.5-2x 慢 | MethodHandle API |
+
+  - JVM参数调优
+
+    - 反射相关JVM参数
+      ```bash
+      # 禁用字节码生成优化（不推荐）
+      -Dsun.reflect.noInflation=false
+      
+      # 调整调用次数阈值
+      -Dsun.reflect.inflationThreshold=20
+      
+      # 启用调试输出
+      -Dsun.reflect.debug=true
+      -Dsun.reflect.debugInfo=true
+      ```
+
+    - 现代JVM的进一步优化
+      ```java
+      // JDK 8+ 的额外优化
+      public class Method {
+          // 方法句柄缓存（JDK 8+）
+          private volatile MethodHandle methodHandle;
+          
+          // 直接调用点缓存（JDK 9+）
+          private volatile CallSite callSite;
+      }
+      ```
+
+  - 实际应用建议
+
+    - 高频反射调用的优化
+      ```java
+      public class ReflectionOptimization {
+          private final Method method;
+          private MethodHandle methodHandle;
+          
+          public ReflectionOptimization(Method method) {
+              this.method = method;
+              // 预生成方法句柄
+              this.methodHandle = MethodHandles.lookup().unreflect(method);
+          }
+          
+          public Object fastInvoke(Object target, Object... args) {
+              try {
+                  // 使用方法句柄，性能更好
+                  return methodHandle.bindTo(target).invokeWithArguments(args);
+              } catch (Throwable e) {
+                  throw new RuntimeException(e);
+              }
+          }
+      }
+      ```
+
+    - 缓存策略最佳实践
+      ```java
+      public class MethodCache {
+          private static final Map<Method, MethodAccessor> ACCESSOR_CACHE = 
+              new ConcurrentHashMap<>();
+          
+          public static Object invokeCached(Method method, Object target, Object... args) {
+              MethodAccessor accessor = ACCESSOR_CACHE.computeIfAbsent(method, 
+                  m -> reflectionFactory.newMethodAccessor(m));
+              
+              return accessor.invoke(target, args);
+          }
+      }
+      ```
+
+  - 总结
+
+    - 反射调用并非每次都直接调用JVM
+    - JVM采用多级缓存和自适应优化
+    - 热点反射调用会被JIT优化为接近直接调用
+    - 合理使用缓存可以显著提升反射性能
+
+针对字节码生成提升反射调用效率的进一步解释：
+- 反射调用优化机制详解
+
+  - 调用次数与访问器类型的关系
+
+    - 实际的调用流程
+      ```java
+      public class Method {
+          private volatile MethodAccessor methodAccessor;
+          
+          public Object invoke(Object obj, Object... args) {
+              // 1. 首次调用时创建委托访问器
+              if (methodAccessor == null) {
+                  acquireMethodAccessor();
+              }
+              // 2. 通过委托访问器调用
+              return methodAccessor.invoke(obj, args);
+          }
+      }
+      ```
+
+    - 访问器的实际层次结构
+      ```
+      Method.invoke()
+          ↓
+      DelegatingMethodAccessorImpl.invoke()  // 委托访问器（始终存在）
+          ↓
+      NativeMethodAccessorImpl.invoke()      // 阶段1：本地实现
+          或
+      GeneratedMethodAccessorImpl.invoke()   // 阶段2：字节码生成
+      ```
+
+  - 关键理解点：DelegatingMethodAccessorImpl 的角色
+
+    - DelegatingMethodAccessorImpl 是**始终存在**的包装器
+      ```java
+      class DelegatingMethodAccessorImpl extends MethodAccessorImpl {
+          private MethodAccessorImpl delegate;
+          private int invocationCount = 0;
+          
+          public Object invoke(Object obj, Object[] args) throws Exception {
+              // 计数并检查是否需要切换实现
+              if (++invocationCount > ReflectionFactory.inflationThreshold) {
+                  // 切换到生成的字节码访问器
+                  MethodAccessorImpl acc = generateMethodAccessor();
+                  delegate = acc;  // 替换委托目标
+              }
+              return delegate.invoke(obj, args);
+          }
+      }
+      ```
+
+    - 三个阶段的实际执行
+      ```java
+      void testMethodInvocation() {
+          Method method = TargetClass.class.getMethod("testMethod", String.class, int.class);
+          Object[] args = new Object[]{"test", 123};
+          
+          // 阶段1：初始调用（1-15次）
+          // 调用路径：DelegatingMethodAccessorImpl → NativeMethodAccessorImpl
+          for (int i = 0; i < 10; i++) {
+              method.invoke(target, args); // 委托给NativeMethodAccessorImpl
+          }
+          
+          // 阶段2：切换点（第16次调用）
+          // 在DelegatingMethodAccessorImpl内部检测到调用次数超过阈值
+          // 生成新的GeneratedMethodAccessorImpl并替换delegate
+          
+          // 阶段3：优化后调用（第16次及以后）
+          // 调用路径：DelegatingMethodAccessorImpl → GeneratedMethodAccessorImpl  
+          for (int i = 0; i < 1000; i++) {
+              method.invoke(target, args); // 委托给GeneratedMethodAccessorImpl
+          }
+      }
+      ```
+
+  - 核心区别说明
+      - ✅ 正确理解：**始终使用DelegatingMethodAccessorImpl**，它内部根据调用次数切换委托目标
+
+    - 实际的切换逻辑
+      ```java
+      // 简化的切换过程
+      public class DelegatingMethodAccessorImpl {
+          private MethodAccessorImpl delegate;
+          private int count = 0;
+          
+          public Object invoke(Object obj, Object[] args) {
+              count++;
+              
+              // 关键：在达到阈值时切换委托目标
+              if (count == ReflectionFactory.inflationThreshold + 1) {
+                  // 创建并切换到生成的访问器
+                  MethodAccessorImpl generatedAcc = generateMethodAccessor();
+                  this.delegate = generatedAcc;
+              }
+              
+              return delegate.invoke(obj, args);
+          }
+      }
+      ```
+
+  - 性能影响的时间点
+
+    - 性能变化的关键节点
+      ```java
+      Method method = ...;
+      
+      // 第1-15次调用：较慢
+      // Delegating → NativeMethodAccessorImpl → JNI调用
+      for (int i = 1; i <= 15; i++) {
+          method.invoke(target, args);  // 每次~1000ns
+      }
+      
+      // 第16次调用：生成字节码（一次性开销）
+      // 创建GeneratedMethodAccessorImpl类，耗时~10000ns
+      method.invoke(target, args);  
+      
+      // 第17次及以后：快速
+      // Delegating → GeneratedMethodAccessorImpl → 直接调用
+      for (int i = 17; i <= 1000; i++) {
+          method.invoke(target, args);  // 每次~100ns
+      }
+      ```
+
+  - 验证实验代码
+
+    - 演示切换过程的测试代码
+      ```java
+      public class ReflectionSwitchDemo {
+          public static void main(String[] args) throws Exception {
+              Method method = String.class.getMethod("length");
+              String target = "test";
+              
+              // 获取内部的DelegatingMethodAccessorImpl
+              Field accessorField = Method.class.getDeclaredField("methodAccessor");
+              accessorField.setAccessible(true);
+              
+              System.out.println("调用次数 | 委托目标类型");
+              System.out.println("----------------------");
+              
+              for (int i = 1; i <= 20; i++) {
+                  method.invoke(target);
+                  
+                  Object accessor = accessorField.get(method);
+                  Object delegate = getDelegate(accessor);
+                  
+                  System.out.printf("第%2d次  | %s%n", 
+                      i, delegate.getClass().getSimpleName());
+              }
+          }
+          
+          private static Object getDelegate(Object accessor) throws Exception {
+              Field delegateField = accessor.getClass().getDeclaredField("delegate");
+              delegateField.setAccessible(true);
+              return delegateField.get(accessor);
+          }
+      }
+      ```
+
+    - 预期输出结果
+      ```
+      调用次数 | 委托目标类型
+      ----------------------
+      第 1次  | NativeMethodAccessorImpl
+      第 2次  | NativeMethodAccessorImpl
+      ...
+      第15次  | NativeMethodAccessorImpl
+      第16次  | GeneratedMethodAccessorImpl  ← 切换发生在这里
+      第17次  | GeneratedMethodAccessorImpl
+      ...
+      第20次  | GeneratedMethodAccessorImpl
+      ```
+
+  - 总结
+
+    - 正确理解：
+      1. **DelegatingMethodAccessorImpl 始终存在**，作为包装器
+      2. 10次循环时：Delegating → NativeMethodAccessorImpl
+      3. 1000次循环时：Delegating → GeneratedMethodAccessorImpl（大部分调用）
+      4. 切换发生在第16次调用，在DelegatingMethodAccessorImpl内部完成
+
+    - 性能差异的本质：
+      - 不是"用不用Delegating"的区别（因为始终在用）
+      - 而是Delegating内部**委托给谁**的区别：
+        - NativeMethodAccessorImpl：JNI调用，性能差
+        - GeneratedMethodAccessorImpl：直接调用，性能好
+
+这个15次阈值是累积调用次数，不是每个循环单独计算的。
+
+- 反射调用阈值机制详解
+
+  - 累积调用 vs 循环次数
+
+    - **关键理解**：阈值是基于**同一个Method对象**的**累积调用次数**
+    - 不是每个循环重新计算，也不是每个方法实例单独计算
+
+    ```java
+    public class ReflectionThresholdDemo {
+        void demonstrateCumulativeCount() {
+            Method method = TargetClass.class.getMethod("testMethod", String.class, int.class);
+            
+            // 第一次循环：累积0-9次
+            for (int i = 0; i < 10; i++) {
+                method.invoke(target, args); // 累积调用次数: 1-10
+            }
+            // 此时 method 的累积调用次数 = 10
+            
+            // 第二次循环：累积11-1010次  
+            for (int i = 0; i < 1000; i++) {
+                method.invoke(target, args); 
+                // 第1-5次调用：累积11-15次，仍用Native
+                // 第6次调用：累积16次，触发切换
+                // 第7-1000次调用：累积17-1010次，用Generated
+            }
+        }
+    }
+    ```
+
+  - 阈值计数的存储位置
+
+    - 计数存储在 `DelegatingMethodAccessorImpl` 实例中
+    - 每个 Method 对象有自己的访问器实例
+
+    ```java
+    class DelegatingMethodAccessorImpl extends MethodAccessorImpl {
+        private MethodAccessorImpl delegate;
+        private int invocationCount = 0;  // ⭐ 累积计数器
+        
+        public Object invoke(Object obj, Object[] args) throws Exception {
+            invocationCount++;  // ⭐ 每次调用递增
+            
+            if (invocationCount > ReflectionFactory.inflationThreshold) {
+                // 生成并切换到优化的访问器
+                MethodAccessorImpl acc = generateMethodAccessor();
+                delegate = acc;
+            }
+            
+            return delegate.invoke(obj, args);
+        }
+    }
+    ```
+
+  - 验证实验：观察累积效应
+
+    ```java
+    public class CumulativeThresholdTest {
+        public static void main(String[] args) throws Exception {
+            Method method = String.class.getMethod("length");
+            String target = "hello";
+            
+            System.out.println("=== 第一次测试序列 ===");
+            testSequence(method, target, 5);  // 调用5次
+            
+            System.out.println("\n=== 第二次测试序列 ===");  
+            testSequence(method, target, 12); // 再调用12次，累积17次
+            
+            System.out.println("\n=== 第三次测试序列 ===");
+            testSequence(method, target, 3);  // 再调用3次，累积20次
+        }
+        
+        static void testSequence(Method method, Object target, int times) throws Exception {
+            for (int i = 0; i < times; i++) {
+                long start = System.nanoTime();
+                method.invoke(target);
+                long duration = System.nanoTime() - start;
+                
+                // 获取当前使用的访问器类型
+                String accessorType = getCurrentAccessorType(method);
+                System.out.printf("调用 %2d次 | 用时 %5dns | 访问器: %s%n", 
+                    getTotalInvocations(method), duration, accessorType);
+            }
+        }
+        
+        static String getCurrentAccessorType(Method method) throws Exception {
+            Field accessorField = Method.class.getDeclaredField("methodAccessor");
+            accessorField.setAccessible(true);
+            Object accessor = accessorField.get(method);
+            
+            Field delegateField = accessor.getClass().getDeclaredField("delegate");
+            delegateField.setAccessible(true);
+            Object delegate = delegateField.get(accessor);
+            
+            return delegate.getClass().getSimpleName();
+        }
+        
+        static int getTotalInvocations(Method method) throws Exception {
+            Field accessorField = Method.class.getDeclaredField("methodAccessor");
+            accessorField.setAccessible(true);
+            Object accessor = accessorField.get(method);
+            
+            Field countField = accessor.getClass().getDeclaredField("invocationCount");
+            countField.setAccessible(true);
+            return countField.getInt(accessor);
+        }
+    }
+    ```
+
+  - 预期输出结果
+
+    ```
+    === 第一次测试序列 ===
+    调用  1次 | 用时  1523ns | 访问器: NativeMethodAccessorImpl
+    调用  2次 | 用时   856ns | 访问器: NativeMethodAccessorImpl
+    调用  3次 | 用时   723ns | 访问器: NativeMethodAccessorImpl
+    调用  4次 | 用时   689ns | 访问器: NativeMethodAccessorImpl
+    调用  5次 | 用时   671ns | 访问器: NativeMethodAccessorImpl
+
+    === 第二次测试序列 ===
+    调用  6次 | 用时   655ns | 访问器: NativeMethodAccessorImpl
+    ...（中间省略）...
+    调用 15次 | 用时   642ns | 访问器: NativeMethodAccessorImpl
+    调用 16次 | 用时  3245ns | 访问器: GeneratedMethodAccessorImpl  ← 切换+生成开销
+    调用 17次 | 用时   145ns | 访问器: GeneratedMethodAccessorImpl
+
+    === 第三次测试序列 ===  
+    调用 18次 | 用时   132ns | 访问器: GeneratedMethodAccessorImpl
+    调用 19次 | 用时   128ns | 访问器: GeneratedMethodAccessorImpl
+    调用 20次 | 用时   126ns | 访问器: GeneratedMethodAccessorImpl
+    ```
+
+  - 重要特性说明
+
+    - **持久性**：一旦切换为 `GeneratedMethodAccessorImpl`，就**永久使用**
+    - **跨会话有效**：即使在不同方法调用中，只要使用同一个 Method 对象
+    - **JVM 重启重置**：只有 JVM 重启才会重置计数
+
+    ```java
+    public class PersistenceTest {
+        public void testPersistence() throws Exception {
+            Method method = SomeClass.class.getMethod("someMethod");
+            
+            // 第一次：累积调用达到阈值
+            for (int i = 0; i < 20; i++) {
+                method.invoke(target); // 第16次切换为Generated
+            }
+            
+            // 等待一段时间...
+            Thread.sleep(5000);
+            
+            // 第二次：仍然使用Generated，不会回退到Native
+            for (int i = 0; i < 5; i++) {
+                method.invoke(target); // 仍然使用GeneratedMethodAccessorImpl
+            }
+        }
+    }
+    ```
+
+  - 不同 Method 对象的独立性
+
+    ```java
+    public class MultipleMethodsTest {
+        public void testIndependentCounters() throws Exception {
+            Method method1 = TargetClass.class.getMethod("method1");
+            Method method2 = TargetClass.class.getMethod("method2");
+            
+            // method1 调用8次
+            for (int i = 0; i < 8; i++) {
+                method1.invoke(target); // 累积: 1-8次，仍用Native
+            }
+            
+            // method2 调用8次  
+            for (int i = 0; i < 8; i++) {
+                method2.invoke(target); // 累积: 1-8次，仍用Native
+            }
+            
+            // method1 再调用10次（累积18次）
+            for (int i = 0; i < 10; i++) {
+                method1.invoke(target); 
+                // 前2次: 累积9-10次，用Native
+                // 后8次: 累积11-18次，第16次切换为Generated
+            }
+            
+            // method2 仍然只有8次累积，继续用Native
+            method2.invoke(target); // 累积第9次，用Native
+        }
+    }
+    ```
+
+  - 总结
+
+    - ✅ **累积调用**：阈值基于同一个 Method 对象的累积调用次数
+    - ✅ **跨调用会话**：计数在 Method 对象的生命周期内持续累积
+    - ✅ **永久切换**：一旦切换到 GeneratedMethodAccessorImpl 就不再回退
+    - ✅ **独立计数**：每个 Method 对象有自己独立的调用计数器
+
+    所以回到你的原始问题：循环10次和1000次的区别在于**累积调用次数是否超过了阈值15次**，而不是每个循环单独判断。
+
+那为什么不直接就生成GeneratedMethodAccessorImpl，而是需要一个阈值呢？
+
+- 反射优化阈值设计原理
+
+  - 直接生成 GeneratedMethodAccessorImpl 的成本分析
+
+    - **字节码生成开销**
+      ```java
+      public class ReflectionCostAnalysis {
+          void analyzeDirectGenerationCost() {
+              // 生成字节码访问器的成本包括：
+              // 1. 字节码生成：~50,000 CPU周期
+              // 2. 类定义：~20,000 CPU周期  
+              // 3. 类加载：~30,000 CPU周期
+              // 4. 方法验证：~10,000 CPU周期
+              // 总计：~110,000 CPU周期（约50-100微秒）
+          }
+      }
+      ```
+
+    - **内存占用成本**
+      ```java
+      // 每个 GeneratedMethodAccessorImpl 类占用：
+      // - 方法区：~2-5KB（类元数据+字节码）
+      // - 堆内存：每个实例 ~200-500字节
+      // - 永久代/元空间累积：可能达到MB级别
+      ```
+
+  - 阈值机制的成本效益分析
+
+    - **低频调用场景（<15次）**
+      ```java
+      public class LowFrequencyScenario {
+          void processUserData(User user) throws Exception {
+              // 偶尔使用的反射调用
+              if (user.hasSpecialPermission()) {
+                  Method specialMethod = user.getClass().getMethod("specialOperation");
+                  specialMethod.invoke(user);  // 只调用1次
+              }
+              
+              // 如果为这个一次性调用生成GeneratedMethodAccessorImpl：
+              // 成本：100,000周期
+              // 收益：节省后续0次调用的开销 ❌ 不划算
+          }
+      }
+      ```
+
+    - **高频调用场景（>15次）**
+      ```java
+      public class HighFrequencyScenario {
+          void processBatch(List<User> users) throws Exception {
+              Method processMethod = User.class.getMethod("process");
+              
+              for (User user : users) {  // 假设 users.size() = 1000
+                  processMethod.invoke(user);
+              }
+              
+              // 如果生成GeneratedMethodAccessorImpl：
+              // 成本：100,000周期（一次性）
+              // 收益：节省999次调用的开销，每次节省~500周期
+              // 净收益：999 * 500 - 100,000 = ~399,500周期 ✅ 很划算
+          }
+      }
+      ```
+
+  - 设计权衡的数学模型
+
+    - **盈亏平衡点计算**
+      ```
+      设：
+        Cg = 生成Generated访问器的成本 = 100,000周期
+        Cn = Native调用的单次成本 = 600周期  
+        Cg_opt = Generated调用的单次成本 = 100周期
+        N = 调用次数
+      
+      总成本比较：
+        Native总成本 = N × Cn
+        Generated总成本 = Cg + N × Cg_opt
+      
+      盈亏平衡点：N × Cn = Cg + N × Cg_opt
+                N × (Cn - Cg_opt) = Cg
+                N = Cg / (Cn - Cg_opt) 
+                N = 100,000 / (600 - 100) = 200次
+      
+      实际阈值设为15次，比理论值保守，因为：
+      1. 实际Cg可能更高
+      2. 需要考虑内存占用
+      3. 避免为短期存活对象过度优化
+      ```
+
+  - 内存管理考量
+
+    - **类卸载的重要性**
+      ```java
+      public class MemoryManagementConcern {
+          void demonstrateClassLeak() {
+              // 如果为每个Method都直接生成GeneratedMethodAccessorImpl：
+              Map<Method, Object> cache = new HashMap<>();
+              
+              for (int i = 0; i < 10000; i++) {
+                  Method method = createDynamicMethod(i);
+                  // 直接生成会创建10000个GeneratedMethodAccessor类
+                  // 这些类会永久占用方法区内存
+              }
+          }
+      }
+      ```
+
+    - **阈值机制的垃圾回收友好性**
+      ```java
+      public class GarbageCollectionBenefit {
+          void processTemporaryData() {
+              Method tempMethod = createTemporaryMethod();
+              
+              // 只调用几次临时方法
+              for (int i = 0; i < 3; i++) {
+                  tempMethod.invoke(target);
+              }
+              
+              // 由于调用次数 < 15，不会生成GeneratedMethodAccessorImpl
+              // tempMethod很快可以被GC回收，没有残留的Generated类
+          }
+      }
+      ```
+
+  - 实际性能测试数据
+
+    - **不同策略的性能对比**
+      ```java
+      public class PerformanceBenchmark {
+          public static void main(String[] args) throws Exception {
+              Method method = TestClass.class.getMethod("testMethod");
+              int[] testSizes = {1, 5, 15, 50, 1000};
+              
+              for (int size : testSizes) {
+                  long nativeTime = testWithNativeOnly(method, size);
+                  long generatedTime = testWithGeneratedOnly(method, size);
+                  long adaptiveTime = testAdaptive(method, size);
+                  
+                  System.out.printf("调用%d次: Native=%d, Generated=%d, 自适应=%d%n",
+                      size, nativeTime, generatedTime, adaptiveTime);
+              }
+          }
+      }
+      ```
+
+    - **预期结果**
+      ```
+      调用1次:  Native=650ns, Generated=120000ns, 自适应=650ns
+      调用5次:  Native=3200ns, Generated=120500ns, 自适应=3200ns  
+      调用15次: Native=9000ns, Generated=121500ns, 自适应=9000ns
+      调用50次: Native=30000ns, Generated=125000ns, 自适应=16500ns
+      调用1000次: Native=600000ns, Generated=220000ns, 自适应=220000ns
+      ```
+
+  - JVM 设计哲学
+
+    - **延迟优化原则**
+      ```java
+      // JVM 的设计哲学：不要过早优化
+      public class JVMDesignPhilosophy {
+          // 原则1：让常见情况快速
+          //   大多数反射调用次数很少 → 保持Native实现的简单快速
+          
+          // 原则2：让罕见情况正确  
+          //   少数高频反射调用 → 通过自适应优化处理
+          
+          // 原则3：基于实际使用模式优化
+          //   不是基于静态分析，而是基于运行时行为
+      }
+      ```
+
+    - **与JIT编译的类比**
+      ```java
+      // 反射优化阈值 vs JIT编译阈值
+      public class JITAnalogy {
+          void analogy() {
+              // JIT编译：方法调用超过10000次才编译为本地代码
+              // 反射优化：方法调用超过15次才生成字节码访问器
+              
+              // 共同理念：
+              // - 基于实际使用频率做决策
+              // - 避免为冷代码付出优化成本
+              // - 平衡即时开销和长期收益
+          }
+      }
+      ```
+
+  - 可配置性的价值
+
+    - **适应不同应用场景**
+      ```java
+      public class ConfigurationScenarios {
+          void differentApplicationNeeds() {
+              // 场景1：批处理应用 - 提高阈值减少内存占用
+              // -Dsun.reflect.inflationThreshold=100
+              
+              // 场景2：实时交易系统 - 降低阈值追求极致性能  
+              // -Dsun.reflect.inflationThreshold=5
+              
+              // 场景3：内存受限环境 - 禁用字节码生成
+              // -Dsun.reflect.noInflation=true
+          }
+      }
+      ```
+
+  - 现代JVM的进一步优化
+
+    - **分层优化的演进**
+      ```java
+      public class ModernJVMOptimizations {
+          void evolution() {
+              // JDK 8: 引入方法句柄(MethodHandle)作为更轻量替代
+              // JDK 9: 增强调用点缓存(CallSite)
+              // JDK 11: 基于使用模式的更精细优化
+              // JDK 17: 与Project Valhalla集成的未来优化
+          }
+      }
+      ```
+
+  - 总结：为什么需要阈值
+
+    - **成本效益平衡**：避免为低频调用付出高昂的字节码生成成本
+    - **内存管理**：防止Generated类过度占用方法区内存
+    - **自适应优化**：基于实际使用模式做出优化决策
+    - **配置灵活性**：允许根据不同应用场景调整策略
+    - **渐进式优化**：符合JVM"让常见情况快速"的设计哲学
+
+    这个阈值机制体现了经典的工程权衡：在即时性能、长期性能、内存使用和实现复杂度之间找到最佳平衡点。
 
 
 
