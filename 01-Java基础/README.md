@@ -8174,19 +8174,1586 @@ public static List<String> loadFactoryNames(Class<?> factoryClass, ClassLoader c
 - 多个并发多线程使用 ServiceLoader 类的实例是不安全的。
 
 
+## 六、JAVA集合框架
+### 6.1 简介
+容器，就是可以容纳其他Java对象的对象。
+**Java Collections Framework(JCF)** 为Java开发者提供了通用的容器，其始于JDK 1.2，优点是:
+- 降低编程难度
+- 提高程序性能
+- 提高API间的互操作性
+- 降低学习难度
+- 降低设计和实现相关API的难度
+- 增加程序的重用性
 
+Java容器里只能放对象，对于基本类型(int, long, float, double等)，需要将其包装成对象类型后(Integer, Long, Float, Double等)才能放到容器里。很多时候拆包装和解包装能够自动完成。这虽然会导致额外的性能和空间开销，但简化了设计和编程
+![JAVA集合框架汇总示意图](../assets/images/01-Java基础/7.JAVA集合框架汇总示意图.png)
 
+Collection
 
+容器主要包括 Collection 和 Map 两种，Collection 存储着对象的集合，而 Map 存储着键值对(两个对象)的映射表。
+- Set
+  - TreeSet基于红黑树实现，支持有序性操作(元素自动排序（如按字母、数字顺序或自定义规则,按**自然顺序或自定义比较器**排序)，例如根据一个范围查找元素的操作。但是查找效率不如 HashSet，HashSet 查找的时间复杂度为 O(1)，TreeSet 则为 O(logN)。
+  - HashSet基于哈希表实现，支持快速查找，但不支持有序性操作。并且失去了元素的插入顺序信息，也就是说使用 Iterator 遍历 HashSet 得到的结果是不确定的。
+  - LinkedHashSet具有 HashSet 的查找效率，且内部使用双向链表维护元素的插入顺序(保留元素插入顺序（如缓存队列、记录操作顺序）).
+- List
+  - ArrayList基于动态数组实现，支持随机访问。
+  - Vector和 ArrayList 类似，但它是线程安全的。
+  - LinkedList基于双向链表实现，只能顺序访问，但是可以快速地在链表中间插入和删除元素。不仅如此，LinkedList 还可以用作栈、队列和双向队列。
+- Queue
+  - LinkedList可以用它来实现双向队列。
+  - PriorityQueue基于堆结构实现，可以用它来实现优先队列。
+- Map
+  - TreeMap基于红黑树实现。
+  - HashMap基于哈希表实现。
+  - HashTable和 HashMap 类似，但它是线程安全的，这意味着同一时刻多个线程可以同时写入 HashTable 并且不会导致数据不一致。它是遗留类，不应该去使用它。现在可以使用 ConcurrentHashMap 来支持线程安全，并且 ConcurrentHashMap 的效率会更高，因为 ConcurrentHashMap 引入了分段锁。
+  - LinkedHashMap使用双向链表来维护元素的顺序，顺序为插入顺序或者最近最少使用(LRU)顺序。
+在 `LinkedHashMap` 中，双向链表维护的两种顺序模式——**插入顺序**和**访问顺序（LRU）**——有本质区别。以下是核心对比：
+    - **1. 插入顺序（默认模式）**
+      - **原理**：  
+        严格按照元素首次被 `put()` 的**时间顺序**排列，新插入的元素追加到链表尾部。
+      - **访问不影响顺序**：  
+        调用 `get(key)` 或遍历操作时，元素位置保持不变。
+      - **适用场景**：  
+        需要严格记录元素添加顺序的场景（如日志记录、操作流水）。
+      - **示例**：
+      - 
+    ```java
+    LinkedHashMap<String, Integer> map = new LinkedHashMap<>(); // 默认插入顺序
+    map.put("A", 1); // 链表: A
+    map.put("B", 2); // 链表: A→B
+    map.get("A");    // 链表顺序不变: A→B
+    map.put("C", 3); // 链表: A→B→C
+    ```
 
-
-
-
-
-![多态示意图](../assets/images/java/polymorphism.png)
+    - **2. 访问顺序（LRU模式）**
+        - **原理**：  
+          元素按**最近使用频率**排序。每次访问（`get()` 或 `put()` 已存在的键）会将元素移到链表**尾部**，尾部表示最近使用。
+        - **链表头部即最久未使用**：  
+          链表头部元素是 Least Recently Used (LRU) 的，适合实现缓存淘汰策略。
+        - **启用方式**：  
+          构造时指定 `accessOrder=true`：
+          ```java
+          LinkedHashMap<String, Integer> map = new LinkedHashMap<>(16, 0.75f, true);
+          ```
+        - **适用场景**：  
+          缓存系统（如固定大小 LRU 缓存）。
+        - **示例**：
+  ```java
+  LinkedHashMap<String, Integer> map = new LinkedHashMap<>(16, 0.75f, true);
+  map.put("A", 1); // 链表: A
+  map.put("B", 2); // 链表: A→B
+  map.get("A");    // 访问A，移到尾部: B→A
+  map.put("C", 3); // 链表: B→A→C
+  ```
 
 ---
 
-## 二、集合框架
+### **关键区别总结**
+| **特性**         | 插入顺序                     | 访问顺序（LRU）                |
+|------------------|-----------------------------|-------------------------------|
+| **排序依据**     | 元素首次插入时间            | 元素最近被访问的时间          |
+| **访问的影响**   | 无影响                      | 将元素移至链表尾部（最近使用）|
+| **链表头部元素** | 最先插入的元素              | 最久未使用的元素（LRU）       |
+| **典型应用**     | 记录操作序列                | 缓存淘汰策略                  |
+| **构造参数**     | 默认模式（无需额外参数）    | `new LinkedHashMap(capacity, loadFactor, true)` |
+
+---
+
+### **LRU 缓存实现示例**
+结合 `removeEldestEntry()` 可实现固定大小缓存：
+```java
+final int MAX_SIZE = 3;
+LinkedHashMap<String, Integer> cache = new LinkedHashMap<>(16, 0.75f, true) {
+    @Override
+    protected boolean removeEldestEntry(Map.Entry<String, Integer> eldest) {
+        return size() > MAX_SIZE; // 超出容量时移除链表头部（LRU元素）
+    }
+};
+
+cache.put("A", 1);
+cache.put("B", 2);
+cache.put("C", 3); 
+cache.get("A");     // 访问A，顺序变为 B→C→A
+cache.put("D", 4);  // 加入D，移除最久未使用的B → 缓存变为 C→A→D
+```
+### 6.2 ArrayList 源码解析
+#### 6.2.1 概述
+ArrayList实现了List接口，是顺序容器，即元素存放的数据与放进去的顺序相同，允许放入null元素，底层通过数组实现。除该类未实现同步外，其余跟Vector大致相同。每个ArrayList都有一个容量(capacity)，表示底层数组的实际大小，容器内存储元素的个数不能多于当前容量。当向容器中添加元素时，如果容量不足，容器会自动增大底层数组的大小。前面已经提过，Java泛型只是编译器提供的语法糖，所以这里的数组是一个Object数组，以便能够容纳任何类型的对象。
+![ArrayList](../assets/images/01-Java基础/8.ArrayList示意图.png)
+size(), isEmpty(), get(), set()方法均能在常数时间内完成，add()方法的时间开销跟插入位置有关，addAll()方法的时间开销跟添加元素的个数成正比。其余方法大都是线性时间。为追求效率，ArrayList没有实现同步(synchronized)，如果需要多个线程并发访问，用户可以手动同步，也可使用Vector替代。
+#### 6.2.2 ArrayList的实现
+##### 6.2.2.1 底层数据结构
+```java
+	/**
+     * The array buffer into which the elements of the ArrayList are stored.
+     * The capacity of the ArrayList is the length of this array buffer. Any
+     * empty ArrayList with elementData == DEFAULTCAPACITY_EMPTY_ELEMENTDATA
+     * will be expanded to DEFAULT_CAPACITY when the first element is added.
+     */
+    transient Object[] elementData; // non-private to simplify nested class access
+
+    /**
+     * The size of the ArrayList (the number of elements it contains).
+     *
+     * @serial
+     */
+    private int size;
+```
+##### 6.2.2.2 构造函数
+```java
+	/**
+     * Constructs an empty list with the specified initial capacity.
+     *
+     * @param  initialCapacity  the initial capacity of the list
+     * @throws IllegalArgumentException if the specified initial capacity
+     *         is negative
+     */
+    public ArrayList(int initialCapacity) {
+        if (initialCapacity > 0) {
+            this.elementData = new Object[initialCapacity];
+        } else if (initialCapacity == 0) {
+            this.elementData = EMPTY_ELEMENTDATA;
+        } else {
+            throw new IllegalArgumentException("Illegal Capacity: "+
+                                               initialCapacity);
+        }
+    }
+
+    /**
+     * Constructs an empty list with an initial capacity of ten.
+     */
+    public ArrayList() {
+        this.elementData = DEFAULTCAPACITY_EMPTY_ELEMENTDATA;
+    }
+
+    /**
+     * Constructs a list containing the elements of the specified
+     * collection, in the order they are returned by the collection's
+     * iterator.
+     *
+     * @param c the collection whose elements are to be placed into this list
+     * @throws NullPointerException if the specified collection is null
+     */
+    public ArrayList(Collection<? extends E> c) {
+        elementData = c.toArray();
+        if ((size = elementData.length) != 0) {
+            // c.toArray might (incorrectly) not return Object[] (see 6260652)
+            if (elementData.getClass() != Object[].class)
+                elementData = Arrays.copyOf(elementData, size, Object[].class);
+        } else {
+            // replace with empty array.
+            this.elementData = EMPTY_ELEMENTDATA;
+        }
+    }
+```
+##### 6.2.2.3 自动扩容
+
+每当向数组中添加元素时，都要去检查添加后元素的个数是否会超出当前数组的长度，如果超出，数组将会进行扩容，以满足添加数据的需求。数组扩容通过一个公开的方法ensureCapacity(int minCapacity)来实现。在实际添加大量元素前，我也可以使用ensureCapacity来手动增加ArrayList实例的容量，以减少递增式再分配的数量。
+
+数组进行扩容时，会将老数组中的元素重新拷贝一份到新的数组中，每次数组容量的增长大约是其原容量的1.5倍。这种操作的代价是很高的，因此在实际使用时，我们应该尽量避免数组容量的扩张。当我们可预知要保存的元素的多少时，要在构造ArrayList实例时，就指定其容量，以避免数组扩容的发生。或者根据实际需求，通过调用ensureCapacity方法来手动增加ArrayList实例的容量。
+```java
+ /**
+     * Increases the capacity of this <tt>ArrayList</tt> instance, if
+     * necessary, to ensure that it can hold at least the number of elements
+     * specified by the minimum capacity argument.
+     *
+     * @param   minCapacity   the desired minimum capacity
+     */
+    public void ensureCapacity(int minCapacity) {
+        int minExpand = (elementData != DEFAULTCAPACITY_EMPTY_ELEMENTDATA)
+            // any size if not default element table
+            ? 0
+            // larger than default for default empty table. It's already
+            // supposed to be at default size.
+            : DEFAULT_CAPACITY;
+
+        if (minCapacity > minExpand) {
+            ensureExplicitCapacity(minCapacity);
+        }
+    }
+
+    private void ensureCapacityInternal(int minCapacity) {
+        if (elementData == DEFAULTCAPACITY_EMPTY_ELEMENTDATA) {
+            minCapacity = Math.max(DEFAULT_CAPACITY, minCapacity);
+        }
+
+        ensureExplicitCapacity(minCapacity);
+    }
+
+    private void ensureExplicitCapacity(int minCapacity) {
+        modCount++;
+
+        // overflow-conscious code
+        if (minCapacity - elementData.length > 0)
+            grow(minCapacity);
+    }
+
+    /**
+     * The maximum size of array to allocate.
+     * Some VMs reserve some header words in an array.
+     * Attempts to allocate larger arrays may result in
+     * OutOfMemoryError: Requested array size exceeds VM limit
+     */
+    private static final int MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8;
+
+    /**
+     * Increases the capacity to ensure that it can hold at least the
+     * number of elements specified by the minimum capacity argument.
+     *
+     * @param minCapacity the desired minimum capacity
+     */
+    private void grow(int minCapacity) {
+        // overflow-conscious code
+        int oldCapacity = elementData.length;
+        int newCapacity = oldCapacity + (oldCapacity >> 1);
+        if (newCapacity - minCapacity < 0)
+            newCapacity = minCapacity;
+        if (newCapacity - MAX_ARRAY_SIZE > 0)
+            newCapacity = hugeCapacity(minCapacity);
+        // minCapacity is usually close to size, so this is a win:
+        elementData = Arrays.copyOf(elementData, newCapacity);
+    }
+
+    private static int hugeCapacity(int minCapacity) {
+        if (minCapacity < 0) // overflow
+            throw new OutOfMemoryError();
+        return (minCapacity > MAX_ARRAY_SIZE) ?
+            Integer.MAX_VALUE :
+            MAX_ARRAY_SIZE;
+    }
+```
+![ArrayList自动扩容示意图](../assets/images/01-Java基础/9.ArrayList自动扩容示意图.png)
+##### 6.2.2.4  add(), addAll()
+
+跟C++ 的vector不同，ArrayList没有push_back()方法，对应的方法是add(E e)，ArrayList也没有insert()方法，对应的方法是add(int index, E e)。这两个方法都是向容器中添加新元素，这可能会导致capacity不足，因此在添加元素之前，都需要进行剩余空间检查，如果需要则自动扩容。扩容操作最终是通过grow()方法完成的。
+```java
+    /**
+     * Appends the specified element to the end of this list.
+     *
+     * @param e element to be appended to this list
+     * @return <tt>true</tt> (as specified by {@link Collection#add})
+     */
+    public boolean add(E e) {
+        ensureCapacityInternal(size + 1);  // Increments modCount!!
+        elementData[size++] = e;
+        return true;
+    }
+
+    /**
+     * Inserts the specified element at the specified position in this
+     * list. Shifts the element currently at that position (if any) and
+     * any subsequent elements to the right (adds one to their indices).
+     *
+     * @param index index at which the specified element is to be inserted
+     * @param element element to be inserted
+     * @throws IndexOutOfBoundsException {@inheritDoc}
+     */
+    public void add(int index, E element) {
+        rangeCheckForAdd(index);
+
+        ensureCapacityInternal(size + 1);  // Increments modCount!!
+        System.arraycopy(elementData, index, elementData, index + 1,
+                         size - index);
+        elementData[index] = element;
+        size++;
+    }
+```
+![ArrayList添加元素示意图](../assets/images/01-Java基础/10.ArrayList添加元素示意图.png)
+add(int index, E e)需要先对元素进行移动，然后完成插入操作，也就意味着该方法有着线性的时间复杂度。
+
+addAll()方法能够一次添加多个元素，根据位置不同也有两个版本，一个是在末尾添加的addAll(Collection<? extends E> c)方法，一个是从指定位置开始插入的addAll(int index, Collection<? extends E> c)方法。跟add()方法类似，在插入之前也需要进行空间检查，如果需要则自动扩容；如果从指定位置插入，也会存在移动元素的情况。 addAll()的时间复杂度不仅跟插入元素的多少有关，也跟插入的位置相关。
+```java
+ /**
+     * Appends all of the elements in the specified collection to the end of
+     * this list, in the order that they are returned by the
+     * specified collection's Iterator.  The behavior of this operation is
+     * undefined if the specified collection is modified while the operation
+     * is in progress.  (This implies that the behavior of this call is
+     * undefined if the specified collection is this list, and this
+     * list is nonempty.)
+     *
+     * @param c collection containing elements to be added to this list
+     * @return <tt>true</tt> if this list changed as a result of the call
+     * @throws NullPointerException if the specified collection is null
+     */
+    public boolean addAll(Collection<? extends E> c) {
+        Object[] a = c.toArray();
+        int numNew = a.length;
+        ensureCapacityInternal(size + numNew);  // Increments modCount
+        System.arraycopy(a, 0, elementData, size, numNew);
+        size += numNew;
+        return numNew != 0;
+    }
+
+    /**
+     * Inserts all of the elements in the specified collection into this
+     * list, starting at the specified position.  Shifts the element
+     * currently at that position (if any) and any subsequent elements to
+     * the right (increases their indices).  The new elements will appear
+     * in the list in the order that they are returned by the
+     * specified collection's iterator.
+     *
+     * @param index index at which to insert the first element from the
+     *              specified collection
+     * @param c collection containing elements to be added to this list
+     * @return <tt>true</tt> if this list changed as a result of the call
+     * @throws IndexOutOfBoundsException {@inheritDoc}
+     * @throws NullPointerException if the specified collection is null
+     */
+    public boolean addAll(int index, Collection<? extends E> c) {
+        rangeCheckForAdd(index);
+
+        Object[] a = c.toArray();
+        int numNew = a.length;
+        ensureCapacityInternal(size + numNew);  // Increments modCount
+
+        int numMoved = size - index;
+        if (numMoved > 0)
+            System.arraycopy(elementData, index, elementData, index + numNew,
+                             numMoved);
+
+        System.arraycopy(a, 0, elementData, index, numNew);
+        size += numNew;
+        return numNew != 0;
+    }
+```
+##### 6.2.2.5 set()
+既然底层是一个数组ArrayList的set()方法也就变得非常简单，直接对数组的指定位置赋值即可。
+```java
+public E set(int index, E element) {
+    rangeCheck(index);//下标越界检查
+    E oldValue = elementData(index);
+    elementData[index] = element;//赋值到指定位置，复制的仅仅是引用
+    return oldValue;
+}
+```
+---
+`ArrayList` 中的 `set(int index, E element)` 和 `add(int index, E element)` 方法有本质区别，具体对比如下
+
+- **1. `set(int index, E element)`：替换元素**
+- **作用**：  
+    将指定索引位置的元素**替换**为新的元素。
+    - **是否改变列表大小**：  
+    ❌ 不改变列表长度（`size()` 不变）。
+    - **索引要求**：  
+    `index` 必须满足 `0 <= index < size()`（否则抛出 `IndexOutOfBoundsException`）。
+    - **返回值**：  
+    返回被替换的**旧元素**。
+    - **时间复杂度**：  
+    `O(1)`（直接通过索引修改数组元素）。
+    - **示例**：
+    ```java
+    List<String> list = new ArrayList<>(Arrays.asList("A", "B", "C"));
+    String old = list.set(1, "X");  // 替换索引1位置的元素
+    System.out.println(list); // 输出 [A, X, C]
+    System.out.println(old);  // 输出 "B"（被替换的元素）
+    ```
+
+- **2. `add(int index, E element)`：插入元素**
+  - **作用**：  
+    在指定索引位置**插入**新元素，后续元素向后移动。
+  - **是否改变列表大小**：  
+    ✅ 列表长度增加 1（`size()` 加 1）。
+  - **索引要求**：  
+    `index` 必须满足 `0 <= index <= size()`（当 `index = size()` 时，等价于 `add(E element)` 在末尾追加）。
+  - **返回值**：  
+    `void`（无返回值）。
+  - **时间复杂度**：  
+    `O(n)`（需移动插入位置后的所有元素）。
+  - **示例**：
+    ```java
+    List<String> list = new ArrayList<>(Arrays.asList("A", "B", "C"));
+    list.add(1, "X");  // 在索引1处插入
+    System.out.println(list); // 输出 [A, X, B, C]（长度变为4）
+    ```
+- **核心区别总结**
+
+| **特性**         | `set(int index, E element)`       | `add(int index, E element)`        |
+|------------------|-----------------------------------|------------------------------------|
+| **操作本质**     | 替换已有元素                      | 插入新元素                         |
+| **列表大小变化** | 不变                              | 增加 1                             |
+| **索引范围**     | `0 <= index < size()`             | `0 <= index <= size()`             |
+| **返回值**       | 被替换的旧元素                    | `void`                             |
+| **时间复杂度**   | `O(1)`                            | `O(n)`（最坏情况需移动所有后续元素）|
+| **影响范围**     | 仅修改目标位置                    | 目标位置及后续元素均被移动         |
+---
+##### 6.2.2.6  get()
+
+get()方法同样很简单，唯一要注意的是由于底层数组是Object[]，得到元素后需要进行类型转换。
+```java
+public E get(int index) {
+    rangeCheck(index);
+    return (E) elementData[index];//注意类型转换
+}
+```
+##### 6.2.2.7 remove()
+
+remove()方法也有两个版本，一个是remove(int index)删除指定位置的元素，另一个是remove(Object o)删除**第一个(不是删除所有的)**满足o.equals(elementData[index])的元素。删除操作是add()操作的逆过程，需要将删除点之后的元素向前移动一个位置。需要注意的是为了让GC起作用，必须显式的为最后一个位置赋null值。
+```java
+public E remove(int index) {
+    rangeCheck(index);
+    modCount++;
+    E oldValue = elementData(index);
+    int numMoved = size - index - 1;
+    if (numMoved > 0)
+        System.arraycopy(elementData, index+1, elementData, index, numMoved);
+    elementData[--size] = null; //清除该位置的引用，让GC起作用
+    return oldValue;
+}
+```
+关于Java GC这里需要特别说明一下，有了垃圾收集器并不意味着一定不会有内存泄漏。对象能否被GC的依据是是否还有引用指向它，上面代码中如果不手动赋null值，除非对应的位置被其他元素覆盖，否则原来的对象就一直不会被回收。
+
+---
+值得注意的是：假设ArrayList<>有16个槽位，的remove()方法移除了一个元素之后，elementData数组的长度仍然是不变的，还是16.elementData[--size] = null; 的目的其实只是让指向这里的那个对象断开引用被回收，而不是说把elementData数组的最后一个槽位回收
+
+-  ✅ 核心结论
+   1. **数组长度不变**：  
+      `ArrayList` 执行 `remove()` 后，**`elementData` 数组的物理长度（容量）保持不变**。  
+      - 初始：容量16（索引0-15）
+      - 移除元素后：容量仍为16（索引0-15），仅逻辑大小 `size` 减1
+
+   2. **`elementData[--size] = null` 的真实作用**：  
+      ```java
+      elementData[--size] = null; // 关键操作
+      ```
+      - 🚫 **不是回收数组槽位**：Java 数组的槽位是固定分配的，无法单独回收
+      - ✅ **而是断开对象引用**：切断数组对**被移动元素的原始副本**的强引用  
+        （防止该对象因数组持有引用而无法被GC回收）
+
+- 🔍 详细解析（以16容量为例）
+
+  - 初始状态
+    ```java
+    // 创建容量16的ArrayList（size=0）
+    ArrayList<String> list = new ArrayList<>(16); 
+
+    // 内存结构：
+    elementData = [null, null, null, ...] // 16个null
+    size = 0
+    ```
+    - 添加元素后
+    ```java
+    list.add("A"); // size=1
+    list.add("B"); // size=2
+
+    // 内存结构：
+    索引: 0    1    2~15
+    值:  ["A", "B", null...] 
+    ```
+
+    - 删除第一个元素 (`remove(0)`)
+    ```java
+    list.remove(0); // 删除"A"
+
+    // 删除过程：
+    1. 移动元素: System.arraycopy(1→0) → ["B", "B", null...]
+    2. 置空尾部: elementData[--size] = null → size=1 → ["B", null, null...]
+    ```
+
+- 关键内存变化
+
+    | 操作 | 索引0 | 索引1 | 索引2~15 | size | 对象回收 |
+    |------|-------|-------|----------|------|----------|
+    | 初始 | null  | null  | null     | 0    | -        |
+    | 添加后 | "A"   | "B"   | null     | 2    | -        |
+    | 移动后 | "B"   | "B"   | null     | 2    | ❌ "A" 被覆盖，但索引1仍引用"B" |
+    | **置空后** | "B"   | **null** | null | 1    | ✅ 索引1切断引用，若"B"无其他引用则可回收 |
+
+
+---
+那如果我用ArrayList<>之前放入10万元素，然后慢慢通过remove()方法一点一点移除了只剩下一个，但是实际上ArrayList<>里面的elementData数组还是会占用10万个槽位的内存吗
+
+**是的**
+
+- 内存占用分析
+
+  - 初始状态（添加10万元素）
+  ```java
+  ArrayList<String> list = new ArrayList<>();
+  for (int i = 0; i < 100_000; i++) {
+      list.add("Element-" + i); 
+  }
+  ```
+  - **elementData数组长度**：约100,000（具体值取决于扩容策略）
+  - **内存占用**：约100,000个引用槽位 + 10万个String对象
+
+  - 移除99,999个元素后
+  ```java
+  for (int i = 0; i < 99_999; i++) {
+      list.remove(0); // 逐个移除首元素
+  }
+  ```
+  - **当前状态**：
+    - `size = 1`（只剩1个有效元素）
+    - **elementData数组长度仍为~100,000**
+  - **内存占用**：
+    - 数组槽位：仍然占用100,000个引用槽位的内存
+    - 有效对象：只剩1个String对象
+    - 其他槽位：99,999个`null`引用
+
+- 关键问题解析
+
+  - 1. 为什么数组不自动缩小？
+    - **设计权衡**：ArrayList 优先考虑**性能优化**而非内存节省
+    - 每次缩容都需要：
+      ```java
+      // 伪代码：缩容过程
+      Object[] newArray = new Object[newSize]; // 分配新数组
+      System.arraycopy(elementData, 0, newArray, 0, size); // 复制元素
+      elementData = newArray; // 切换引用
+      ```
+      - 🚫 **性能成本**：O(n)时间复杂度和临时内存占用
+      - 🚫 **可能触发多次扩容**：如果后续又添加元素
+
+  - 2. 内存占用组成
+    
+    | 内存区域 | 大小 | 说明 |
+    |----------|------|------|
+    | **elementData数组** | ~100,000引用槽位 | 固定占用，不随size减小 |
+    | **有效String对象** | 1个 | 实际存储的数据 |
+    | **null引用槽位** | 99,999个 | 空引用，不指向对象 |
+    | **数组对象头** | 固定开销 | 数组元数据 |
+
+> 💡 在64位JVM（开启压缩指针）中：
+> - 每个引用槽位：**4字节**
+> - 100,000槽位 ≈ **400KB**
+> - 加上对象头等开销，总数组对象约 **400KB+**
+
+  - 3. 解决方案：手动缩容
+        ```java
+        // 移除多余元素后调用
+        list.trimToSize(); // 关键方法！
+        ```
+        - **作用**：将`elementData`缩小到当前`size`大小
+        ```java
+        // ArrayList.trimToSize() 源码核心
+        if (size < elementData.length) {
+            elementData = Arrays.copyOf(elementData, size);
+        }
+        ```
+        - **效果**：
+        - 数组长度从100,000 → 1
+        - 释放约400KB内存
+        - 旧的大数组被GC回收
+
+  - 4. 何时使用`trimToSize()`
+  
+    | 场景 | 建议 |
+    |------|------|
+    | **长期存储少量数据** | ✅ 立即调用释放内存 |
+    | **短期过渡状态** | ⚠️ 避免频繁调用（性能损耗） |
+    | **内存敏感环境** | ✅ 必须调用 |
+    | **预期将再次扩容** | ❌ 不要调用（会导致后续扩容） |
+
+- 最佳实践建议
+
+1. **批量删除时**：
+   ```java
+   // 更高效的批量删除
+   list.subList(0, 99_999).clear(); // 单次操作
+   list.trimToSize();               // 一次性缩容
+   ```
+
+2. **内存监控**：
+   ```java
+   Runtime.getRuntime().freeMemory(); // 检查内存变化
+   ```
+
+3. **替代方案**：
+   ```java
+   // 直接创建新ArrayList (当保留元素少时)
+   ArrayList<String> newList = new ArrayList<>(list);
+   ```
+
+> ⚠️ **重要结论**：  
+> **ArrayList不会自动缩小底层数组**！  
+> 移除元素只会减小`size`并置空部分槽位，但数组容量不变。  
+> 必须显式调用`trimToSize()`才能释放多余内存。
+##### 6.2.2.8 trimToSize()
+ArrayList还给我们提供了将底层数组的容量调整为当前列表保存的实际元素的大小的功能。它可以通过trimToSize方法来实现。代码如下:    
+```java
+/**
+     * Trims the capacity of this <tt>ArrayList</tt> instance to be the
+     * list's current size.  An application can use this operation to minimize
+     * the storage of an <tt>ArrayList</tt> instance.
+     */
+    public void trimToSize() {
+        modCount++;
+        if (size < elementData.length) {
+            elementData = (size == 0)
+              ? EMPTY_ELEMENTDATA
+              : Arrays.copyOf(elementData, size);
+        }
+    }
+```
+##### 6.2.2.9 indexOf(), lastIndexOf()
+获取元素的第一次出现的index:
+```java
+/**
+     * Returns the index of the first occurrence of the specified element
+     * in this list, or -1 if this list does not contain the element.
+     * More formally, returns the lowest index <tt>i</tt> such that
+     * <tt>(o==null&nbsp;?&nbsp;get(i)==null&nbsp;:&nbsp;o.equals(get(i)))</tt>,
+     * or -1 if there is no such index.
+     */
+    public int indexOf(Object o) {
+        if (o == null) {
+            for (int i = 0; i < size; i++)
+                if (elementData[i]==null)
+                    return i;
+        } else {
+            for (int i = 0; i < size; i++)
+                if (o.equals(elementData[i]))
+                    return i;
+        }
+        return -1;
+    }
+```
+获取元素的最后一次出现的index:    
+```java
+/**
+     * Returns the index of the last occurrence of the specified element
+     * in this list, or -1 if this list does not contain the element.
+     * More formally, returns the highest index <tt>i</tt> such that
+     * <tt>(o==null&nbsp;?&nbsp;get(i)==null&nbsp;:&nbsp;o.equals(get(i)))</tt>,
+     * or -1 if there is no such index.
+     */
+    public int lastIndexOf(Object o) {
+        if (o == null) {
+            for (int i = size-1; i >= 0; i--)
+                if (elementData[i]==null)
+                    return i;
+        } else {
+            for (int i = size-1; i >= 0; i--)
+                if (o.equals(elementData[i]))
+                    return i;
+        }
+        return -1;
+    }
+```
+##### 6.2.2.10 Fail-Fast机制:
+
+ArrayList也采用了快速失败的机制，通过记录modCount参数来实现。在面对并发的修改时，迭代器很快就会完全失败，而不是冒着在将来某个不确定时间发生任意不确定行为的风险。
+
+
+ - Fail-Fast vs Fail-Safe
+
+    | 特性 | Fail-Fast (ArrayList/HashMap) | Fail-Safe (CopyOnWriteArrayList/ConcurrentHashMap) |
+    |------|--------------------------------|---------------------------------------------------|
+    | **并发修改** | 立即抛出异常 | 允许并发修改 |
+    | **迭代基础** | 原始集合 | 集合快照或弱一致性视图 |
+    | **内存开销** | 低 | 较高（需维护副本） |
+    | **使用场景** | 单线程环境 | 高并发读多写少场景 |
+    | **异常机制** | 主动抛出异常 | 静默处理并发修改 |
+
+- 什么是 Fail-Fast？
+
+**Fail-Fast（快速失败）** 是 Java 集合框架中一种重要的**错误检测机制**。当多个线程并发修改集合时，或在单线程迭代过程中直接修改集合结构，它会立即抛出 `ConcurrentModificationException` 异常，而不是继续执行可能产生不一致结果的操作。
+
+- Fail-Fast 的实现原理
+
+  - 核心机制：`modCount` 计数器
+
+  在 `ArrayList`、`HashMap` 等非线程安全集合中，都有一个关键的 **`modCount`（modification count）** 字段：
+
+  ```java
+  // AbstractList 中的 modCount 声明
+  protected transient int modCount = 0;
+  ```
+
+  - 工作流程：
+  1. **修改操作**：当集合发生结构性修改（如 `add()`, `remove()`, `clear()`）时，`modCount` 自增
+     
+  2. **迭代器创建**：创建迭代器时，记录当前 `modCount` 值到 **`expectedModCount`**
+     ```java
+     // ArrayList.Itr 构造函数
+     int expectedModCount = modCount;
+     ```
+
+  3. **迭代过程检查**：在每次迭代操作（`next()`, `remove()`）前，检查：
+     ```java
+     final void checkForComodification() {
+         if (modCount != expectedModCount)
+             throw new ConcurrentModCountException();
+     }
+     ```
+
+- 典型触发场景
+
+  - 场景 1：单线程迭代中修改集合
+  ```java
+  List<String> list = new ArrayList<>(Arrays.asList("A", "B", "C"));
+
+  Iterator<String> it = list.iterator();
+  while (it.hasNext()) {
+      String item = it.next(); // 第一次返回 "A"
+      if ("B".equals(item)) {
+          list.remove(item); // 直接修改原集合！modCount++
+      }
+  }
+  // 下次调用 it.next() 时抛出 ConcurrentModificationException
+  ```
+
+  - 场景 2：多线程并发修改
+  ```java
+  List<Integer> sharedList = new ArrayList<>();
+
+  // 线程1：迭代集合
+  new Thread(() -> {
+      for (Integer num : sharedList) { // 隐含创建迭代器
+          System.out.println(num);
+      }
+  }).start();
+
+  // 线程2：修改集合
+  new Thread(() -> {
+      sharedList.add(42); // 修改集合 → modCount++
+  }).start();
+  // 大概率抛出 ConcurrentModinationException
+  ```
+
+- Fail-Fast 的设计目的
+
+    | 目的 | 说明 |
+    |------|------|
+    | **快速暴露错误** | 立即终止可能产生不一致状态的操作 |
+    | **防止数据损坏** | 避免迭代器遍历到已删除/移动的元素 |
+    | **明确编程约束** | 强制开发者遵守"迭代时不修改"的规则 |
+    | **简化调试** | 在问题发生点立即抛出异常 |
+
+- 正确使用姿势
+
+  -  ✅ 安全操作：使用迭代器的 remove()
+  ```java
+  Iterator<String> it = list.iterator();
+  while (it.hasNext()) {
+      String item = it.next();
+      if (needRemove(item)) {
+          it.remove(); // 正确！同步更新 expectedModCount
+      }
+  }
+  ```
+
+  -  ✅ 安全操作：复制集合后再迭代
+  ```java
+  for (String item : new ArrayList<>(list)) { // 创建副本
+      if (needRemove(item)) {
+          list.remove(item); // 修改原集合（副本不受影响）
+      }
+  }
+  ```
+
+- 最佳实践
+
+  1. **单线程环境**：
+     - 使用迭代器自身的 `remove()` 方法修改集合
+     - 避免在增强 for 循环中修改集合
+
+  2. **多线程环境**：
+     ```java
+     // 替代方案1：使用并发集合
+     List<String> safeList = new CopyOnWriteArrayList<>();
+     
+     // 替代方案2：显式同步
+     synchronized (list) {
+         for (String item : list) {
+             // 安全操作
+         }
+     }
+     ```
+
+  3. **性能敏感场景**：
+     ```java
+     // 批量操作替代单元素操作
+     list.removeIf(item -> item.startsWith("X")); // 原子操作
+     ```
+
+  > ⚠️ **重要提示**：  
+  > Fail-Fast 不是错误处理机制，而是**设计约束**！  
+  > 它强制开发者意识到："你正在不安全地修改集合，请修正你的代码逻辑"。
+### 6.3 LinkedList源码解析
+
+#### 6.3.1 概述
+LinkedList同时实现了List接口和Deque接口，也就是说它既可以看作一个顺序容器，又可以看作一个队列(Queue)，同时又可以看作一个栈(Stack)。这样看来，LinkedList简直就是个全能冠军。当你需要使用栈或者队列时，可以考虑使用LinkedList，一方面是因为Java官方已经声明不建议使用Stack类，更遗憾的是，Java里根本没有一个叫做Queue的类(它是个接口名字)。关于栈或队列，现在的首选是ArrayDeque，它有着比LinkedList(当作栈或队列使用时)有着更好的性能。
+![LinkedList概述](../assets/images/01-Java基础/11.LinkedList概述.png)
+LinkedList的实现方式决定了所有跟下标相关的操作都是线性时间，而在首段或者末尾删除元素只需要常数时间。为追求效率LinkedList没有实现同步(synchronized)，如果需要多个线程并发访问，可以先采用Collections.synchronizedList()方法对其进行包装。
+
+#### 6.3.2 LinkedList实现
+
+##### 6.3.2.1 底层数据结构
+LinkedList底层通过双向链表实现，本节将着重讲解插入和删除元素时双向链表的维护过程，也即是之间解跟List接口相关的函数，而将Queue和Stack以及Deque相关的知识放在下一节讲。双向链表的每个节点用内部类Node表示。LinkedList通过first和last引用分别指向链表的第一个和最后一个元素。注意这里没有所谓的哑元，当链表为空的时候first和last都指向null。
+```java
+    transient int size = 0;
+
+    /**
+     * Pointer to first node.
+     * Invariant: (first == null && last == null) ||
+     *            (first.prev == null && first.item != null)
+     */
+    transient Node<E> first;
+
+    /**
+     * Pointer to last node.
+     * Invariant: (first == null && last == null) ||
+     *            (last.next == null && last.item != null)
+     */
+    transient Node<E> last;
+```
+其中Node是私有的内部类:
+
+```java
+    private static class Node<E> {
+        E item;
+        Node<E> next;
+        Node<E> prev;
+
+        Node(Node<E> prev, E element, Node<E> next) {
+            this.item = element;
+            this.next = next;
+            this.prev = prev;
+        }
+    }
+```
+##### 6.3.2.2 构造函数
+```java
+    /**
+     * Constructs an empty list.
+     */
+    public LinkedList() {
+    }
+
+    /**
+     * Constructs a list containing the elements of the specified
+     * collection, in the order they are returned by the collection's
+     * iterator.
+     *
+     * @param  c the collection whose elements are to be placed into this list
+     * @throws NullPointerException if the specified collection is null
+     */
+    public LinkedList(Collection<? extends E> c) {
+        this();
+        addAll(c);
+    }
+```
+##### 6.3.2.3 getFirst(), getLast()
+
+获取第一个元素， 和获取最后一个元素:    
+```java
+/**
+     * Returns the first element in this list.
+     *
+     * @return the first element in this list
+     * @throws NoSuchElementException if this list is empty
+     */
+    public E getFirst() {
+        final Node<E> f = first;
+        if (f == null)
+            throw new NoSuchElementException();
+        return f.item;
+    }
+
+    /**
+     * Returns the last element in this list.
+     *
+     * @return the last element in this list
+     * @throws NoSuchElementException if this list is empty
+     */
+    public E getLast() {
+        final Node<E> l = last;
+        if (l == null)
+            throw new NoSuchElementException();
+        return l.item;
+    }
+```
+##### 6.3.2.4 removeFirst(), removeLast(), remove(e), remove(index)
+
+remove()方法也有两个版本，一个是删除跟指定元素相等的第一个元素remove(Object o)，另一个是删除指定下标处的元素remove(int index)。
+![LinkedList的remove方法](../assets/images/01-Java基础/12.LinkedList的remove方法.png)
+
+删除元素 - 指的是删除第一次出现的这个元素, 如果没有这个元素，则返回false；判断的依据是equals方法， 如果equals，则直接unlink这个node；由于LinkedList可存放null元素，故也可以删除第一次出现null的元素；
+```java
+ /**
+     * Removes the first occurrence of the specified element from this list,
+     * if it is present.  If this list does not contain the element, it is
+     * unchanged.  More formally, removes the element with the lowest index
+     * {@code i} such that
+     * <tt>(o==null&nbsp;?&nbsp;get(i)==null&nbsp;:&nbsp;o.equals(get(i)))</tt>
+     * (if such an element exists).  Returns {@code true} if this list
+     * contained the specified element (or equivalently, if this list
+     * changed as a result of the call).
+     *
+     * @param o element to be removed from this list, if present
+     * @return {@code true} if this list contained the specified element
+     */
+    public boolean remove(Object o) {
+        if (o == null) {
+            for (Node<E> x = first; x != null; x = x.next) {
+                if (x.item == null) {
+                    unlink(x);
+                    return true;
+                }
+            }
+        } else {
+            for (Node<E> x = first; x != null; x = x.next) {
+                if (o.equals(x.item)) {
+                    unlink(x);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * Unlinks non-null node x.
+     */
+    E unlink(Node<E> x) {
+        // assert x != null;
+        final E element = x.item;
+        final Node<E> next = x.next;
+        final Node<E> prev = x.prev;
+
+        if (prev == null) {// 第一个元素
+            first = next;
+        } else {
+            prev.next = next;
+            x.prev = null;
+        }
+
+        if (next == null) {// 最后一个元素
+            last = prev;
+        } else {
+            next.prev = prev;
+            x.next = null;
+        }
+
+        x.item = null; // GC
+        size--;
+        modCount++;
+        return element;
+    }
+```
+remove(int index)使用的是下标计数， 只需要判断该index是否有元素即可，如果有则直接unlink这个node。
+```java
+    /**
+     * Removes the element at the specified position in this list.  Shifts any
+     * subsequent elements to the left (subtracts one from their indices).
+     * Returns the element that was removed from the list.
+     *
+     * @param index the index of the element to be removed
+     * @return the element previously at the specified position
+     * @throws IndexOutOfBoundsException {@inheritDoc}
+     */
+    public E remove(int index) {
+        checkElementIndex(index);
+        return unlink(node(index));
+    }
+```
+删除head元素:
+```java
+/**
+     * Removes and returns the first element from this list.
+     *
+     * @return the first element from this list
+     * @throws NoSuchElementException if this list is empty
+     */
+    public E removeFirst() {
+        final Node<E> f = first;
+        if (f == null)
+            throw new NoSuchElementException();
+        return unlinkFirst(f);
+    }
+
+
+    /**
+     * Unlinks non-null first node f.
+     */
+    private E unlinkFirst(Node<E> f) {
+        // assert f == first && f != null;
+        final E element = f.item;
+        final Node<E> next = f.next;
+        f.item = null;
+        f.next = null; // help GC
+        first = next;
+        if (next == null)
+            last = null;
+        else
+            next.prev = null;
+        size--;
+        modCount++;
+        return element;
+    }
+```
+删除last元素:
+```java
+/**
+     * Removes and returns the last element from this list.
+     *
+     * @return the last element from this list
+     * @throws NoSuchElementException if this list is empty
+     */
+    public E removeLast() {
+        final Node<E> l = last;
+        if (l == null)
+            throw new NoSuchElementException();
+        return unlinkLast(l);
+    }
+    
+    /**
+     * Unlinks non-null last node l.
+     */
+    private E unlinkLast(Node<E> l) {
+        // assert l == last && l != null;
+        final E element = l.item;
+        final Node<E> prev = l.prev;
+        l.item = null;
+        l.prev = null; // help GC
+        last = prev;
+        if (prev == null)
+            first = null;
+        else
+            prev.next = null;
+        size--;
+        modCount++;
+        return element;
+    }
+```
+##### 6.3.2.4 add()
+
+add()方法有两个版本，一个是add(E e)，该方法在LinkedList的末尾插入元素，因为有last指向链表末尾，在末尾插入元素的花费是常数时间。只需要简单修改几个相关引用即可；另一个是add(int index, E element)，该方法是在指定下表处插入元素，需要先通过线性查找找到具体位置，然后修改相关引用完成插入操作。
+```java
+    /**
+     * Appends the specified element to the end of this list.
+     *
+     * <p>This method is equivalent to {@link #addLast}.
+     *
+     * @param e element to be appended to this list
+     * @return {@code true} (as specified by {@link Collection#add})
+     */
+    public boolean add(E e) {
+        linkLast(e);
+        return true;
+    }
+    
+    /**
+     * Links e as last element.
+     */
+    void linkLast(E e) {
+        final Node<E> l = last;
+        final Node<E> newNode = new Node<>(l, e, null);
+        last = newNode;
+        if (l == null)
+            first = newNode;
+        else
+            l.next = newNode;
+        size++;
+        modCount++;
+    }
+```
+![LinkedList的add方法](../assets/images/01-Java基础/13.LinkedList的add方法.png)
+
+add(int index, E element), 当index==size时，等同于add(E e); 如果不是，则分两步: 1.先根据index找到要插入的位置,即node(index)方法；2.修改引用，完成插入操作。   
+```java
+ /**
+     * Inserts the specified element at the specified position in this list.
+     * Shifts the element currently at that position (if any) and any
+     * subsequent elements to the right (adds one to their indices).
+     *
+     * @param index index at which the specified element is to be inserted
+     * @param element element to be inserted
+     * @throws IndexOutOfBoundsException {@inheritDoc}
+     */
+    public void add(int index, E element) {
+        checkPositionIndex(index);
+
+        if (index == size)
+            linkLast(element);
+        else
+            linkBefore(element, node(index));
+    }
+```
+上面代码中的node(int index)函数有一点小小的trick，因为链表双向的，可以从开始往后找，也可以从结尾往前找，具体朝那个方向找取决于条件index < (size >> 1)，也即是index是靠近前端还是后端。从这里也可以看出，linkedList通过index检索元素的效率没有arrayList高。   
+```java
+ /**
+     * Returns the (non-null) Node at the specified element index.
+     */
+    Node<E> node(int index) {
+        // assert isElementIndex(index);
+
+        if (index < (size >> 1)) {
+            Node<E> x = first;
+            for (int i = 0; i < index; i++)
+                x = x.next;
+            return x;
+        } else {
+            Node<E> x = last;
+            for (int i = size - 1; i > index; i--)
+                x = x.prev;
+            return x;
+        }
+    }
+```
+##### 6.3.2.5 addAll()
+
+addAll(index, c) 实现方式并不是直接调用add(index,e)来实现，主要是因为效率的问题，另一个是fail-fast中modCount只会增加1次；   
+```java
+ /**
+     * Appends all of the elements in the specified collection to the end of
+     * this list, in the order that they are returned by the specified
+     * collection's iterator.  The behavior of this operation is undefined if
+     * the specified collection is modified while the operation is in
+     * progress.  (Note that this will occur if the specified collection is
+     * this list, and it's nonempty.)
+     *
+     * @param c collection containing elements to be added to this list
+     * @return {@code true} if this list changed as a result of the call
+     * @throws NullPointerException if the specified collection is null
+     */
+    public boolean addAll(Collection<? extends E> c) {
+        return addAll(size, c);
+    }
+
+    /**
+     * Inserts all of the elements in the specified collection into this
+     * list, starting at the specified position.  Shifts the element
+     * currently at that position (if any) and any subsequent elements to
+     * the right (increases their indices).  The new elements will appear
+     * in the list in the order that they are returned by the
+     * specified collection's iterator.
+     *
+     * @param index index at which to insert the first element
+     *              from the specified collection
+     * @param c collection containing elements to be added to this list
+     * @return {@code true} if this list changed as a result of the call
+     * @throws IndexOutOfBoundsException {@inheritDoc}
+     * @throws NullPointerException if the specified collection is null
+     */
+    public boolean addAll(int index, Collection<? extends E> c) {
+        checkPositionIndex(index);
+
+        Object[] a = c.toArray();
+        int numNew = a.length;
+        if (numNew == 0)
+            return false;
+
+        Node<E> pred, succ;
+        if (index == size) {
+            succ = null;
+            pred = last;
+        } else {
+            succ = node(index);
+            pred = succ.prev;
+        }
+
+        for (Object o : a) {
+            @SuppressWarnings("unchecked") E e = (E) o;
+            Node<E> newNode = new Node<>(pred, e, null);
+            if (pred == null)
+                first = newNode;
+            else
+                pred.next = newNode;
+            pred = newNode;
+        }
+
+        if (succ == null) {
+            last = pred;
+        } else {
+            pred.next = succ;
+            succ.prev = pred;
+        }
+
+        size += numNew;
+        modCount++;
+        return true;
+    }
+```
+##### 6.3.2.6 clear()
+
+为了让GC更快可以回收放置的元素，需要将node之间的引用关系赋空。   
+```java
+ /**
+     * Removes all of the elements from this list.
+     * The list will be empty after this call returns.
+     */
+  public void clear() {
+    // 遍历所有节点，断开引用
+    for (Node<E> x = first; x != null; ) {
+        Node<E> next = x.next;
+        x.item = null;     // 清空数据
+        x.next = null;     // 断开后继
+        x.prev = null;     // 断开前驱
+        x = next;
+    }
+    
+    // 重置头尾指针
+    first = null;
+    last = null;
+    
+    // 大小归零
+    size = 0;
+    
+    // 修改计数器递增
+    modCount++;
+}
+```
+##### 6.3.2.7 Positional Access 方法
+
+通过index获取元素    
+```java
+/**
+     * Returns the element at the specified position in this list.
+     *
+     * @param index index of the element to return
+     * @return the element at the specified position in this list
+     * @throws IndexOutOfBoundsException {@inheritDoc}
+     */
+    public E get(int index) {
+        checkElementIndex(index);
+        return node(index).item;
+    }
+```
+将某个位置的元素重新赋值:   
+```java
+ /**
+     * Replaces the element at the specified position in this list with the
+     * specified element.
+     *
+     * @param index index of the element to replace
+     * @param element element to be stored at the specified position
+     * @return the element previously at the specified position
+     * @throws IndexOutOfBoundsException {@inheritDoc}
+     */
+    public E set(int index, E element) {
+        checkElementIndex(index);
+        Node<E> x = node(index);
+        E oldVal = x.item;
+        x.item = element;
+        return oldVal;
+    }
+```
+将元素插入到指定index位置:   
+```java
+ /**
+     * Inserts the specified element at the specified position in this list.
+     * Shifts the element currently at that position (if any) and any
+     * subsequent elements to the right (adds one to their indices).
+     *
+     * @param index index at which the specified element is to be inserted
+     * @param element element to be inserted
+     * @throws IndexOutOfBoundsException {@inheritDoc}
+     */
+    public void add(int index, E element) {
+        checkPositionIndex(index);
+
+        if (index == size)
+            linkLast(element);
+        else
+            linkBefore(element, node(index));
+    }
+```
+删除指定位置的元素:    
+```java
+/**
+     * Removes the element at the specified position in this list.  Shifts any
+     * subsequent elements to the left (subtracts one from their indices).
+     * Returns the element that was removed from the list.
+     *
+     * @param index the index of the element to be removed
+     * @return the element previously at the specified position
+     * @throws IndexOutOfBoundsException {@inheritDoc}
+     */
+    public E remove(int index) {
+        checkElementIndex(index);
+        return unlink(node(index));
+    }
+```
+其它位置的方法:
+```java
+    /**
+     * Tells if the argument is the index of an existing element.
+     */
+    private boolean isElementIndex(int index) {
+        return index >= 0 && index < size;
+    }
+
+    /**
+     * Tells if the argument is the index of a valid position for an
+     * iterator or an add operation.
+     */
+    private boolean isPositionIndex(int index) {
+        return index >= 0 && index <= size;
+    }
+
+    /**
+     * Constructs an IndexOutOfBoundsException detail message.
+     * Of the many possible refactorings of the error handling code,
+     * this "outlining" performs best with both server and client VMs.
+     */
+    private String outOfBoundsMsg(int index) {
+        return "Index: "+index+", Size: "+size;
+    }
+
+    private void checkElementIndex(int index) {
+        if (!isElementIndex(index))
+            throw new IndexOutOfBoundsException(outOfBoundsMsg(index));
+    }
+
+    private void checkPositionIndex(int index) {
+        if (!isPositionIndex(index))
+            throw new IndexOutOfBoundsException(outOfBoundsMsg(index));
+    }
+```
+##### 6.3.2.8 Positional Access 方法
+查找操作查找操作的本质是查找元素的下标:查找第一次出现的index, 如果找不到返回-1；    
+```java
+/**
+     * Returns the index of the first occurrence of the specified element
+     * in this list, or -1 if this list does not contain the element.
+     * More formally, returns the lowest index {@code i} such that
+     * <tt>(o==null&nbsp;?&nbsp;get(i)==null&nbsp;:&nbsp;o.equals(get(i)))</tt>,
+     * or -1 if there is no such index.
+     *
+     * @param o element to search for
+     * @return the index of the first occurrence of the specified element in
+     *         this list, or -1 if this list does not contain the element
+     */
+    public int indexOf(Object o) {
+        int index = 0;
+        if (o == null) {
+            for (Node<E> x = first; x != null; x = x.next) {
+                if (x.item == null)
+                    return index;
+                index++;
+            }
+        } else {
+            for (Node<E> x = first; x != null; x = x.next) {
+                if (o.equals(x.item))
+                    return index;
+                index++;
+            }
+        }
+        return -1;
+    }
+```
+查找最后一次出现的index, 如果找不到返回-1；   
+```java
+ /**
+     * Returns the index of the last occurrence of the specified element
+     * in this list, or -1 if this list does not contain the element.
+     * More formally, returns the highest index {@code i} such that
+     * <tt>(o==null&nbsp;?&nbsp;get(i)==null&nbsp;:&nbsp;o.equals(get(i)))</tt>,
+     * or -1 if there is no such index.
+     *
+     * @param o element to search for
+     * @return the index of the last occurrence of the specified element in
+     *         this list, or -1 if this list does not contain the element
+     */
+    public int lastIndexOf(Object o) {
+        int index = size;
+        if (o == null) {
+            for (Node<E> x = last; x != null; x = x.prev) {
+                index--;
+                if (x.item == null)
+                    return index;
+            }
+        } else {
+            for (Node<E> x = last; x != null; x = x.prev) {
+                index--;
+                if (o.equals(x.item))
+                    return index;
+            }
+        }
+        return -1;
+    }
+```
+#### 6.3.3 Java `Collections.synchronizedList()`
+
+  - 核心作用与设计目标
+
+  `Collections.synchronizedList()` 是 Java 集合框架提供的**线程安全包装器**，用于将非线程安全的 List 实现（如 `ArrayList`）转换为**基本线程安全**的集合：
+
+  ```java
+  List<String> syncList = Collections.synchronizedList(new ArrayList<>());
+  ```
+
+- 设计目标：
+  - ✅ **兼容性**：保持原始 List 接口的完整功能
+  - ✅ **简易性**：单行代码实现基本线程安全
+  - ⚠️ **非完全安全**：不解决复合操作的原子性问题
+
+- 实现原理剖析
+
+  - 底层同步机制
+  通过**方法级同步锁**实现线程安全：
+  ```java
+  // 简化版源码实现
+  public E get(int index) {
+      synchronized (mutex) { return list.get(index); }
+  }
+  public E set(int index, E element) {
+      synchronized (mutex) { return list.set(index, element); }
+  }
+  // 所有方法都添加同步块
+  ```
+
+  - 关键组件：
+
+  | 组件 | 类型 | 作用 |
+  |------|------|------|
+  | `mutex` | Object | 所有方法共享的锁对象 |
+  | `list` | 原始List | 被包装的非线程安全集合 |
+  | 同步块 | synchronized | 保证单方法原子性 |
+
+- 使用场景与限制
+
+  - ✅ 适用场景：
+  1. **低并发写入**：读多写少的场景
+  2. **简单操作**：单一方法调用（如 `add()`, `get()`）
+  3. **兼容旧代码**：快速改造现有 ArrayList
+
+  - ⚠️ 重大限制：
+  ```java
+  // 危险操作：复合动作非原子
+  if (!syncList.contains("key")) {  // 步骤1
+      syncList.add("key");          // 步骤2
+  }
+  ```
+  - 可能被其他线程在步骤1和2之间修改集合
+  - **解决方案**：手动加锁
+    ```java
+    synchronized (syncList) {
+        if (!syncList.contains("key")) {
+            syncList.add("key");
+        }
+    }
+  ```
+
+- 迭代器与 Fail-Fast 机制
+
+  -  迭代器的特殊处理：
+  ```java
+  // 创建迭代器时需要手动同步
+  List<String> syncList = Collections.synchronizedList(new ArrayList<>());
+
+  // 正确迭代方式：
+  synchronized (syncList) {
+      Iterator<String> it = syncList.iterator();
+      while (it.hasNext()) {
+          System.out.println(it.next());
+      }
+  }
+  ```
+
+  - Fail-Fast 行为：
+    - **仍会触发**：并发修改会抛出 `ConcurrentModificationException`
+    - **原因**：迭代器创建时记录 `modCount`，但并发修改会使 `modCount` 变化
+    - **防护建议**：在同步块内完成整个迭代过程
+
+- 性能影响分析
+
+  - 同步开销对比：
+
+  | 操作 | 非同步ArrayList | synchronizedList | ConcurrentHashMap |
+  |------|----------------|------------------|-------------------|
+  | **读(get)** | O(1) 无锁 | O(1) 加锁 | O(1) 无锁读 |
+  | **写(add)** | O(1) 无锁 | O(1) 加锁 | O(1) CAS操作 |
+  | **迭代** | 无锁 | 需手动同步 | 弱一致性迭代 |
+
+    > 📊 **基准测试数据**（10万次操作，4线程）：
+    > - ArrayList：12ms（但线程不安全）
+    > - synchronizedList：180ms
+    > - CopyOnWriteArrayList：210ms
+
+- 最佳实践指南
+
+  - 1. 选择原则
+
+  | 场景 | 推荐方案 |
+  |------|----------|
+  | **高并发读** | `CopyOnWriteArrayList` |
+  | **写多读少** | `ConcurrentLinkedQueue` |
+  | **简单迁移** | `synchronizedList`+手动同步块 |
+  | **复合操作** | 显式使用 `ReentrantLock` |
+
+  - 2. 正确使用模式
+  ```java
+  // 安全复合操作示例
+  List<String> syncList = Collections.synchronizedList(new ArrayList<>());
+
+  public void safeAddIfAbsent(String item) {
+      synchronized (syncList) {  // 关键：锁定整个复合操作
+          if (!syncList.contains(item)) {
+              syncList.add(item);
+          }
+      }
+  }
+  ```
+
+  - 3. 替代方案对比
+  ```java
+  // 方案1: synchronizedList (需要手动同步复合操作)
+  List<String> list1 = Collections.synchronizedList(new ArrayList<>());
+
+  // 方案2: CopyOnWriteArrayList (读多写少场景)
+  List<String> list2 = new CopyOnWriteArrayList<>();
+
+  // 方案3: 自定义锁+ArrayList (精细控制)
+  List<String> list3 = new ArrayList<>();
+  ReentrantLock lock = new ReentrantLock();
+  ```
+
+- 重要结论
+
+    1. **非完全线程安全**：
+    - 仅保证单方法原子性
+    - 复合操作仍需手动同步
+
+    2. **性能权衡**：
+    - 简单操作：比并发集合更快
+    - 高并发场景：可能成为性能瓶颈
+
+    3. **迭代器风险**：
+    ```java
+    // 错误示例：未同步迭代
+    for (String s : syncList) { 
+        // 可能抛出 ConcurrentModificationException
+    }
+    ```
+
+    4. **适用场景**：
+    > 当您需要快速改造现有 ArrayList 代码，且能**严格控制复合操作同步**时使用
+
+    > 💡 **终极建议**：  
+    > 在新代码中优先考虑 `java.util.concurrent` 包中的**真正并发集合**（如 `CopyOnWriteArrayList`），它们提供更优的并发性能和更简单的线程安全保证。
+
+#### 6.3.3 Stack & Queue 源码解析
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ### 2.1 List接口实现
 | 实现类       | 线程安全 | 底层结构     | 特点               |
 |--------------|----------|--------------|--------------------|
