@@ -9566,7 +9566,7 @@ addAll(index, c) 实现方式并不是直接调用add(index,e)来实现，主要
         return -1;
     }
 ```
-#### 6.3.3 Java `Collections.synchronizedList()`
+### 6.4 Java `Collections.synchronizedList()`
 
   - 核心作用与设计目标
 
@@ -9726,10 +9726,10 @@ addAll(index, c) 实现方式并不是直接调用add(index,e)来实现，主要
     > 💡 **终极建议**：  
     > 在新代码中优先考虑 `java.util.concurrent` 包中的**真正并发集合**（如 `CopyOnWriteArrayList`），它们提供更优的并发性能和更简单的线程安全保证。
 
-#### 6.3.4 Stack & Queue 源码解析
+### 6.5 Stack & Queue 源码解析
 Java里有一个叫做Stack的类，却没有叫做Queue的类(它是个接口名字)。当需要使用栈时，Java已不推荐使用Stack，而是推荐使用更高效的ArrayDeque；既然Queue只是一个接口，当需要使用队列时也就首选ArrayDeque了(次选是LinkedList)。
 
-##### 6.3.4.1 Queue 接口
+#### 6.5.1 Queue 接口
 
 Queue 接口继承自 Collection 接口，除了最基本的 Collection 方法之外，它还支持额外的插入(insertion)、提取(extraction)和检查(inspection)操作。
 
@@ -9744,7 +9744,7 @@ Queue 接口提供了两组方法，共 6 个方法：
 - **抛出异常**的方法在操作失败时抛出异常
 - **返回特殊值**的方法在操作失败时返回 null 或 false
 
-##### 6.3.4.2 Deque 接口
+#### 6.5.2 Deque 接口
 
 Deque 是 "double ended queue" 的缩写，表示双向队列，读作 "deck"。Deque 继承自 Queue 接口，除了支持 Queue 的方法之外，还支持在队列两端进行插入、删除和检查操作。
 
@@ -9812,9 +9812,9 @@ Deque 也可以当作栈（LIFO - 后进先出）使用。对应的等效方法�
 由于使用循环数组，head 不一定总等于 0，tail 也不一定总是比 head 大。
 ![HashMap结构图](../assets/images/01-Java基础/14.ArrayDeque的实现逻辑.png)
 
-##### 6.3.4.3 接口 ArrayDeque 方法剖析
+#### 6.5.3 接口 ArrayDeque 方法剖析
 
-###### 6.3.4.3.1 具体方法实现
+##### 6.5.3.1 具体方法实现
 - addFirst(E e)
 ```java
 public void addFirst(E e) {
@@ -9897,7 +9897,7 @@ public E peekLast() {
     return elements[(tail - 1) & (elements.length - 1)];
 }
 ```
-###### 6.3.4.3.2 循环数组与位运算的巧妙结合
+##### 6.5.3.2 循环数组与位运算的巧妙结合
 
 ```java
 // 关键代码
@@ -10039,8 +10039,8 @@ static final int sub(int i, int j, int modulus) {
 }
 ```
 从上面可以发现JDK11之后取消了JDK8的位运算：elements[head = (head - 1) & (elements.length - 1)] = e。这使得代码看起来更加直接了。方法名明确表达意图。维护性：循环逻辑集中在一处。灵活性：不再强制要求数组长度为2的幂
-#### 6.3.5 PriorityQueue源码解析
-##### 6.3.5.1 概述
+### 6.6 PriorityQueue源码解析
+#### 6.6.1 概述
 PriorityQueue，即优先队列。优先队列的作用是能保证每次取出的元素都是队列中权值最小的(Java的优先队列每次取最小元素，C++的优先队列每次取最大元素)。这里牵涉到了大小关系，元素大小的评判可以通过元素本身的自然顺序(natural ordering)，也可以通过构造时传入的比较器(Comparator，类似于C++的仿函数)。
 
 Java中PriorityQueue实现了Queue接口，不允许放入null元素；其通过堆实现，具体说是通过完全二叉树(complete binary tree)实现的小顶堆(任意一个非叶子节点的权值，都不大于其左右子节点的权值)，也就意味着可以通过数组来作为PriorityQueue的底层实现。
@@ -10055,7 +10055,7 @@ rightNo = parentNo*2+2
 parentNo = (nodeNo-1)/2
 
 通过上述三个公式，可以轻易计算出某个节点的父节点以及子节点的下标。这也就是为什么可以直接用数组来存储堆的原因。PriorityQueue的peek()和element操作是常数时间，add(), offer(), 无参数的remove()以及poll()方法的时间复杂度都是log(N)。
-##### 6.3.5.2 方法剖析
+#### 6.6.2 方法剖析
 
 - add()和offer()
 
@@ -10173,10 +10173,10 @@ public boolean remove(Object o) {
 }
 ```
 
-#### 6.3.6 HashSet & HashMap 源码解析
+### 6.7 HashSet & HashMap 源码解析
 之所以把HashSet和HashMap放在一起讲解，是因为二者在Java里有着相同的实现，前者仅仅是对后者做了一层包装，也就是说HashSet里面有一个HashMap(适配器模式)。因此本文将重点分析HashMap。
-##### 6.3.6.1 Java7 HashMap
-###### 6.3.6.1.1 概述
+#### 6.7.1 Java7 HashMap
+##### 6.7.1.1 概述
 HashMap实现了Map接口，即允许放入key为null的元素，也允许插入value为null的元素；除该类未实现同步外，其余跟Hashtable大致相同；跟TreeMap不同，该容器不保证元素顺序，**根据需要该容器可能会对元素重新哈希，元素的顺序也会被重新打散，因此不同时间迭代同一个HashMap的顺序可能会不同**。 根据对冲突的处理方式不同，哈希表有两种实现方式，一种开放地址方式(Open addressing)，另一种是冲突链表方式(Separate chaining with linked lists)。Java7 HashMap采用的是冲突链表方式。
 ![HashMapBase](../assets/images/01-Java基础/22.HashMap_base.png)
 
@@ -10193,7 +10193,8 @@ HashMap实现了Map接口，即允许放入key为null的元素，也允许插入
   - 性能问题：
   链表过长时查找效率退化至 O(n)（Java 8 引入红黑树优化）。
 
-- get()
+- <a id = "hashMap的get()方法" >get()</a>
+
 get(Object key)方法根据指定的key值返回对应的value，该方法调用了getEntry(Object key)得到相应的entry，然后返回entry.getValue()。因此getEntry()是算法的核心。 算法思想是首先通过hash()函数得到对应bucket的下标，然后依次遍历冲突链表，通过key.equals(k)方法来判断是否是要找的那个entry。
 ![HashMap_getEntry](../assets/images/01-Java基础/23.HashMap_getEntry.png)
 
@@ -10355,7 +10356,7 @@ final Entry<K,V> removeEntryForKey(Object key) {
     return e;
 }
 ```
-##### 6.3.6.2 Java8 HashMap
+#### 6.7.2 Java8 HashMap
 
 Java8 对 HashMap 进行了一些修改，最大的不同就是利用了红黑树，所以其由**数组+链表+红黑树**组成。
 
@@ -10747,7 +10748,7 @@ public class HashSet<E>
 }
 ```
 
-#### 6.3.7 TreeSet & TreeMap 源码解析
+### 6.3.8 TreeSet & TreeMap 源码解析
 
 之所以把TreeSet和TreeMap放在一起讲解，是因为二者在Java里有着相同的实现，前者仅仅是对后者做了一层包装，也就是说TreeSet里面有一个**TreeMap(适配器模式)**。因此本文将重点分析TreeMap。
 
@@ -10759,7 +10760,7 @@ Java TreeMap实现了SortedMap接口，也就是说会按照key的大小顺序�
 ```java
 SortedMap m = Collections.synchronizedSortedMap(new TreeMap(...));
 ```
-##### 6.3.7.1 预备知识
+#### 6.3.8.1 预备知识
 前文说到当查找树的结构发生改变时，红黑树的约束条件可能被破坏，需要通过调整使得查找树重新满足红黑树的约束条件。调整可以分为两类: 一类是颜色调整，即改变某个节点的颜色；另一类是结构调整，即改变检索树的结构关系。结构调整过程包含两个基本操作** : 左旋(Rotate Left)，右旋(RotateRight)**。
 
 - 左旋
@@ -10835,7 +10836,7 @@ static <K,V> TreeMap.Entry<K,V> successor(Entry<K,V> t) {
     }
 }
 ```
-##### 6.3.7.2 方法剖析
+#### 6.3.8.2 方法剖析
 - get()
 
 get(Object key)方法根据指定的key值返回对应的value，该方法调用了getEntry(Object key)得到相应的entry，然后返回entry.value。因此getEntry()是算法的核心。算法思想是根据key的自然顺序(或者比较器顺序)对二叉查找树进行查找，直到找到满足k.compareTo(p.key) == 0的entry。
@@ -11072,22 +11073,642 @@ public class TreeSet<E> extends AbstractSet<E>
     ......
 }
 ```
-##### 6.3.8 LinkedHashSet&Map源码解析
+### 6.3.9 LinkedHashSet&Map源码解析
+#### 6.3.9.1  总体介绍
+如果你已看过前面关于HashSet和HashMap，以及TreeSet和TreeMap的讲解，一定能够想到本文将要讲解的LinkedHashSet和LinkedHashMap其实也是一回事。LinkedHashSet和LinkedHashMap在Java里也有着相同的实现，前者仅仅是对后者做了一层包装，也就是说LinkedHashSet里面有一个LinkedHashMap(适配器模式)。因此本文将重点分析LinkedHashMap。
+
+LinkedHashMap实现了Map接口，即允许放入key为null的元素，也允许插入value为null的元素。从名字上可以看出该容器是linked list和HashMap的混合体，也就是说它同时满足HashMap和linked list的某些特性。可将LinkedHashMap看作采用linked list增强的HashMap。
+![LinkedHashMap_base](../assets/images/01-Java基础/34.LinkedHashMap_base.png)
+
+事实上LinkedHashMap是HashMap的直接子类，**二者唯一的区别是LinkedHashMap在HashMap的基础上，采用双向链表(doubly-linked list)的形式将所有entry连接起来，这样是为保证元素的迭代顺序跟插入顺序相同**。上图给出了LinkedHashMap的结构图，主体部分跟HashMap完全一样，多了header指向双向链表的头部(是一个哑元)，该双向链表的迭代顺序就是entry的插入顺序。
+
+除了可以保迭代历顺序，这种结构还有一个好处 : 迭代LinkedHashMap时不需要像HashMap那样遍历整个table，而只需要直接遍历header指向的双向链表即可，也就是说LinkedHashMap的迭代时间就只跟entry的个数相关，而跟table的大小无关。
+
+有两个参数可以影响LinkedHashMap的性能: 初始容量(inital capacity)和负载系数(load factor)。初始容量指定了初始table的大小，负载系数用来指定自动扩容的临界值。当entry的数量超过capacity*load_factor时，容器将自动扩容并重新哈希。对于插入元素较多的场景，将初始容量设大可以减少重新哈希的次数。
+
+将对象放入到LinkedHashMap或LinkedHashSet中时，有两个方法需要特别关心: hashCode()和equals()。hashCode()方法决定了对象会被放到哪个bucket里，当多个对象的哈希值冲突时，equals()方法决定了这些对象是否是“同一个对象”。所以，如果要将自定义的对象放入到LinkedHashMap或LinkedHashSet中，需要@Override hashCode()和equals()方法。
+
+通过如下方式可以得到一个跟源Map 迭代顺序一样的
+```java
+LinkedHashMap:void foo(Map m) {
+    Map copy = new LinkedHashMap(m);
+    ...
+}
+```
+出于性能原因，LinkedHashMap是非同步的(not synchronized)，如果需要在多线程环境使用，需要程序员手动同步；或者通过如下方式将LinkedHashMap包装成(wrapped)同步的:
+```java
+Map m = Collections.synchronizedMap(new LinkedHashMap(...));
+```
+#### 6.3.9.2 JDK 7 LinkedHashMap 方法剖析
+
+- get()
+
+get(Object key)方法根据指定的key值返回对应的value。该方法跟HashMap.get()方法的流程几乎完全一样，读者可自行<a href="#hashMap的get()方法">参考前文</a>，这里不再赘述。
+
+- put()
+
+put(K key, V value)方法是将指定的key, value对添加到map里。该方法首先会对map做一次查找，看是否包含该元组，如果已经包含则直接返回，查找过程类似于get()方法；如果没有找到，则会通过addEntry(int hash, K key, V value, int bucketIndex)方法插入新的entry。
+
+> 注意，这里的插入有两重含义:
+> - 从table的角度看，新的entry需要插入到对应的bucket里，当有哈希冲突时，采用头插法将新的entry插入到冲突链表的头部。
+> - 从header的角度看，新的entry需要插入到双向链表的尾部。
+
+![LinkedHashMap_addEntry](../assets/images/01-Java基础/35.LinkedHashMap_addEntry.png)
+addEntry()代码如下:
+```java
+// LinkedHashMap.addEntry()
+void addEntry(int hash, K key, V value, int bucketIndex) {
+    if ((size >= threshold) && (null != table[bucketIndex])) {
+        resize(2 * table.length);// 自动扩容，并重新哈希
+        hash = (null != key) ? hash(key) : 0;
+        bucketIndex = hash & (table.length-1);// hash%table.length
+    }
+    // 1.在冲突链表头部插入新的entry
+    HashMap.Entry<K,V> old = table[bucketIndex];
+    Entry<K,V> e = new Entry<>(hash, key, value, old);
+    table[bucketIndex] = e;
+    // 2.在双向链表的尾部插入新的entry
+    e.addBefore(header);
+    size++;
+}
+```
+上述代码中用到了addBefore()方法将新entry e插入到双向链表头引用header的前面，这样e就成为双向链表中的最后一个元素。addBefore()的代码如下:
+```java
+// LinkedHashMap.Entry.addBefor()，将this插入到existingEntry的前面
+private void addBefore(Entry<K,V> existingEntry) {
+    after  = existingEntry;
+    before = existingEntry.before;
+    before.after = this;
+    after.before = this;
+}
+```
+上述代码只是简单修改相关entry的引用而已。
+
+- remove()
+
+remove(Object key)的作用是删除key值对应的entry，该方法的具体逻辑是在removeEntryForKey(Object key)里实现的。removeEntryForKey()方法会首先找到key值对应的entry，然后删除该entry(修改链表的相应引用)。查找过程跟get()方法类似。
+
+> 注意，这里的删除也有两重含义:
+> - 从table的角度看，需要将该entry从对应的bucket里删除，如果对应的冲突链表不空，需要修改冲突链表的相应引用。
+> - 从header的角度来看，需要将该entry从双向链表中删除，同时修改链表中前面以及后面元素的相应引用。
+
+![LinkedHashMap_removeEntryForKey](../assets/images/01-Java基础/36.LinkedHashMap_removeEntryForKey.png)
+
+removeEntryForKey()对应的代码如下:
+```java
+// LinkedHashMap.removeEntryForKey()，删除key值对应的entry
+final Entry<K,V> removeEntryForKey(Object key) {
+	......
+	int hash = (key == null) ? 0 : hash(key);
+    int i = indexFor(hash, table.length);// hash&(table.length-1)
+    Entry<K,V> prev = table[i];// 得到冲突链表
+    Entry<K,V> e = prev;
+    while (e != null) {// 遍历冲突链表
+        Entry<K,V> next = e.next;
+        Object k;
+        if (e.hash == hash &&
+            ((k = e.key) == key || (key != null && key.equals(k)))) {// 找到要删除的entry
+            modCount++; size--;
+            // 1. 将e从对应bucket的冲突链表中删除
+            if (prev == e) table[i] = next;
+            else prev.next = next;
+            // 2. 将e从双向链表中删除
+            e.before.after = e.after;
+            e.after.before = e.before;
+            return e;
+        }
+        prev = e; e = next;
+    }
+    return e;
+}
+```
+#### 6.3.9.3 JDK8的优化
+
+1. 不再使用头插法，改为尾插法
+
+在JDK8中，HashMap和LinkedHashMap都将**头插法改为尾插法**，主要为了解决多线程环境下的循环链表问题。
+
+```java
+// JDK8中的实现
+public V put(K key, V value) {
+    return putVal(hash(key), key, value, false, true);
+}
+
+final V putVal(int hash, K key, V value, boolean onlyIfAbsent, boolean evict) {
+    // ... 其他逻辑
+    
+    if ((p = tab[i = (n - 1) & hash]) == null)
+        tab[i] = newNode(hash, key, value, null);
+    else {
+        // 使用尾插法
+        Node<K,V> e; K k;
+        if (p.hash == hash && ((k = p.key) == key || (key != null && key.equals(k))))
+            e = p;
+        else if (p instanceof TreeNode)
+            e = ((TreeNode<K,V>)p).putTreeVal(this, tab, hash, key, value);
+        else {
+            for (int binCount = 0; ; ++binCount) {
+                // 这里使用尾插法：当next为null时插入
+                if ((e = p.next) == null) {
+                    p.next = newNode(hash, key, value, null);
+                    if (binCount >= TREEIFY_THRESHOLD - 1) // -1 for 1st
+                        treeifyBin(tab, hash);
+                    break;
+                }
+                if (e.hash == hash && ((k = e.key) == key || (key != null && key.equals(k))))
+                    break;
+                p = e;
+            }
+        }
+    }
+    // ... 其他逻辑
+}
+```
+
+2. 红黑树支持
+
+JDK8中HashMap引入了红黑树优化，LinkedHashMap也继承了这一特性：
+- 当链表长度超过8时，转换为红黑树
+- 当红黑树节点数小于6时，转换回链表
+
+3. 节点创建的重写
+
+LinkedHashMap重写了newNode方法，在创建节点时维护双向链表：
+
+```java
+// JDK8 LinkedHashMap
+Node<K,V> newNode(int hash, K key, V value, Node<K,V> e) {
+    LinkedHashMap.Entry<K,V> p = new LinkedHashMap.Entry<>(hash, key, value, e);
+    // 将新节点链接到双向链表尾部
+    linkNodeLast(p);
+    return p;
+}
+
+private void linkNodeLast(LinkedHashMap.Entry<K,V> p) {
+    LinkedHashMap.Entry<K,V> last = tail;
+    tail = p;
+    if (last == null)
+        head = p;
+    else {
+        p.before = last;
+        last.after = p;
+    }
+}
+```
+
+4. 删除逻辑的更新
+
+删除操作也相应更新，使用afterNodeRemoval回调：
+
+```java
+// JDK8中的删除逻辑
+void afterNodeRemoval(Node<K,V> e) { // unlink
+    LinkedHashMap.Entry<K,V> p = (LinkedHashMap.Entry<K,V>)e, b = p.before, a = p.after;
+    p.before = p.after = null;
+    if (b == null)
+        head = a;
+    else
+        b.after = a;
+    if (a == null)
+        tail = b;
+    else
+        a.before = b;
+}
+```
+#### 6.3.9.4 LinkedHashSet
+前面已经说过LinkedHashSet是对LinkedHashMap的简单包装，对LinkedHashSet的函数调用都会转换成合适的LinkedHashMap方法，因此LinkedHashSet的实现非常简单，这里不再赘述。
+```java
+public class LinkedHashSet<E>
+    extends HashSet<E>
+    implements Set<E>, Cloneable, java.io.Serializable {
+    ......
+    // LinkedHashSet里面有一个LinkedHashMap
+    public LinkedHashSet(int initialCapacity, float loadFactor) {
+        map = new LinkedHashMap<>(initialCapacity, loadFactor);
+    }
+	......
+    public boolean add(E e) {//简单的方法转换
+        return map.put(e, PRESENT)==null;
+    }
+    ......
+}
+```
+#### 6.3.9.5 LinkedHashMap经典用法
+
+LinkedHashMap除了可以保证迭代顺序外，还有一个非常有用的用法: 可以轻松实现一个采用了FIFO替换策略的缓存。具体说来，LinkedHashMap有一个子类方法protected boolean removeEldestEntry(Map.Entry<K,V> eldest)，该方法的作用是告诉Map是否要删除“最老”的Entry，所谓最老就是当前Map中最早插入的Entry，如果该方法返回true，最老的那个元素就会被删除。在每次插入新元素的之后LinkedHashMap会自动询问removeEldestEntry()是否要删除最老的元素。这样只需要在子类中重载该方法，当元素个数超过一定数量时让removeEldestEntry()返回true，就能够实现一个固定大小的FIFO策略的缓存。示例代码如下:
+```java
+/** 一个固定大小的FIFO替换策略的缓存 */
+class FIFOCache<K, V> extends LinkedHashMap<K, V>{
+    private final int cacheSize;
+    public FIFOCache(int cacheSize){
+        this.cacheSize = cacheSize;
+    }
+
+    // 当Entry个数超过cacheSize时，删除最老的Entry
+    @Override
+    protected boolean removeEldestEntry(Map.Entry<K,V> eldest) {
+       return size() > cacheSize;
+    }
+}
+```
+上面我们曾经介绍过hashMap的putVal(int hash, K key, V value, boolean onlyIfAbsent,boolean evict)方法，方法最后会调用afterNodeInsertion(evict);
+在HashMap中这个方法是空方法，但在LinkedHashMap重写了该方法
+
+```java
+ void afterNodeInsertion(boolean evict) { // possibly remove eldest
+        LinkedHashMap.Entry<K,V> first;
+        if (evict && (first = head) != null && removeEldestEntry(first)) {
+            K key = first.key;
+            removeNode(hash(key), key, null, false, true);
+        }
+    }
+```
+因此是否移除最老的元素取决于removeEldestEntry(first)这个方法的结果（evict默认传true）。LinkedHashMap中emoveEldestEntry()方法默认返回false
+```java
+protected boolean removeEldestEntry(Map.Entry<K,V> eldest) {
+        return false;
+    }
+```
+因此LinkedHashMap是不会移除最老元素的，但是我们上面的FIFOCache重写了removeEldestEntry方法实现了一个固定大小的FIFO策略的缓存
+
+### 6.3.10 WeakHashMap源码解析
+WeakHashMap，从名字可以看出它是某种 Map。它的特殊之处在于 WeakHashMap 里的entry可能会被GC自动删除，即使程序员没有调用remove()或者clear()方法。
+
+更直观的说，当使用 WeakHashMap 时，即使没有显示的添加或删除任何元素，也可能发生如下情况:
+> - 调用两次size()方法返回不同的值；
+> - 两次调用isEmpty()方法，第一次返回false，第二次返回true；
+> - 两次调用containsKey()方法，第一次返回true，第二次返回false，尽管两次使用的是同一个key；
+> - 两次调用get()方法，第一次返回一个value，第二次返回null，尽管两次使用的是同一个对象。
+
+遇到这么奇葩的现象，你是不是觉得使用者一定会疯掉? 其实不然，**WeakHashMap 的这个特点特别适用于需要缓存的场景**。在缓存场景下，由于内存是有限的，不能缓存所有对象；对象缓存命中可以提高系统效率，但缓存MISS也不会造成错误，因为可以通过计算重新得到。
+
+要明白 WeakHashMap 的工作原理，还需要引入一个概念 : **弱引用(WeakReference)**。我们都知道Java中内存是通过GC自动管理的，GC会在程序运行过程中自动判断哪些对象是可以被回收的，并在合适的时机进行内存释放。GC判断某个对象是否可被回收的依据是，**是否有有效的引用指向该对象**。如果没有有效引用指向该对象(基本意味着不存在访问该对象的方式)，那么该对象就是可回收的。这里的有效引用 并不包括弱引用。也就是说，**虽然弱引用可以用来访问对象，但进行垃圾回收时弱引用并不会被考虑在内，仅有弱引用指向的对象仍然会被GC回收。**
+WeakHashMap 内部是通过弱引用来管理entry的，弱引用的特性对应到 WeakHashMap 上意味着什么呢？将一对key, value放入到 WeakHashMap 里并不能避免该key值被GC回收，除非在 WeakHashMap 之外还有对该key的强引用。
+
+- WeakHashMap与HashMap一样，没有内置的同步机制。多个线程同时访问时需要进行外部同步。
+
+```java
+// 非线程安全的示例
+WeakHashMap<String, Object> weakMap = new WeakHashMap<>();
+
+// 在多线程环境中这样使用是不安全的
+// 线程1
+new Thread(() -> {
+    weakMap.put("key1", new Object());
+}).start();
+
+// 线程2  
+new Thread(() -> {
+    weakMap.put("key2", new Object());
+}).start();
+// 可能导致数据不一致或ConcurrentModificationException
+```
+
+- WeakHashMap的键是弱引用，垃圾回收器可能在任意时间回收键对象，这会改变map的结构，在多线程环境中带来额外的复杂性。
+
+```java
+// 垃圾回收可能导致意外的结构变化
+WeakHashMap<Object, String> map = new WeakHashMap<>();
+Object key = new Object();
+map.put(key, "value");
+
+// 在其他线程中
+new Thread(() -> {
+    // 如果此时发生GC，key可能被回收，map.size()会变化
+    System.out.println(map.size()); // 结果不确定
+}).start();
+```
+
+- 如何实现线程安全
+
+1. 使用Collections.synchronizedMap
+```java
+Map<Object, Object> synchronizedWeakMap = 
+    Collections.synchronizedMap(new WeakHashMap<>());
+
+// 现在可以安全地在多线程环境中使用
+synchronized(synchronizedWeakMap) {
+    // 迭代时也需要同步
+    for (Map.Entry<Object, Object> entry : synchronizedWeakMap.entrySet()) {
+        // 处理条目
+    }
+}
+```
+
+- 2. 使用ConcurrentHashMap（推荐）
+如果需要线程安全的弱键行为，可以考虑：
+```java
+// 使用ConcurrentHashMap配合WeakReference
+ConcurrentHashMap<WeakReference<Object>, Object> concurrentWeakMap = 
+    new ConcurrentHashMap<>();
+
+// 或者使用专门的并发弱引用Map实现
+```
+
+- WeakHashMap的特殊行为
+
+  - 弱键的自动清理
+    ```java
+    WeakHashMap<Object, String> weakMap = new WeakHashMap<>();
+
+    Object key1 = new Object();
+    weakMap.put(key1, "value1");
+
+    // 当没有其他强引用指向key1时，GC会回收它
+    key1 = null; // 现在只有弱引用
+    System.gc(); // 触发GC后，条目会自动从weakMap中移除
+
+    System.out.println(weakMap.size()); // 可能输出0
+    ```
+
+    ### 迭代器行为
+    WeakHashMap的迭代器是fail-fast的：
+    ```java
+    WeakHashMap<String, Integer> map = new WeakHashMap<>();
+    map.put("a", 1);
+
+    Iterator<String> iterator = map.keySet().iterator();
+    // 如果在迭代期间有其他线程修改map，会抛出ConcurrentModificationException
+    ```
+
+- 总结
+
+  - **WeakHashMap不是线程安全的**
+  - 需要在多线程环境中使用时，应该进行外部同步
+  - 弱键特性使得它在缓存和存储元数据等场景中很有用
+  - 垃圾回收会异步地清理被回收键对应的条目
+  - 对于高并发场景，建议使用专门的并发容器而不是WeakHashMap
+
+  如果需要线程安全的弱引用Map，可以考虑使用：
+  - `Collections.synchronizedMap(new WeakHashMap<>())`
+  - Google Guava的`MapMaker`.weakKeys()
+  - 自定义基于`ConcurrentReferenceHashMap`的解决方案
 
 
+**WeakHashMap通过使用弱引用(WeakReference)作为键来实现弱引用机制。** 详细解析其实现原理：
 
+- 核心实现机制
 
+1. Entry继承WeakReference
 
+WeakHashMap的内部Entry类继承自WeakReference，将键作为弱引用：
 
+```java
+private static class Entry<K,V> extends WeakReference<Object> implements Map.Entry<K,V> {
+    V value;
+    final int hash;
+    Entry<K,V> next;
+    
+    Entry(Object key, V value, ReferenceQueue<Object> queue, int hash, Entry<K,V> next) {
+        super(key, queue);  // 关键：键作为弱引用，并关联引用队列
+        this.value = value;
+        this.hash = hash;
+        this.next = next;
+    }
+    
+    // 其他方法...
+}
+```
 
+1. 引用队列(ReferenceQueue)
 
+WeakHashMap使用引用队列来跟踪哪些键已经被垃圾回收：
 
+```java
+public class WeakHashMap<K,V> extends AbstractMap<K,V> implements Map<K,V> {
+    private final ReferenceQueue<Object> queue = new ReferenceQueue<>();
+    
+    // 当键被GC回收时，对应的WeakReference会被加入到这个队列
+}
+```
 
+- 自动清理过程
 
+1. 垃圾回收触发清理
 
+当键对象不再有强引用时，GC会回收它，然后将对应的Entry加入到引用队列：
 
+```java
+// 示例演示GC回收过程
+WeakHashMap<Object, String> weakMap = new WeakHashMap<>();
+Object key = new Object();
+weakMap.put(key, "Some Value");
 
+// 此时：key有强引用，不会被回收
+System.out.println(weakMap.size()); // 输出: 1
 
+// 移除强引用
+key = null;
+
+// 触发GC（在实际应用中不要依赖System.gc()，这里仅为演示）
+System.gc();
+
+// 给GC一点时间
+try { Thread.sleep(100); } catch (InterruptedException e) {}
+
+// WeakHashMap会自动清理被回收的条目
+System.out.println(weakMap.size()); // 可能输出: 0
+```
+
+ 2. 清理机制实现
+
+WeakHashMap在每次操作时都会检查引用队列并清理失效条目：
+
+```java
+private void expungeStaleEntries() {
+    ReferenceQueue<Object> q = this.queue;
+    Reference<?> x;
+    while ((x = q.poll()) != null) {
+        synchronized (queue) {
+            @SuppressWarnings("unchecked")
+            Entry<K,V> e = (Entry<K,V>) x;
+            int i = indexFor(e.hash, table.length);
+            
+            // 从哈希表中移除该条目
+            Entry<K,V> prev = table[i];
+            Entry<K,V> p = prev;
+            while (p != null) {
+                Entry<K,V> next = p.next;
+                if (p == e) {
+                    if (prev == e)
+                        table[i] = next;
+                    else
+                        prev.next = next;
+                    // 必须将value置为null，帮助GC
+                    e.value = null;
+                    size--;
+                    break;
+                }
+                prev = p;
+                p = next;
+            }
+        }
+    }
+}
+```
+
+- 关键方法中的清理调用
+
+  - get()方法
+  ```java
+  public V get(Object key) {
+      Object k = maskNull(key);
+      int h = hash(k);
+      Entry<K,V>[] tab = getTable(); // 这里会调用expungeStaleEntries()
+      // ... 查找逻辑
+  }
+  ```
+
+  - put()方法
+  ```java
+  public V put(K key, V value) {
+      Object k = maskNull(key);
+      int h = hash(k);
+      Entry<K,V>[] tab = getTable(); // 清理失效条目
+      // ... 插入逻辑
+  }
+  ```
+
+  - size()方法
+  ```java
+  public int size() {
+      if (size == 0)
+          return 0;
+      expungeStaleEntries(); // 清理后再计算大小
+      return size;
+  }
+    ```
+
+- 完整工作流程
+
+1. **插入条目**：创建继承WeakReference的Entry，键作为弱引用
+2. **键失去强引用**：当外部不再持有键的强引用时
+3. **垃圾回收**：GC回收键对象，将Entry加入引用队列
+4. **自动清理**：WeakHashMap在后续操作中检测队列并移除对应条目
+5. **值回收**：清理时将value置为null，帮助GC回收值对象
+- 使用注意事项
+
+```java
+// 错误用法：值持有键的强引用，导致无法回收
+class SelfReferencing {
+    private Map<Object, Object> map = new WeakHashMap<>();
+    private Object key = new Object();
+    
+    public void problematicMethod() {
+        map.put(key, key); // 值也引用了key，导致key无法被回收
+    }
+}
+
+// 正确用法：确保值不直接或间接引用键
+class CorrectUsage {
+    private Map<Object, String> map = new WeakHashMap<>();
+    private Object key = new Object();
+    
+    public void correctMethod() {
+        map.put(key, "some data"); // 值不引用键
+    }
+}
+```
+
+补充说明：
+
+- Java的四种引用类型
+
+Java提供了四种不同强度的引用类型，位于`java.lang.ref`包中：
+
+ 1. **强引用 (Strong Reference)**
+```java
+Object obj = new Object(); // 这就是强引用
+```
+- 最常见的引用类型
+- 只要强引用存在，对象就不会被GC回收
+
+ 2. **软引用 (SoftReference)**
+```java
+SoftReference<Object> softRef = new SoftReference<>(new Object());
+```
+- 内存不足时才会被GC回收
+- 适合实现内存敏感的缓存
+
+ 3. **弱引用 (WeakReference)**
+```java
+WeakReference<Object> weakRef = new WeakReference<>(new Object());
+```
+- **只要发生GC就会被回收**
+- 不管内存是否充足
+- WeakHashMap使用的就是这种引用
+
+ 4. **虚引用 (PhantomReference)**
+```java
+PhantomReference<Object> phantomRef = new PhantomReference<>(new Object(), queue);
+```
+- 最弱的引用，几乎等同于没有引用
+- 主要用于跟踪对象被回收的状态
+
+---
+
+- ReferenceQueue的作用
+
+`ReferenceQueue`用于跟踪引用对象的状态：
+
+```java
+ReferenceQueue<Object> queue = new ReferenceQueue<>();
+
+// 创建带队列的弱引用
+WeakReference<Object> weakRef = new WeakReference<>(new Object(), queue);
+
+// 当被引用对象被GC回收后，对应的Reference对象会被加入到队列中
+Reference<?> ref = queue.poll(); // 获取被回收的引用
+```
+
+## 完整示例演示
+
+```java
+import java.lang.ref.*;
+
+public class ReferenceTypesDemo {
+    public static void main(String[] args) throws InterruptedException {
+        // 创建引用队列
+        ReferenceQueue<Object> queue = new ReferenceQueue<>();
+        
+        // 创建不同引用类型的对象
+        Object strongRef = new Object(); // 强引用
+        SoftReference<Object> softRef = new SoftReference<>(new Object());
+        WeakReference<Object> weakRef = new WeakReference<>(new Object(), queue);
+        PhantomReference<Object> phantomRef = new PhantomReference<>(new Object(), queue);
+        
+        System.out.println("初始状态:");
+        System.out.println("强引用: " + strongRef);
+        System.out.println("软引用: " + softRef.get());
+        System.out.println("弱引用: " + weakRef.get());
+        System.out.println("虚引用: " + phantomRef.get()); // 总是null
+        
+        // 触发GC
+        System.gc();
+        Thread.sleep(100);
+        
+        System.out.println("\nGC后:");
+        System.out.println("强引用: " + strongRef); // 仍然存在
+        System.out.println("软引用: " + softRef.get()); // 可能还存在（内存充足时）
+        System.out.println("弱引用: " + weakRef.get()); // 很可能为null
+        
+        // 检查引用队列
+        Reference<?> ref;
+        while ((ref = queue.poll()) != null) {
+            System.out.println("队列中的引用: " + ref);
+        }
+    }
+}
+```
+
+- 各种引用的使用场景
+
+| 引用类型 | 使用场景 |
+|----------|----------|
+| **强引用** | 普通对象引用，需要长期持有的对象 |
+| **软引用** | 内存敏感的缓存，如图片缓存 |
+| **弱引用** | 防止内存泄漏的缓存，如WeakHashMap |
+| **虚引用** | 对象回收跟踪，资源清理 |
 
 
 
