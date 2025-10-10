@@ -10173,6 +10173,931 @@ public boolean remove(Object o) {
 }
 ```
 
+#### 6.3.6 HashSet & HashMap 源码解析
+之所以把HashSet和HashMap放在一起讲解，是因为二者在Java里有着相同的实现，前者仅仅是对后者做了一层包装，也就是说HashSet里面有一个HashMap(适配器模式)。因此本文将重点分析HashMap。
+##### 6.3.6.1 Java7 HashMap
+###### 6.3.6.1.1 概述
+HashMap实现了Map接口，即允许放入key为null的元素，也允许插入value为null的元素；除该类未实现同步外，其余跟Hashtable大致相同；跟TreeMap不同，该容器不保证元素顺序，**根据需要该容器可能会对元素重新哈希，元素的顺序也会被重新打散，因此不同时间迭代同一个HashMap的顺序可能会不同**。 根据对冲突的处理方式不同，哈希表有两种实现方式，一种开放地址方式(Open addressing)，另一种是冲突链表方式(Separate chaining with linked lists)。Java7 HashMap采用的是冲突链表方式。
+![HashMapBase](../assets/images/01-Java基础/22.HashMap_base.png)
+
+从上图容易看出，如果选择合适的哈希函数，put()和get()方法可以在常数时间内完成。但在对HashMap进行迭代时，需要遍历整个table以及后面跟的冲突链表。因此对于迭代比较频繁的场景，不宜将HashMap的初始大小设的过大。
+
+有两个参数可以影响HashMap的性能: 初始容量(inital capacity)和负载系数(load factor)。初始容量指定了初始table的大小，负载系数用来指定自动扩容的临界值。当entry的数量超过capacity*load_factor时，容器将自动扩容并重新哈希。对于插入元素较多的场景，将初始容量设大可以减少重新哈希的次数。
+
+将对象放入到HashMap或HashSet中时，有两个方法需要特别关心: hashCode()和equals()。hashCode()方法决定了对象会被放到哪个bucket里，当多个对象的哈希值冲突时，equals()方法决定了这些对象是否是“同一个对象”。所以，如果要将自定义的对象放入到HashMap或HashSet中，需要**@Override** hashCode()和equals()方法。
+- 特性
+  - 头插法：
+  新节点插入链表头部（时间复杂度 O(1)），但并发环境下可能导致死循环【链表成环】（Java 8 改为尾插法）。
+  - 无锁化设计：
+  非线程安全，多线程操作需外部同步（如 Collections.synchronizedMap）。
+  - 性能问题：
+  链表过长时查找效率退化至 O(n)（Java 8 引入红黑树优化）。
+
+- get()
+get(Object key)方法根据指定的key值返回对应的value，该方法调用了getEntry(Object key)得到相应的entry，然后返回entry.getValue()。因此getEntry()是算法的核心。 算法思想是首先通过hash()函数得到对应bucket的下标，然后依次遍历冲突链表，通过key.equals(k)方法来判断是否是要找的那个entry。
+![HashMap_getEntry](../assets/images/01-Java基础/23.HashMap_getEntry.png)
+
+上图中hash(k)&(table.length-1)等价于hash(k)%table.length，原因是HashMap要求table.length必须是2的指数，因此table.length-1就是二进制低位全是1，跟hash(k)相与会将哈希值的高位全抹掉，剩下的就是余数了。
+```java
+//getEntry()方法
+final Entry<K,V> getEntry(Object key) {
+	......
+	int hash = (key == null) ? 0 : hash(key);
+    for (Entry<K,V> e = table[hash&(table.length-1)];//得到冲突链表
+         e != null; e = e.next) {//依次遍历冲突链表中的每个entry
+        Object k;
+        //依据equals()方法判断是否相等
+        if (e.hash == hash &&
+            ((k = e.key) == key || (key != null && key.equals(k))))
+            return e;
+    }
+    return null;
+}
+```
+- put()
+
+put(K key, V value)方法是将指定的key, value对添加到map里。该方法首先会对map做一次查找，看是否包含该元组，如果已经包含则直接返回，查找过程类似于getEntry()方法；如果没有找到，则会通过addEntry(int hash, K key, V value, int bucketIndex)方法插入新的entry，插入方式为头插法。
+![HashMap_addEntry](../assets/images/01-Java基础/24.HashMap_addEntry.png)
+```java
+//addEntry()
+void addEntry(int hash, K key, V value, int bucketIndex) {
+    if ((size >= threshold) && (null != table[bucketIndex])) {
+        resize(2 * table.length);//自动扩容，并重新哈希
+        hash = (null != key) ? hash(key) : 0;
+        bucketIndex = hash & (table.length-1);//hash%table.length
+    }
+    //在冲突链表头部插入新的entry
+    Entry<K,V> e = table[bucketIndex];
+    table[bucketIndex] = new Entry<>(hash, key, value, e);
+    size++;
+}
+```
+---
+Java 7 中 `HashMap` 使用**头插法**导致链表成环的问题，是并发编程中的经典 BUG。以下是详细的原理分析：
+- **问题根源：并发扩容 + 头插法**
+当多个线程同时触发 `HashMap` 扩容时（调用 `resize()` 方法），在数据迁移过程中，头插法会导致链表节点引用关系混乱(不同线程在扩容的时候采用头插法插入，头插法扩容后会将原来的链表倒序)。以下是分步拆解：
+
+---
+  -  **1. 初始状态**
+  假设一个槽位的链表结构为：  
+  `A → B → null`  
+  （A 是头节点，B 是尾节点）
+
+  - **2. 线程 1 开始扩容（被中断）**
+  线程 1 遍历链表，准备迁移节点：  
+  ```java
+  // 伪代码：transfer() 方法关键片段
+  Entry<K,V> next = e.next; // 记录下一个节点（e当前指向A，next=B）
+  e.next = newTable[i];    // 将A插入新数组（头插法）
+  newTable[i] = e;         // 新槽位指向A
+  e = next;                // e移动到B（准备处理B）
+  ```
+
+ 此时线程 1 被挂起，状态：  
+    - 新数组槽位：`A → null`  
+    - 旧链表状态：`A → B → null`（未修改）  
+    - 线程 1 的 `e` 指向 **B**，`next` 指向 **null**
+
+  -  **3. 线程 2 完成扩容**
+
+  线程 2 完整执行扩容：  
+  1. 迁移 A：新槽位 `A → null`  
+  2. 迁移 B：头插法插入 A 前方 → `B → A → null`  
+  3. **修改了 B 的指针**：`B.next = A`（原本是 `B.next = null`）
+
+  最终新链表：`B → A → null`
+
+  -  **4. 线程 1 恢复执行**
+
+  线程 1 继续迁移节点 B：  
+     - `e = B`（之前挂起时的状态）  
+     - `next = null`（记录的下一个节点）  
+     - 执行头插法：  
+       ```java
+       e.next = newTable[i]; // B.next = 当前新槽位头节点 → B.next = A
+       newTable[i] = e;      // 新槽位头节点指向B
+       ```
+     结果：  
+     - 新链表变为 `B → A`  
+     - **但 A 的 next 仍指向 B**（线程 2 设置的 `A.next = B`）  
+
+  最终链表成环：  
+  ``` 
+  B → A → B → A → ...（无限循环）
+  ```
+
+  ---
+
+-  **为何造成死循环？**
+当后续有线程调用 `get()` 方法查询该槽位的元素时：  
+1. 遍历链表查找匹配的 `key`  
+2. 由于链表成环，遍历永远无法结束（`while(e != null)` 条件永不满足）  
+3. **CPU 占用率飙升至 100%**（死循环）
+
+---
+
+-  **Java 8 的解决方案：尾插法**
+Java 8 将头插法改为**尾插法**（新节点插入链表尾部）：  
+```java
+// Java 8 的链表迁移
+Node<K,V> loHead = null, loTail = null; // 低位链表头尾指针
+// 遍历旧链表...
+if (loTail == null)
+    loHead = e;
+else
+    loTail.next = e; // 尾插法：新节点接在尾部
+loTail = e;
+```
+**优势**：  
+1. 链表顺序不变（A→B 迁移后仍是 A→B）  
+2. 即使多线程并发，最坏情况是节点丢失（不会成环）  
+3. 引入红黑树：链表过长时转树，进一步避免遍历长链表
+
+---
+
+-  **总结**
+
+| **问题根源**         | **后果**          | **解决方案**         |
+|----------------------|-------------------|---------------------|
+| 头插法 + 并发扩容     | 链表成环 → 死循环 | Java 8 改用尾插法   |
+| 未同步的共享状态     | 数据损坏          | 使用 `ConcurrentHashMap` |
+| 链表过长             | 查询效率 O(n)     | 链表转红黑树（Java 8）|
+
+> **最佳实践**：  
+> - 多线程环境务必使用 `ConcurrentHashMap`  
+> - 避免在迭代过程中修改 `HashMap`  
+> - Java 8+ 的 `HashMap` 已修复此问题（但仍是线程不安全的）
+
+- remove()
+
+remove(Object key)的作用是删除key值对应的entry，该方法的具体逻辑是在removeEntryForKey(Object key)里实现的。removeEntryForKey()方法会首先找到key值对应的entry，然后删除该entry(修改链表的相应引用)。查找过程跟getEntry()过程类似。
+![HashMap_removeEntryForKey](../assets/images/01-Java基础/25.HashMap_removeEntryForKey.png)
+```java
+//removeEntryForKey()
+final Entry<K,V> removeEntryForKey(Object key) {
+	......
+	int hash = (key == null) ? 0 : hash(key);
+    int i = indexFor(hash, table.length);//hash&(table.length-1)
+    Entry<K,V> prev = table[i];//得到冲突链表
+    Entry<K,V> e = prev;
+    while (e != null) {//遍历冲突链表
+        Entry<K,V> next = e.next;
+        Object k;
+        if (e.hash == hash &&
+            ((k = e.key) == key || (key != null && key.equals(k)))) {//找到要删除的entry
+            modCount++; size--;
+            if (prev == e) table[i] = next;//删除的是冲突链表的第一个entry
+            else prev.next = next;
+            return e;
+        }
+        prev = e; e = next;
+    }
+    return e;
+}
+```
+##### 6.3.6.2 Java8 HashMap
+
+Java8 对 HashMap 进行了一些修改，最大的不同就是利用了红黑树，所以其由**数组+链表+红黑树**组成。
+
+根据 Java7 HashMap 的介绍，我们知道，查找的时候，根据 hash 值我们能够快速定位到数组的具体下标，但是之后的话，需要顺着链表一个个比较下去才能找到我们需要的，时间复杂度取决于链表的长度，为 O(n)。
+
+为了降低这部分的开销，在 Java8 中，当链表中的元素达到了 8 个时，会将链表转换为红黑树，在这些位置进行查找的时候可以降低时间复杂度为 O(logN)。
+![java-collection-hashmap8](../assets/images/01-Java基础/26.java-collection-hashmap8.png)
+
+
+Java7 中使用 Entry 来代表每个 HashMap 中的数据节点，Java8 中使用 Node，基本没有区别，都是 key，value，hash 和 next 这四个属性，不过，Node 只能用于链表的情况，红黑树的情况需要使用 TreeNode。
+
+我们根据数组元素中，第一个节点数据类型是 Node 还是 TreeNode 来判断该位置下是链表还是红黑树的。
+
+- put 过程分析
+
+```java
+public V put(K key, V value) {
+    return putVal(hash(key), key, value, false, true);
+}
+
+// 第四个参数 onlyIfAbsent 如果是 true，那么只有在不存在该 key 时才会进行 put 操作
+// 第五个参数 evict 我们这里不关心
+final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
+               boolean evict) {
+    Node<K,V>[] tab; Node<K,V> p; int n, i;
+    // 第一次 put 值的时候，会触发下面的 resize()，类似 java7 的第一次 put 也要初始化数组长度
+    // 第一次 resize 和后续的扩容有些不一样，因为这次是数组从 null 初始化到默认的 16 或自定义的初始容量
+    if ((tab = table) == null || (n = tab.length) == 0)
+        n = (tab = resize()).length;
+    // 找到具体的数组下标，如果此位置没有值，那么直接初始化一下 Node 并放置在这个位置就可以了
+    if ((p = tab[i = (n - 1) & hash]) == null)
+        tab[i] = newNode(hash, key, value, null);
+
+    else {// 数组该位置有数据
+        Node<K,V> e; K k;
+        // 首先，判断该位置的第一个数据和我们要插入的数据，key 是不是"相等"，如果是，取出这个节点
+        if (p.hash == hash &&
+            ((k = p.key) == key || (key != null && key.equals(k))))
+            e = p;
+        // 如果该节点是代表红黑树的节点，调用红黑树的插值方法
+        else if (p instanceof TreeNode)
+            e = ((TreeNode<K,V>)p).putTreeVal(this, tab, hash, key, value);
+        else {
+            // 到这里，说明数组该位置上是一个链表
+            for (int binCount = 0; ; ++binCount) {
+                // 插入到链表的最后面(Java7 是插入到链表的最前面)
+                if ((e = p.next) == null) {
+                    p.next = newNode(hash, key, value, null);
+                    // TREEIFY_THRESHOLD 为 8，所以，如果新插入的值是链表中的第 8 个
+                    // 会触发下面的 treeifyBin，也就是将链表转换为红黑树
+                    if (binCount >= TREEIFY_THRESHOLD - 1) // -1 for 1st
+                        treeifyBin(tab, hash);
+                    break;
+                }
+                // 如果在该链表中找到了"相等"的 key(== 或 equals)
+                if (e.hash == hash &&
+                    ((k = e.key) == key || (key != null && key.equals(k))))
+                    // 此时 break，那么 e 为链表中[与要插入的新值的 key "相等"]的 node
+                    break;
+                p = e;
+            }
+        }
+        // e!=null 说明存在旧值的key与要插入的key"相等"
+        // 对于我们分析的put操作，下面这个 if 其实就是进行 "值覆盖"，然后返回旧值
+        if (e != null) {
+            V oldValue = e.value;
+            if (!onlyIfAbsent || oldValue == null)
+                e.value = value;
+            afterNodeAccess(e);
+            return oldValue;
+        }
+    }
+    ++modCount;
+    // 如果 HashMap 由于新插入这个值导致 size 已经超过了阈值，需要进行扩容
+    if (++size > threshold)
+        resize();
+    afterNodeInsertion(evict);
+    return null;
+}
+```
+下面是后黑叔的插入方法(putTreeVal):
+
+红黑树是一种自平衡的二叉查找树，通过特定规则保持树的平衡性，确保查找、插入、删除操作的时间复杂度稳定在 O(log n)。核心特性：(https://blog.csdn.net/weixin_72359141/article/details/148715964)
+
+- 节点颜色：每个节点非红即黑
+- 根节点：总是黑色
+- 叶子节点（NIL）：视为黑色
+- 红色限制：红色节点的子节点必须是黑色
+- 黑高一致：从任一节点到其所有叶子节点的路径包含相同数量的黑色节点
+
+![红黑树的四个性质](../assets/images/01-Java基础/27.红黑树的四个性质.png)
+
+在 Java HashMap 中，当链表长度 ≥8 时转换为红黑树，解决哈希冲突导致的性能退化问题。
+
+```java
+ final TreeNode<K,V> putTreeVal(HashMap<K,V> map, Node<K,V>[] tab,
+                                       int h, K k, V v) {
+            Class<?> kc = null;
+            boolean searched = false;
+            TreeNode<K,V> root = (parent != null) ? root() : this;
+            for (TreeNode<K,V> p = root;;) {
+                int dir, ph; K pk;
+                if ((ph = p.hash) > h)
+                    dir = -1;
+                else if (ph < h)
+                    dir = 1;
+                else if ((pk = p.key) == k || (k != null && k.equals(pk)))
+                    return p;
+                else if ((kc == null &&
+                          (kc = comparableClassFor(k)) == null) ||
+                         (dir = compareComparables(kc, k, pk)) == 0) {
+                    if (!searched) {
+                        TreeNode<K,V> q, ch;
+                        searched = true;
+                        if (((ch = p.left) != null &&
+                             (q = ch.find(h, k, kc)) != null) ||
+                            ((ch = p.right) != null &&
+                             (q = ch.find(h, k, kc)) != null))
+                            return q;
+                    }
+                    dir = tieBreakOrder(k, pk);
+                }
+
+                TreeNode<K,V> xp = p;
+                if ((p = (dir <= 0) ? p.left : p.right) == null) {
+                    Node<K,V> xpn = xp.next;
+                    TreeNode<K,V> x = map.newTreeNode(h, k, v, xpn);
+                    if (dir <= 0)
+                        xp.left = x;
+                    else
+                        xp.right = x;
+                    xp.next = x;
+                    x.parent = x.prev = xp;
+                    if (xpn != null)
+                        ((TreeNode<K,V>)xpn).prev = x;
+                    moveRootToFront(tab, balanceInsertion(root, x));
+                    return null;
+                }
+            }
+        }
+```
+在 Java HashMap 中，当链表长度 ≥8 时转换为红黑树，解决哈希冲突导致的性能退化问题。
+
+---
+
+-  源码解析：`putTreeVal()`
+
+这是向红黑树插入节点的核心方法。我将逐段解释关键逻辑：
+ 1. **初始化与根节点定位**
+```java
+TreeNode<K,V> root = (parent != null) ? root() : this;
+```
+- 如果当前节点有父节点，调用 `root()` 找到根节点；否则自身就是根节点
+
+---
+
+ 2. **遍历树定位插入位置**
+```java
+for (TreeNode<K,V> p = root;;) {
+    int dir, ph; K pk;
+    if ((ph = p.hash) > h)       // 当前节点hash较大 → 向左子树走
+        dir = -1;
+    else if (ph < h)              // 当前节点hash较小 → 向右子树走
+        dir = 1;
+    else if ((pk = p.key) == k || (k != null && k.equals(pk)))
+        return p;                 // 找到相同key，直接返回现有节点（不插入）
+```
+- 通过比较 `hash` 和 `key` 决定遍历方向
+- `dir = -1` 向左，`dir = 1` 向右
+
+---
+
+ 3. **处理哈希冲突的特殊逻辑**
+```java
+else if ((kc == null && (kc = comparableClassFor(k)) == null) || 
+         (dir = compareComparables(kc, k, pk)) == 0) {
+    
+    if (!searched) {  // 首次进入此分支，全树搜索相同key
+        TreeNode<K,V> q, ch;
+        searched = true;
+        if (((ch = p.left) != null && (q = ch.find(h, k, kc)) != null) ||
+            ((ch = p.right) != null && (q = ch.find(h, k, kc)) != null))
+            return q;  // 在子树中找到相同key
+    }
+    dir = tieBreakOrder(k, pk); // 终极比较：用内存地址决定方向
+}
+```
+- 当哈希值相同但 `key` 不同时：
+  1. 先尝试用 `Comparable` 接口比较
+  2. 若不可比，则递归搜索左右子树
+  3. 最后用 `tieBreakOrder()`（比较 `System.identityHashCode`）决定方向
+
+---
+
+ 4. **创建新节点并插入**
+```java
+TreeNode<K,V> xp = p;
+if ((p = (dir <= 0) ? p.left : p.right) == null) {
+    Node<K,V> xpn = xp.next;
+    TreeNode<K,V> x = map.newTreeNode(h, k, v, xpn); // 创建新节点
+    
+    // 挂载到父节点
+    if (dir <= 0) xp.left = x;
+    else xp.right = x;
+    
+    // 维护双向链表结构（红黑树节点仍保留链表指针）
+    xp.next = x;
+    x.parent = x.prev = xp;
+    if (xpn != null) 
+        ((TreeNode<K,V>)xpn).prev = x;
+    
+    // 平衡树结构并确保根节点在桶首位
+    moveRootToFront(tab, balanceInsertion(root, x));
+    return null; // 插入成功
+}
+```
+- **创建节点**：`newTreeNode` 包装键值对
+- **树插入**：根据 `dir` 挂到左/右子树
+- **链表维护**：
+  - `xp.next = x` → 新节点插入链表
+  - `x.prev = xp` → 建立反向指针
+- **平衡操作**：
+  - `balanceInsertion()`：红黑树的旋转与变色（保持平衡）
+  - `moveRootToFront()`：确保树的根节点位于哈希桶首位
+
+---
+
+-  关键设计亮点
+
+    1. **双结构共存**  
+    红黑树节点 (`TreeNode`) 同时维护：
+    - 树结构 (`left/right/parent`)
+    - 链表结构 (`next/prev`)  
+    *方便树和链表之间的转换*
+
+    2. **平衡保障**  
+    `balanceInsertion()` 通过旋转和变色维持红黑树特性，确保操作效率
+
+    3. **查找优化**  
+    优先比较哈希值，再比较键，最后递归搜索子树，最大限度减少比较次数
+
+> **为何需要红黑树？**  
+> 当哈希冲突严重时，链表查询会退化为 `O(n)`。红黑树将查询复杂度锁定在 `O(log n)`，显著提升大数据量下的性能。
+和 Java7 稍微有点不一样的地方就是，Java7 是先扩容后插入新值的，Java8 先插值再扩容，不过这个不重要。
+
+- 数组扩容
+
+resize() 方法用于初始化数组或数组扩容，每次扩容后，容量为原来的 2 倍，并进行数据迁移。
+```java
+final Node<K,V>[] resize() {
+    Node<K,V>[] oldTab = table;
+    int oldCap = (oldTab == null) ? 0 : oldTab.length;
+    int oldThr = threshold;
+    int newCap, newThr = 0;
+    if (oldCap > 0) { // 对应数组扩容
+        if (oldCap >= MAXIMUM_CAPACITY) {
+            threshold = Integer.MAX_VALUE;
+            return oldTab;
+        }
+        // 将数组大小扩大一倍
+        else if ((newCap = oldCap << 1) < MAXIMUM_CAPACITY &&
+                 oldCap >= DEFAULT_INITIAL_CAPACITY)
+            // 将阈值扩大一倍
+            newThr = oldThr << 1; // double threshold
+    }
+    else if (oldThr > 0) // 对应使用 new HashMap(int initialCapacity) 初始化后，第一次 put 的时候
+        newCap = oldThr;
+    else {// 对应使用 new HashMap() 初始化后，第一次 put 的时候
+        newCap = DEFAULT_INITIAL_CAPACITY;
+        newThr = (int)(DEFAULT_LOAD_FACTOR * DEFAULT_INITIAL_CAPACITY);
+    }
+
+    if (newThr == 0) {
+        float ft = (float)newCap * loadFactor;
+        newThr = (newCap < MAXIMUM_CAPACITY && ft < (float)MAXIMUM_CAPACITY ?
+                  (int)ft : Integer.MAX_VALUE);
+    }
+    threshold = newThr;
+
+    // 用新的数组大小初始化新的数组
+    Node<K,V>[] newTab = (Node<K,V>[])new Node[newCap];
+    table = newTab; // 如果是初始化数组，到这里就结束了，返回 newTab 即可
+
+    if (oldTab != null) {
+        // 开始遍历原数组，进行数据迁移。
+        for (int j = 0; j < oldCap; ++j) {
+            Node<K,V> e;
+            if ((e = oldTab[j]) != null) {
+                oldTab[j] = null;
+                // 如果该数组位置上只有单个元素，那就简单了，简单迁移这个元素就可以了
+                if (e.next == null)
+                    newTab[e.hash & (newCap - 1)] = e;
+                // 如果是红黑树，具体我们就不展开了
+                else if (e instanceof TreeNode)
+                    ((TreeNode<K,V>)e).split(this, newTab, j, oldCap);
+                else { 
+                    // 这块是处理链表的情况，
+                    // 需要将此链表拆成两个链表，放到新的数组中，并且保留原来的先后顺序
+                    // loHead、loTail 对应一条链表，hiHead、hiTail 对应另一条链表，代码还是比较简单的
+                    Node<K,V> loHead = null, loTail = null;
+                    Node<K,V> hiHead = null, hiTail = null;
+                    Node<K,V> next;
+                    do {
+                        next = e.next;
+                        if ((e.hash & oldCap) == 0) {
+                            if (loTail == null)
+                                loHead = e;
+                            else
+                                loTail.next = e;
+                            loTail = e;
+                        }
+                        else {
+                            if (hiTail == null)
+                                hiHead = e;
+                            else
+                                hiTail.next = e;
+                            hiTail = e;
+                        }
+                    } while ((e = next) != null);
+                    if (loTail != null) {
+                        loTail.next = null;
+                        // 第一条链表
+                        newTab[j] = loHead;
+                    }
+                    if (hiTail != null) {
+                        hiTail.next = null;
+                        // 第二条链表的新的位置是 j + oldCap，这个很好理解
+                        newTab[j + oldCap] = hiHead;
+                    }
+                }
+            }
+        }
+    }
+    return newTab;
+}
+```
+- get()
+
+get 过程分析相对于 put 来说，get 真的太简单了。计算 key 的 hash 值，根据 hash 值找到对应数组下标: hash & (length-1)判断数组该位置处的元素是否刚好就是我们要找的，如果不是，走第三步判断该元素类型是否是 TreeNode，如果是，用红黑树的方法取数据，如果不是，走第四步遍历链表，直到找到相等(==或equals)的 key
+```java
+public V get(Object key) {
+    Node<K,V> e;
+    return (e = getNode(hash(key), key)) == null ? null : e.value;
+}
+final Node<K,V> getNode(int hash, Object key) {
+    Node<K,V>[] tab; Node<K,V> first, e; int n; K k;
+    if ((tab = table) != null && (n = tab.length) > 0 &&
+        (first = tab[(n - 1) & hash]) != null) {
+        // 判断第一个节点是不是就是需要的
+        if (first.hash == hash && // always check first node
+            ((k = first.key) == key || (key != null && key.equals(k))))
+            return first;
+        if ((e = first.next) != null) {
+            // 判断是否是红黑树
+            if (first instanceof TreeNode)
+                return ((TreeNode<K,V>)first).getTreeNode(hash, key);
+
+            // 链表遍历
+            do {
+                if (e.hash == hash &&
+                    ((k = e.key) == key || (key != null && key.equals(k))))
+                    return e;
+            } while ((e = e.next) != null);
+        }
+    }
+    return null;
+}
+```
+##### 6.3.6.3 HashSet
+
+
+前面已经说过HashSet是对HashMap的简单包装，对HashSet的函数调用都会转换成合适的HashMap方法，因此HashSet的实现非常简单，只有不到300行代码。这里不再赘述。
+```java
+//HashSet是对HashMap的简单包装
+public class HashSet<E>
+{
+	......
+	private transient HashMap<E,Object> map;//HashSet里面有一个HashMap
+    // Dummy value to associate with an Object in the backing Map
+    private static final Object PRESENT = new Object();
+    public HashSet() {
+        map = new HashMap<>();
+    }
+    ......
+    public boolean add(E e) {//简单的方法转换
+        return map.put(e, PRESENT)==null;
+    }
+    ......
+}
+```
+
+#### 6.3.7 TreeSet & TreeMap 源码解析
+
+之所以把TreeSet和TreeMap放在一起讲解，是因为二者在Java里有着相同的实现，前者仅仅是对后者做了一层包装，也就是说TreeSet里面有一个**TreeMap(适配器模式)**。因此本文将重点分析TreeMap。
+
+Java TreeMap实现了SortedMap接口，也就是说会按照key的大小顺序对Map中的元素进行排序，key大小的评判可以通过其本身的自然顺序(natural ordering)，也可以通过构造时传入的比较器(Comparator)。TreeMap底层通过红黑树(Red-Black tree)实现，也就意味着containsKey(), get(), put(), remove()都有着log(n)的时间复杂度。
+
+![TreeMap_base](../assets/images/01-Java基础/28.TreeMap_base.png)
+
+出于性能原因，TreeMap是非同步的(not synchronized)，如果需要在多线程环境使用，需要程序员手动同步；或者通过如下方式将TreeMap包装成(wrapped)同步的:
+```java
+SortedMap m = Collections.synchronizedSortedMap(new TreeMap(...));
+```
+##### 6.3.7.1 预备知识
+前文说到当查找树的结构发生改变时，红黑树的约束条件可能被破坏，需要通过调整使得查找树重新满足红黑树的约束条件。调整可以分为两类: 一类是颜色调整，即改变某个节点的颜色；另一类是结构调整，即改变检索树的结构关系。结构调整过程包含两个基本操作** : 左旋(Rotate Left)，右旋(RotateRight)**。
+
+- 左旋
+![TreeMap_rotateRight](../assets/images/01-Java基础/28.TreeMap_rotateLeft.png)
+左旋的过程是将x的右子树绕x逆时针旋转，使得x的右子树成为x的父亲，同时修改相关节点的引用。旋转之后，二叉查找树的属性仍然满足。TreeMap中左旋代码如下:
+```java
+//Rotate Left
+private void rotateLeft(Entry<K,V> p) {
+    if (p != null) {
+        Entry<K,V> r = p.right;
+        p.right = r.left;
+        if (r.left != null)
+            r.left.parent = p;
+        r.parent = p.parent;
+        if (p.parent == null)
+            root = r;
+        else if (p.parent.left == p)
+            p.parent.left = r;
+        else
+            p.parent.right = r;
+        r.left = p;
+        p.parent = r;
+    }
+}
+```
+- 右旋
+![TreeMap_rotateRight](../assets/images/01-Java基础/29.TreeMap_rotateRight.png)
+右旋的过程是将x的左子树绕x顺时针旋转，使得x的左子树成为x的父亲，同时修改相关节点的引用。旋转之后，二叉查找树的属性仍然满足。TreeMap中右旋代码如下:
+```java
+//Rotate Right
+private void rotateRight(Entry<K,V> p) {
+    if (p != null) {
+        Entry<K,V> l = p.left;
+        p.left = l.right;
+        if (l.right != null) l.right.parent = p;
+        l.parent = p.parent;
+        if (p.parent == null)
+            root = l;
+        else if (p.parent.right == p)
+            p.parent.right = l;
+        else p.parent.left = l;
+        l.right = p;
+        p.parent = l;
+    }
+}
+```
+- 寻找节点后继
+![TreeMap_successor](../assets/images/01-Java基础/30.TreeMap_successor.png)
+对于一棵二叉查找树，给定节点t，其后继(树中比大于t的最小的那个元素)可以通过如下方式找到
+
+- 1.t的右子树不空，则t的后继是其右子树中最小的那个元素。
+- 2.t的右孩子为空，则t的后继是其第一个向左走的祖先。
+
+后继节点在红黑树的删除操作中将会用到。TreeMap中寻找节点后继的代码如下:
+```java
+// 寻找节点后继函数successor()
+static <K,V> TreeMap.Entry<K,V> successor(Entry<K,V> t) {
+    if (t == null)
+        return null;
+    else if (t.right != null) {// 1. t的右子树不空，则t的后继是其右子树中最小的那个元素
+        Entry<K,V> p = t.right;
+        while (p.left != null)
+            p = p.left;
+        return p;
+    } else {// 2. t的右孩子为空，则t的后继是其第一个向左走的祖先
+        Entry<K,V> p = t.parent;
+        Entry<K,V> ch = t;
+        while (p != null && ch == p.right) {
+            ch = p;
+            p = p.parent;
+        }
+        return p;
+    }
+}
+```
+##### 6.3.7.2 方法剖析
+- get()
+
+get(Object key)方法根据指定的key值返回对应的value，该方法调用了getEntry(Object key)得到相应的entry，然后返回entry.value。因此getEntry()是算法的核心。算法思想是根据key的自然顺序(或者比较器顺序)对二叉查找树进行查找，直到找到满足k.compareTo(p.key) == 0的entry。
+![TreeMap_getEntry](../assets/images/01-Java基础/31.TreeMap_getEntry.png)
+
+具体代码如下:
+```java
+//getEntry()方法
+final Entry<K,V> getEntry(Object key) {
+    ......
+    if (key == null)//不允许key值为null
+        throw new NullPointerException();
+    Comparable<? super K> k = (Comparable<? super K>) key;//使用元素的自然顺序
+    Entry<K,V> p = root;
+    while (p != null) {
+        int cmp = k.compareTo(p.key);
+        if (cmp < 0)//向左找
+            p = p.left;
+        else if (cmp > 0)//向右找
+            p = p.right;
+        else
+            return p;
+    }
+    return null;
+}
+```
+- put()
+
+put(K key, V value)方法是将指定的key, value对添加到map里。该方法首先会对map做一次查找，看是否包含该元组，如果已经包含则直接返回，查找过程类似于getEntry()方法；如果没有找到则会在红黑树中插入新的entry，如果插入之后破坏了红黑树的约束条件，还需要进行调整(旋转，改变某些节点的颜色)。
+```java
+public V put(K key, V value) {
+	......
+    int cmp;
+    Entry<K,V> parent;
+    if (key == null)
+        throw new NullPointerException();
+    Comparable<? super K> k = (Comparable<? super K>) key;//使用元素的自然顺序
+    do {
+        parent = t;
+        cmp = k.compareTo(t.key);
+        if (cmp < 0) t = t.left;//向左找
+        else if (cmp > 0) t = t.right;//向右找
+        else return t.setValue(value);
+    } while (t != null);
+    Entry<K,V> e = new Entry<>(key, value, parent);//创建并插入新的entry
+    if (cmp < 0) parent.left = e;
+    else parent.right = e;
+    fixAfterInsertion(e);//调整
+    size++;
+    return null;
+}
+```
+上述代码的插入部分并不难理解: 首先在红黑树上找到合适的位置，然后创建新的entry并插入(当然，新插入的节点一定是树的叶子)。难点是调整函数fixAfterInsertion()，前面已经说过，调整往往需要1.改变某些节点的颜色，2.对某些节点进行旋转。
+![HashMap结构图](../assets/images/01-Java基础/32.TreeMap_put.png)
+
+调整函数fixAfterInsertion()的具体代码如下，其中用到了上文中提到的rotateLeft()和rotateRight()函数。通过代码我们能够看到，情况2其实是落在情况3内的。情况4～情况6跟前三种情况是对称的，因此图解中并没有画出后三种情况，读者可以参考代码自行理解。
+```java
+//红黑树调整函数fixAfterInsertion()
+private void fixAfterInsertion(Entry<K,V> x) {
+    x.color = RED;
+    while (x != null && x != root && x.parent.color == RED) {
+        if (parentOf(x) == leftOf(parentOf(parentOf(x)))) {
+            Entry<K,V> y = rightOf(parentOf(parentOf(x)));
+            if (colorOf(y) == RED) {
+                setColor(parentOf(x), BLACK);              // 情况1
+                setColor(y, BLACK);                        // 情况1
+                setColor(parentOf(parentOf(x)), RED);      // 情况1
+                x = parentOf(parentOf(x));                 // 情况1
+            } else {
+                if (x == rightOf(parentOf(x))) {
+                    x = parentOf(x);                       // 情况2
+                    rotateLeft(x);                         // 情况2
+                }
+                setColor(parentOf(x), BLACK);              // 情况3
+                setColor(parentOf(parentOf(x)), RED);      // 情况3
+                rotateRight(parentOf(parentOf(x)));        // 情况3
+            }
+        } else {
+            Entry<K,V> y = leftOf(parentOf(parentOf(x)));
+            if (colorOf(y) == RED) {
+                setColor(parentOf(x), BLACK);              // 情况4
+                setColor(y, BLACK);                        // 情况4
+                setColor(parentOf(parentOf(x)), RED);      // 情况4
+                x = parentOf(parentOf(x));                 // 情况4
+            } else {
+                if (x == leftOf(parentOf(x))) {
+                    x = parentOf(x);                       // 情况5
+                    rotateRight(x);                        // 情况5
+                }
+                setColor(parentOf(x), BLACK);              // 情况6
+                setColor(parentOf(parentOf(x)), RED);      // 情况6
+                rotateLeft(parentOf(parentOf(x)));         // 情况6
+            }
+        }
+    }
+    root.color = BLACK;
+}
+```
+- remove()
+
+remove(Object key)的作用是删除key值对应的entry，该方法首先通过上文中提到的getEntry(Object key)方法找到key值对应的entry，然后调用deleteEntry(Entry<K,V> entry)删除对应的entry。由于删除操作会改变红黑树的结构，有可能破坏红黑树的约束条件，因此有可能要进行调整。
+
+getEntry()函数前面已经讲解过，这里重点放deleteEntry()上，该函数删除指定的entry并在红黑树的约束被破坏时进行调用fixAfterDeletion(Entry<K,V> x)进行调整。
+
+**由于红黑树是一棵增强版的二叉查找树，红黑树的删除操作跟普通二叉查找树的删除操作也就非常相似，唯一的区别是红黑树在节点删除之后可能需要进行调整**。现在考虑一棵普通二叉查找树的删除过程，可以简单分为两种情况:
+- 删除点p的左右子树都为空，或者只有一棵子树非空。
+- 删除点p的左右子树都非空。
+对于上述情况1，处理起来比较简单，直接将p删除(左右子树都为空时)，或者用非空子树替代p(只有一棵子树非空时)；对于情况2，可以用p的后继s(树中大于x的最小的那个元素)代替p，然后使用情况1删除s(此时s一定满足情况1.可以画画看)。
+
+基于以上逻辑，红黑树的节点删除函数deleteEntry()代码如下:
+```java
+// 红黑树entry删除函数deleteEntry()
+private void deleteEntry(Entry<K,V> p) {
+    modCount++;
+    size--;
+    if (p.left != null && p.right != null) {// 2. 删除点p的左右子树都非空。
+        Entry<K,V> s = successor(p);// 后继
+        p.key = s.key;
+        p.value = s.value;
+        p = s;
+    }
+    Entry<K,V> replacement = (p.left != null ? p.left : p.right);
+    if (replacement != null) {// 1. 删除点p只有一棵子树非空。
+        replacement.parent = p.parent;
+        if (p.parent == null)
+            root = replacement;
+        else if (p == p.parent.left)
+            p.parent.left  = replacement;
+        else
+            p.parent.right = replacement;
+        p.left = p.right = p.parent = null;
+        if (p.color == BLACK)
+            fixAfterDeletion(replacement);// 调整
+    } else if (p.parent == null) {
+        root = null;
+    } else { // 1. 删除点p的左右子树都为空
+        if (p.color == BLACK)
+            fixAfterDeletion(p);// 调整
+        if (p.parent != null) {
+            if (p == p.parent.left)
+                p.parent.left = null;
+            else if (p == p.parent.right)
+                p.parent.right = null;
+            p.parent = null;
+        }
+    }
+}
+```
+上述代码中占据大量代码行的，是用来修改父子节点间引用关系的代码，其逻辑并不难理解。下面着重讲解删除后调整函数fixAfterDeletion()。首先请思考一下，删除了哪些点才会导致调整？只有删除点是BLACK的时候，才会触发调整函数，因为删除RED节点不会破坏红黑树的任何约束，而删除BLACK节点会破坏规则4。
+
+跟上文中讲过的fixAfterInsertion()函数一样，这里也要分成若干种情况。记住，无论有多少情况，具体的调整操作只有两种: 1.改变某些节点的颜色，2.对某些节点进行旋转。
+![TreeMap_fixAfterDeletion](../assets/images/01-Java基础/33.TreeMap_fixAfterDeletion.png)
+上述图解的总体思想是: 将情况1首先转换成情况2，或者转换成情况3和情况4。当然，该图解并不意味着调整过程一定是从情况1开始。通过后续代码我们还会发现几个有趣的规则: a).如果是由情况1之后紧接着进入的情况2，那么情况2之后一定会退出循环(因为x为红色)；b).一旦进入情况3和情况4，一定会退出循环(因为x为root)。
+
+删除后调整函数fixAfterDeletion()的具体代码如下，其中用到了上文中提到的rotateLeft()和rotateRight()函数。通过代码我们能够看到，情况3其实是落在情况4内的。情况5～情况8跟前四种情况是对称的，因此图解中并没有画出后四种情况，读者可以参考代码自行理解。
+```java
+private void fixAfterDeletion(Entry<K,V> x) {
+    while (x != root && colorOf(x) == BLACK) {
+        if (x == leftOf(parentOf(x))) {
+            Entry<K,V> sib = rightOf(parentOf(x));
+            if (colorOf(sib) == RED) {
+                setColor(sib, BLACK);                   // 情况1
+                setColor(parentOf(x), RED);             // 情况1
+                rotateLeft(parentOf(x));                // 情况1
+                sib = rightOf(parentOf(x));             // 情况1
+            }
+            if (colorOf(leftOf(sib))  == BLACK &&
+                colorOf(rightOf(sib)) == BLACK) {
+                setColor(sib, RED);                     // 情况2
+                x = parentOf(x);                        // 情况2
+            } else {
+                if (colorOf(rightOf(sib)) == BLACK) {
+                    setColor(leftOf(sib), BLACK);       // 情况3
+                    setColor(sib, RED);                 // 情况3
+                    rotateRight(sib);                   // 情况3
+                    sib = rightOf(parentOf(x));         // 情况3
+                }
+                setColor(sib, colorOf(parentOf(x)));    // 情况4
+                setColor(parentOf(x), BLACK);           // 情况4
+                setColor(rightOf(sib), BLACK);          // 情况4
+                rotateLeft(parentOf(x));                // 情况4
+                x = root;                               // 情况4
+            }
+        } else { // 跟前四种情况对称
+            Entry<K,V> sib = leftOf(parentOf(x));
+            if (colorOf(sib) == RED) {
+                setColor(sib, BLACK);                   // 情况5
+                setColor(parentOf(x), RED);             // 情况5
+                rotateRight(parentOf(x));               // 情况5
+                sib = leftOf(parentOf(x));              // 情况5
+            }
+            if (colorOf(rightOf(sib)) == BLACK &&
+                colorOf(leftOf(sib)) == BLACK) {
+                setColor(sib, RED);                     // 情况6
+                x = parentOf(x);                        // 情况6
+            } else {
+                if (colorOf(leftOf(sib)) == BLACK) {
+                    setColor(rightOf(sib), BLACK);      // 情况7
+                    setColor(sib, RED);                 // 情况7
+                    rotateLeft(sib);                    // 情况7
+                    sib = leftOf(parentOf(x));          // 情况7
+                }
+                setColor(sib, colorOf(parentOf(x)));    // 情况8
+                setColor(parentOf(x), BLACK);           // 情况8
+                setColor(leftOf(sib), BLACK);           // 情况8
+                rotateRight(parentOf(x));               // 情况8
+                x = root;                               // 情况8
+            }
+        }
+    }
+    setColor(x, BLACK);
+}
+```
+##### 6.3.7.3 TreeSet
+
+前面已经说过TreeSet是对TreeMap的简单包装，对TreeSet的函数调用都会转换成合适的TreeMap方法，因此TreeSet的实现非常简单。这里不再赘述。
+```java
+// TreeSet是对TreeMap的简单包装
+
+public class TreeSet<E> extends AbstractSet<E>
+    implements NavigableSet<E>, Cloneable, java.io.Serializable
+{
+	......
+    private transient NavigableMap<E,Object> m;
+    // Dummy value to associate with an Object in the backing Map
+    private static final Object PRESENT = new Object();
+    public TreeSet() {
+        this.m = new TreeMap<E,Object>();// TreeSet里面有一个TreeMap
+    }
+    ......
+    public boolean add(E e) {
+        return m.put(e, PRESENT)==null;
+    }
+    ......
+}
+```
+##### 6.3.8 LinkedHashSet&Map源码解析
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ### 2.1 List接口实现
