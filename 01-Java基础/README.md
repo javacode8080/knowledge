@@ -10726,7 +10726,7 @@ final Node<K,V> getNode(int hash, Object key) {
     return null;
 }
 ```
-##### 6.3.6.3 HashSet
+##### 6.7.3 HashSet
 
 
 前面已经说过HashSet是对HashMap的简单包装，对HashSet的函数调用都会转换成合适的HashMap方法，因此HashSet的实现非常简单，只有不到300行代码。这里不再赘述。
@@ -10749,7 +10749,7 @@ public class HashSet<E>
 }
 ```
 
-### 6.3.8 TreeSet & TreeMap 源码解析
+### 6.8 TreeSet & TreeMap 源码解析
 
 之所以把TreeSet和TreeMap放在一起讲解，是因为二者在Java里有着相同的实现，前者仅仅是对后者做了一层包装，也就是说TreeSet里面有一个**TreeMap(适配器模式)**。因此本文将重点分析TreeMap。
 
@@ -10761,7 +10761,7 @@ Java TreeMap实现了SortedMap接口，也就是说会按照key的大小顺序�
 ```java
 SortedMap m = Collections.synchronizedSortedMap(new TreeMap(...));
 ```
-#### 6.3.8.1 预备知识
+#### 6.8.1 预备知识
 前文说到当查找树的结构发生改变时，红黑树的约束条件可能被破坏，需要通过调整使得查找树重新满足红黑树的约束条件。调整可以分为两类: 一类是颜色调整，即改变某个节点的颜色；另一类是结构调整，即改变检索树的结构关系。结构调整过程包含两个基本操作** : 左旋(Rotate Left)，右旋(RotateRight)**。
 
 - 左旋
@@ -10837,7 +10837,7 @@ static <K,V> TreeMap.Entry<K,V> successor(Entry<K,V> t) {
     }
 }
 ```
-#### 6.3.8.2 方法剖析
+#### 6.8.2 方法剖析
 - get()
 
 get(Object key)方法根据指定的key值返回对应的value，该方法调用了getEntry(Object key)得到相应的entry，然后返回entry.value。因此getEntry()是算法的核心。算法思想是根据key的自然顺序(或者比较器顺序)对二叉查找树进行查找，直到找到满足k.compareTo(p.key) == 0的entry。
@@ -11051,7 +11051,7 @@ private void fixAfterDeletion(Entry<K,V> x) {
     setColor(x, BLACK);
 }
 ```
-##### 6.3.7.3 TreeSet
+#### 6.8.3 TreeSet
 
 前面已经说过TreeSet是对TreeMap的简单包装，对TreeSet的函数调用都会转换成合适的TreeMap方法，因此TreeSet的实现非常简单。这里不再赘述。
 ```java
@@ -11074,8 +11074,8 @@ public class TreeSet<E> extends AbstractSet<E>
     ......
 }
 ```
-### 6.3.9 LinkedHashSet&Map源码解析
-#### 6.3.9.1  总体介绍
+### 6.9 LinkedHashSet&Map源码解析
+#### 6.9.1  总体介绍
 如果你已看过前面关于HashSet和HashMap，以及TreeSet和TreeMap的讲解，一定能够想到本文将要讲解的LinkedHashSet和LinkedHashMap其实也是一回事。LinkedHashSet和LinkedHashMap在Java里也有着相同的实现，前者仅仅是对后者做了一层包装，也就是说LinkedHashSet里面有一个LinkedHashMap(适配器模式)。因此本文将重点分析LinkedHashMap。
 
 LinkedHashMap实现了Map接口，即允许放入key为null的元素，也允许插入value为null的元素。从名字上可以看出该容器是linked list和HashMap的混合体，也就是说它同时满足HashMap和linked list的某些特性。可将LinkedHashMap看作采用linked list增强的HashMap。
@@ -11100,7 +11100,7 @@ LinkedHashMap:void foo(Map m) {
 ```java
 Map m = Collections.synchronizedMap(new LinkedHashMap(...));
 ```
-#### 6.3.9.2 JDK 7 LinkedHashMap 方法剖析
+#### 6.9.2 JDK 7 LinkedHashMap 方法剖析
 
 - get()
 
@@ -11183,7 +11183,7 @@ final Entry<K,V> removeEntryForKey(Object key) {
     return e;
 }
 ```
-#### 6.3.9.3 JDK8的优化
+#### 6.9.3 JDK8的优化
 
 1. 不再使用头插法，改为尾插法
 
@@ -11276,7 +11276,7 @@ void afterNodeRemoval(Node<K,V> e) { // unlink
         a.before = b;
 }
 ```
-#### 6.3.9.4 LinkedHashSet
+#### 6.9.4 LinkedHashSet
 前面已经说过LinkedHashSet是对LinkedHashMap的简单包装，对LinkedHashSet的函数调用都会转换成合适的LinkedHashMap方法，因此LinkedHashSet的实现非常简单，这里不再赘述。
 ```java
 public class LinkedHashSet<E>
@@ -11294,7 +11294,7 @@ public class LinkedHashSet<E>
     ......
 }
 ```
-#### 6.3.9.5 LinkedHashMap经典用法
+#### 6.9.5 LinkedHashMap经典用法
 
 LinkedHashMap除了可以保证迭代顺序外，还有一个非常有用的用法: 可以轻松实现一个采用了FIFO替换策略的缓存。具体说来，LinkedHashMap有一个子类方法protected boolean removeEldestEntry(Map.Entry<K,V> eldest)，该方法的作用是告诉Map是否要删除“最老”的Entry，所谓最老就是当前Map中最早插入的Entry，如果该方法返回true，最老的那个元素就会被删除。在每次插入新元素的之后LinkedHashMap会自动询问removeEldestEntry()是否要删除最老的元素。这样只需要在子类中重载该方法，当元素个数超过一定数量时让removeEldestEntry()返回true，就能够实现一个固定大小的FIFO策略的缓存。示例代码如下:
 ```java
@@ -11332,7 +11332,7 @@ protected boolean removeEldestEntry(Map.Entry<K,V> eldest) {
 ```
 因此LinkedHashMap是不会移除最老元素的，但是我们上面的FIFOCache重写了removeEldestEntry方法实现了一个固定大小的FIFO策略的缓存
 
-### 6.3.10 WeakHashMap源码解析
+### 6.10 WeakHashMap源码解析
 WeakHashMap，从名字可以看出它是某种 Map。它的特殊之处在于 WeakHashMap 里的entry可能会被GC自动删除，即使程序员没有调用remove()或者clear()方法。
 
 更直观的说，当使用 WeakHashMap 时，即使没有显示的添加或删除任何元素，也可能发生如下情况:
