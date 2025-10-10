@@ -9504,8 +9504,8 @@ addAll(index, c) 实现方式并不是直接调用add(index,e)来实现，主要
             throw new IndexOutOfBoundsException(outOfBoundsMsg(index));
     }
 ```
-##### 6.3.2.8 Positional Access 方法
-查找操作查找操作的本质是查找元素的下标:查找第一次出现的index, 如果找不到返回-1；    
+##### 6.3.2.8 查找操作
+查找操作的本质是查找元素的下标:查找第一次出现的index, 如果找不到返回-1；    
 ```java
 /**
      * Returns the index of the first occurrence of the specified element
