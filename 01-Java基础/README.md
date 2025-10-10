@@ -8174,7 +8174,7 @@ public static List<String> loadFactoryNames(Class<?> factoryClass, ClassLoader c
 - 多个并发多线程使用 ServiceLoader 类的实例是不安全的。
 
 
-## 六、JAVA集合框架
+## 七、JAVA集合框架
 ### 6.1 简介
 容器，就是可以容纳其他Java对象的对象。
 **Java Collections Framework(JCF)** 为Java开发者提供了通用的容器，其始于JDK 1.2，优点是:
@@ -8248,7 +8248,8 @@ Collection
 
 ---
 
-### **关键区别总结**
+- **关键区别总结**
+
 | **特性**         | 插入顺序                     | 访问顺序（LRU）                |
 |------------------|-----------------------------|-------------------------------|
 | **排序依据**     | 元素首次插入时间            | 元素最近被访问的时间          |
@@ -8259,7 +8260,7 @@ Collection
 
 ---
 
-### **LRU 缓存实现示例**
+- **LRU 缓存实现示例**
 结合 `removeEldestEntry()` 可实现固定大小缓存：
 ```java
 final int MAX_SIZE = 3;
@@ -11711,11 +11712,11 @@ public class ReferenceTypesDemo {
 | **虚引用** | 对象回收跟踪，资源清理 |
 
 
-## 七、JAVA并发编程
+## 八、JAVA并发编程
 ![JAVA并发编程脑图](../assets/images/01-Java基础/37.java-concurrent-overview-1.png)
-### 7.1 JAVA并发-理论基础
+### 8.1 JAVA并发-理论基础
 
-#### 7.1.1 带着BAT大厂的面试问题去理解
+#### 8.1.1 带着BAT大厂的面试问题去理解
 
 请带着这些问题继续后文，会很大程度上帮助你更好的理解并发理论基础。
 - 多线程的出现是要解决什么问题的?
