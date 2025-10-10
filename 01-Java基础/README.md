@@ -11421,7 +11421,7 @@ ConcurrentHashMap<WeakReference<Object>, Object> concurrentWeakMap =
     System.out.println(weakMap.size()); // 可能输出0
     ```
 
-    ### 迭代器行为
+    - 迭代器行为
     WeakHashMap的迭代器是fail-fast的：
     ```java
     WeakHashMap<String, Integer> map = new WeakHashMap<>();
@@ -11661,7 +11661,7 @@ WeakReference<Object> weakRef = new WeakReference<>(new Object(), queue);
 Reference<?> ref = queue.poll(); // 获取被回收的引用
 ```
 
-## 完整示例演示
+- 完整示例演示
 
 ```java
 import java.lang.ref.*;
@@ -11709,6 +11709,75 @@ public class ReferenceTypesDemo {
 | **软引用** | 内存敏感的缓存，如图片缓存 |
 | **弱引用** | 防止内存泄漏的缓存，如WeakHashMap |
 | **虚引用** | 对象回收跟踪，资源清理 |
+
+
+## 七、JAVA并发编程
+![JAVA并发编程脑图](../assets/images/01-Java基础/37.java-concurrent-overview-1.png)
+### 7.1 JAVA并发-理论基础
+
+#### 7.1.1 带着BAT大厂的面试问题去理解
+
+请带着这些问题继续后文，会很大程度上帮助你更好的理解并发理论基础。
+- 多线程的出现是要解决什么问题的?
+- 线程不安全是指什么? 
+- 举例说明并发出现线程不安全的本质什么? 可见性，原子性和有序性。
+- Java是怎么解决并发问题的? 3个关键字，JMM和8个Happens-Before
+- 线程安全是不是非真即假? 不是
+- 线程安全有哪些实现思路?
+- 如何理解并发和并行的区别?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
