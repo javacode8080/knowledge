@@ -14298,9 +14298,1262 @@ public class LockConditionScenarios {
   - 高竞争场景下的更好性能
   - 复杂的同步逻辑
 
+### 8.3 Java并发 - Java中所有的锁
 
+ava提供了种类丰富的锁，每种锁因其特性的不同，在适当的场景下能够展现出非常高的效率。本文旨在对锁相关源码（本文中的源码来自JDK 8和Netty 3.10.6）、使用场景进行举例，为读者介绍主流锁的知识点，以及不同的锁的适用场景。
 
+Java中往往是按照是否含有某一特性来定义锁，我们通过特性将锁进行分组归类，再使用对比的方式进行介绍，帮助大家更快捷的理解相关知识。下面给出本文内容的总体分类目录：
+![java主流锁](../assets/images/01-Java基础/46.java主流锁.png)
 
+#### 8.3.1 乐观锁 VS 悲观锁
+
+> 乐观锁与悲观锁是一种广义上的概念，体现了看待线程同步的不同角度。在Java和数据库中都有此概念对应的实际应用。
+
+先说概念。对于同一个数据的并发操作，悲观锁认为自己在使用数据的时候一定有别的线程来修改数据，因此在获取数据的时候会先加锁，确保数据不会被别的线程修改。Java中，synchronized关键字和Lock的实现类都是悲观锁。
+
+而乐观锁认为自己在使用数据时不会有别的线程修改数据，所以不会添加锁，只是在更新数据的时候去判断之前有没有别的线程更新了这个数据。如果这个数据没有被更新，当前线程将自己修改的数据成功写入。如果数据已经被其他线程更新，则根据不同的实现方式执行不同的操作（例如报错或者自动重试）。
+
+乐观锁在Java中是通过使用无锁编程来实现，最常采用的是CAS算法，Java原子类中的递增操作就通过CAS自旋实现的。
+![乐观锁与悲观锁](../assets/images/01-Java基础/47.乐观锁与悲观锁.png)
+
+根据从上面的概念描述我们可以发现：悲观锁适合写操作多的场景，先加锁可以保证写操作时数据正确。乐观锁适合读操作多的场景，不加锁的特点能够使其读操作的性能大幅提升。光说概念有些抽象，我们来看下乐观锁和悲观锁的调用方式示例：
+```java
+// ------------------------- 悲观锁的调用方式 -------------------------
+// synchronized
+public synchronized void testMethod() {
+	// 操作同步资源
+}
+// ReentrantLock
+private ReentrantLock lock = new ReentrantLock(); // 需要保证多个线程使用的是同一个锁
+public void modifyPublicResources() {
+	lock.lock();
+	// 操作同步资源
+	lock.unlock();
+}
+
+// ------------------------- 乐观锁的调用方式 -------------------------
+private AtomicInteger atomicInteger = new AtomicInteger();  // 需要保证多个线程使用的是同一个AtomicInteger
+atomicInteger.incrementAndGet(); //执行自增1
+```
+通过调用方式示例，我们可以发现悲观锁基本都是在显式的锁定之后再操作同步资源，而乐观锁则直接去操作同步资源。那么，为何乐观锁能够做到不锁定同步资源也可以正确的实现线程同步呢？具体可以参看JUC原子类: CAS, Unsafe和原子类详解。
+
+#### 8.3.2 自旋锁 VS 适应性自旋锁
+
+> 在介绍自旋锁前，我们需要介绍一些前提知识来帮助大家明白自旋锁的概念。
+
+阻塞或唤醒一个Java线程需要操作系统切换CPU状态来完成，这种状态转换需要耗费处理器时间。如果同步代码块中的内容过于简单，状态转换消耗的时间有可能比用户代码执行的时间还要长。
+
+在许多场景中，同步资源的锁定时间很短，为了这一小段时间去切换线程，线程挂起和恢复现场的花费可能会让系统得不偿失。如果物理机器有多个处理器，能够让两个或以上的线程同时并行执行，我们就可以让后面那个请求锁的线程不放弃CPU的执行时间，看看持有锁的线程是否很快就会释放锁。
+
+而为了让当前线程“稍等一下”，我们需让当前线程进行自旋，如果在自旋完成后前面锁定同步资源的线程已经释放了锁，那么当前线程就可以不必阻塞而是直接获取同步资源，从而避免切换线程的开销。这就是自旋锁。
+![自旋锁与非自旋锁的区别](../assets/images/01-Java基础/48.自旋锁与非自旋锁的区别.png)
+
+自旋锁本身是有缺点的，它不能代替阻塞。自旋等待虽然避免了线程切换的开销，但它要占用处理器时间。如果锁被占用的时间很短，自旋等待的效果就会非常好。反之，如果锁被占用的时间很长，那么自旋的线程只会白浪费处理器资源。所以，自旋等待的时间必须要有一定的限度，如果自旋超过了限定次数（默认是10次，可以使用-XX:PreBlockSpin来更改）没有成功获得锁，就应当挂起线程。
+
+自旋锁的实现原理同样也是CAS，AtomicInteger中调用unsafe进行自增操作的源码中的do-while循环就是一个自旋操作，如果修改数值失败则通过循环来执行自旋，直至修改成功。
+
+- 自适应自旋锁​ 
+
+在JDK 1.6中引入了自适应自旋锁。这就意味着自旋的时间不再固定了，而是由前一次在同一个锁上的自旋 时间及锁的拥有者的状态来决定的。如果在同一个锁对象上，自旋等待刚刚成功获取过锁，并且持有锁的线程正在运行中，那么JVM会认为该锁自旋获取到锁的可能性很大，会自动增加等待时间。比如增加到100次循环。相反，如果对于某个锁，自旋很少成功获取锁。那再以后要获取这个锁时将可能省略掉自旋过程，以避免浪费处理器资源。有了自适应自旋，JVM对程序的锁的状态预测会越来越准确，JVM也会越来越聪明。
+
+自旋锁相关可以看关键字 - synchronized详解 - 自旋锁与自适应自旋锁
+
+#### 8.3.3 无锁 VS 偏向锁 VS 轻量级锁 VS 重量级锁
+
+> 这四种锁是指锁的状态，专门针对synchronized的。在介绍这四种锁状态之前还需要介绍一些额外的知识。
+
+在Java 6及之后，synchronized实现了锁升级，其状态转换如下：
+- 无锁（No Lock）
+- 偏向锁（Biased Locking）
+- 轻量级锁（Lightweight Locking）
+- 重量级锁（Heavyweight Locking）
+
+这些状态是随着竞争情况而逐步升级的，且升级过程不可逆（即不能降级，但偏向锁可以被撤销回到无锁）。
+
+##### 8.3.3.1 四种锁的详细介绍
+1. 四种锁状态概述
+
+Java 对象锁从低到高有四种状态，构成了**锁升级**的路径：
+
+```
+无锁 → 偏向锁 → 轻量级锁 → 重量级锁
+```
+
+2. 详细对比
+
+| 特性 | 无锁 | 偏向锁 | 轻量级锁 | 重量级锁 |
+|------|------|--------|----------|----------|
+| **适用场景** | 无竞争 | 单线程重复访问 | 低竞争，交替执行 | 高竞争 |
+| **性能开销** | 无 | 极低 | 较低 | 高 |
+| **实现机制** | CAS | 记录线程ID | CAS + 自旋 | 操作系统互斥量 |
+| **阻塞情况** | 不阻塞 | 不阻塞 | 自旋等待 | 线程挂起 |
+| **升级条件** | 初始状态 | 第一个线程访问 | 第二个线程竞争 | 自旋失败/多线程竞争 |
+| **Java版本** | 所有 | Java 6-14(默认) | Java 6+ | 所有 |
+
+3. 各状态详解
+
+3.1 无锁（No Lock）
+```java
+public class NoLockState {
+    private int value;
+    
+    // 无锁状态的对象头
+    // [ unused:25 | identity_hashcode:31 | unused:1 | age:4 | biased_lock:0 | lock:01 ]
+    
+    public void noLockOperation() {
+        // 对象初始状态就是无锁
+        // 没有任何线程持有锁
+        value = 1;  // 普通内存访问
+    }
+    
+    // 使用原子操作实现无锁编程
+    private AtomicInteger atomicValue = new AtomicInteger(0);
+    
+    public void lockFreeProgramming() {
+        atomicValue.incrementAndGet();  // CAS操作，无锁
+    }
+}
+```
+
+**特点**：
+- 对象初始化状态
+- 没有任何同步开销
+- 适合使用 volatile、Atomic 类实现线程安全
+
+3.2 偏向锁（Biased Locking）
+```java
+public class BiasedLockExample {
+    private final Object lock = new Object();
+    private int counter = 0;
+    
+    public void biasedLockScenario() {
+        // 单线程重复加锁 - 偏向锁的理想场景
+        for (int i = 0; i < 1000000; i++) {
+            synchronized(lock) {  // 第一次加锁：升级为偏向锁
+                counter++;        // 后续加锁：直接检查线程ID，无需CAS
+            }
+        }
+    }
+    
+    // 偏向锁的对象头
+    // [ thread:54 | epoch:2 | unused:1 | age:4 | biased_lock:1 | lock:01 ]
+}
+```
+
+**特点**：
+- **记录线程ID**：在对象头中记录第一个获取锁的线程
+- **快速重入**：同一线程后续加锁无需CAS操作
+- **适用场景**：单线程重复访问同步块
+- **Java 15+**：默认禁用，因为维护成本高
+
+3.3 轻量级锁（Lightweight Locking）
+```java
+public class LightweightLockExample {
+    private final Object lock = new Object();
+    
+    public void lightweightLockScenario() {
+        // 两个线程交替执行 - 轻量级锁的理想场景
+        Thread t1 = new Thread(() -> {
+            for (int i = 0; i < 1000; i++) {
+                synchronized(lock) {  // 使用CAS获取锁
+                    processData(i);
+                }
+            }
+        });
+        
+        Thread t2 = new Thread(() -> {
+            for (int i = 0; i < 1000; i++) {
+                synchronized(lock) {  // 使用CAS获取锁
+                    processData(i);
+                }
+            }
+        });
+        
+        t1.start();
+        t2.start();
+    }
+    
+    private void processData(int i) {
+        // 短暂的操作
+    }
+    
+    // 轻量级锁的对象头
+    // [ pointer_to_lock_record:62 | lock:00 ]
+}
+```
+
+**特点**：
+- **CAS竞争**：通过CAS操作在栈帧中创建Lock Record
+- **自旋等待**：竞争失败时自旋而不是立即阻塞
+- **适用场景**：线程交替执行，低竞争
+- **升级条件**：自旋失败或第三个线程加入竞争
+
+3.4 重量级锁（Heavyweight Locking）
+```java
+public class HeavyweightLockExample {
+    private final Object lock = new Object();
+    
+    public void heavyweightLockScenario() {
+        // 高竞争场景 - 触发重量级锁
+        for (int i = 0; i < 10; i++) {
+            new Thread(() -> {
+                synchronized(lock) {  // 多个线程激烈竞争
+                    try {
+                        Thread.sleep(100);  // 长时间持有锁
+                        heavyWork();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }).start();
+        }
+    }
+    
+    private void heavyWork() {
+        // 耗时操作
+    }
+    
+    // 重量级锁的对象头
+    // [ pointer_to_monitor:62 | lock:10 ]
+}
+```
+
+**特点**：
+- **操作系统互斥量**：使用 monitor 机制
+- **线程阻塞**：竞争失败线程进入阻塞队列
+- **上下文切换**：涉及用户态到内核态的切换
+- **适用场景**：高竞争、长时间持有锁
+
+4. 锁升级流程详解
+
+- 完整的升级过程
+```java
+public class LockUpgradeProcess {
+    private final Object lock = new Object();
+    
+    public void demonstrateUpgrade() {
+        // 阶段1: 无锁 → 偏向锁
+        synchronized(lock) {  // 第一次加锁：无锁 → 偏向锁
+            System.out.println("第一个线程：偏向锁");
+        }
+        
+        // 阶段2: 偏向锁 → 轻量级锁  
+        Thread t2 = new Thread(() -> {
+            synchronized(lock) {  // 第二个线程：偏向锁 → 轻量级锁
+                System.out.println("第二个线程：轻量级锁");
+            }
+        });
+        t2.start();
+        
+        // 阶段3: 轻量级锁 → 重量级锁
+        for (int i = 0; i < 5; i++) {
+            new Thread(() -> {
+                synchronized(lock) {  // 多线程竞争：轻量级锁 → 重量级锁
+                    System.out.println("竞争线程：重量级锁");
+                }
+            }).start();
+        }
+    }
+}
+```
+
+- 对象头变化过程
+```
+无锁状态:      [ unused:25 | identity_hashcode:31 | unused:1 | age:4 | 0 | 01 ]
+              ↓ 第一个线程加锁
+偏向锁状态:    [ thread:54 | epoch:2 | unused:1 | age:4 | 1 | 01 ]
+              ↓ 第二个线程竞争
+轻量级锁状态:  [ pointer_to_lock_record:62 | 00 ]
+              ↓ 自旋失败/多线程竞争  
+重量级锁状态:  [ pointer_to_monitor:62 | 10 ]
+```
+
+5. 性能影响对比
+
+- 基准测试示例
+```java
+public class LockPerformanceBenchmark {
+    private static final int ITERATIONS = 10000000;
+    
+    // 测试不同锁状态的性能
+    public static void main(String[] args) throws InterruptedException {
+        testNoLock();
+        testBiasedLock();
+        testLightweightLock();
+        testHeavyweightLock();
+    }
+    
+    private static void testNoLock() {
+        long start = System.nanoTime();
+        int counter = 0;
+        for (int i = 0; i < ITERATIONS; i++) {
+            counter++;  // 无锁操作
+        }
+        long duration = System.nanoTime() - start;
+        System.out.printf("无锁: %d ns/op%n", duration / ITERATIONS);
+    }
+    
+    private static void testBiasedLock() {
+        Object lock = new Object();
+        long start = System.nanoTime();
+        for (int i = 0; i < ITERATIONS; i++) {
+            synchronized(lock) {  // 偏向锁
+                // 空操作
+            }
+        }
+        long duration = System.nanoTime() - start;
+        System.out.printf("偏向锁: %d ns/op%n", duration / ITERATIONS);
+    }
+    
+    private static void testLightweightLock() throws InterruptedException {
+        Object lock = new Object();
+        Thread t1 = new Thread(() -> {
+            for (int i = 0; i < ITERATIONS / 2; i++) {
+                synchronized(lock) {  // 轻量级锁
+                    // 空操作
+                }
+            }
+        });
+        
+        Thread t2 = new Thread(() -> {
+            for (int i = 0; i < ITERATIONS / 2; i++) {
+                synchronized(lock) {  // 轻量级锁
+                    // 空操作
+                }
+            }
+        });
+        
+        long start = System.nanoTime();
+        t1.start();
+        t2.start();
+        t1.join();
+        t2.join();
+        long duration = System.nanoTime() - start;
+        System.out.printf("轻量级锁: %d ns/op%n", duration / ITERATIONS);
+    }
+    
+    private static void testHeavyweightLock() throws InterruptedException {
+        Object lock = new Object();
+        int threadCount = 10;
+        Thread[] threads = new Thread[threadCount];
+        
+        long start = System.nanoTime();
+        for (int i = 0; i < threadCount; i++) {
+            threads[i] = new Thread(() -> {
+                for (int j = 0; j < ITERATIONS / threadCount; j++) {
+                    synchronized(lock) {  // 重量级锁
+                        // 空操作
+                    }
+                }
+            });
+            threads[i].start();
+        }
+        
+        for (Thread thread : threads) {
+            thread.join();
+        }
+        long duration = System.nanoTime() - start;
+        System.out.printf("重量级锁: %d ns/op%n", duration / ITERATIONS);
+    }
+}
+```
+
+**预期性能排序**：无锁 > 偏向锁 > 轻量级锁 > 重量级锁
+
+6. 实际应用建议
+
+- 根据场景选择策略
+```java
+public class LockStrategySelector {
+    
+    // 场景1：计数器 - 使用无锁编程
+    private AtomicInteger counter = new AtomicInteger(0);
+    public void increment() {
+        counter.incrementAndGet();  // 无锁，性能最佳
+    }
+    
+    // 场景2：单线程配置访问 - 适合偏向锁
+    private final Object configLock = new Object();
+    private String config;
+    public String getConfig() {
+        synchronized(configLock) {  // 单线程访问，偏向锁优化
+            return config;
+        }
+    }
+    
+    // 场景3：低竞争资源 - 轻量级锁自动优化
+    private final Object cacheLock = new Object();
+    private Map<String, Object> cache = new HashMap<>();
+    public void putToCache(String key, Object value) {
+        synchronized(cacheLock) {  // 低竞争，轻量级锁
+            cache.put(key, value);
+        }
+    }
+    
+    // 场景4：高竞争资源池 - 考虑重量级锁或分段锁
+    private final Object resourceLock = new Object();
+    private List<Resource> resources = new ArrayList<>();
+    public Resource acquireResource() {
+        synchronized(resourceLock) {  // 高竞争，可能升级为重量级锁
+            return resources.isEmpty() ? null : resources.remove(0);
+        }
+    }
+}
+```
+
+- 优化建议
+```java
+public class LockOptimizationTips {
+    
+    // 技巧1：减小同步范围
+    public void minimizeLockScope() {
+        // 不好的做法：在同步块内执行耗时操作
+        synchronized(this) {
+            String data = loadFromNetwork();  // 耗时操作
+            process(data);
+        }
+        
+        // 好的做法：只在必要时同步
+        String data = loadFromNetwork();      // 耗时操作放在外面
+        synchronized(this) {
+            process(data);                    // 只同步必要部分
+        }
+    }
+    
+    // 技巧2：使用读写锁替代完全同步
+    private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
+    public void readHeavyOperation() {
+        rwLock.readLock().lock();  // 多个读线程可以并发
+        try {
+            readData();
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+    
+    // 技巧3：锁粗化 - 合并连续的小同步块
+    public void lockCoarsening() {
+        // JVM可能会自动优化为：
+        // synchronized(lock) {
+        //     for (int i = 0; i < 1000; i++) {
+        //         processItem(i);
+        //     }
+        // }
+        for (int i = 0; i < 1000; i++) {
+            synchronized(lock) {  // 连续的小同步块
+                processItem(i);
+            }
+        }
+    }
+    
+    private String loadFromNetwork() { return "data"; }
+    private void process(String data) { }
+    private void readData() { }
+    private void processItem(int i) { }
+}
+```
+
+1. 监控和诊断
+
+- 查看锁状态
+```bash
+# 添加JVM参数监控锁升级
+-XX:+PrintFlagsFinal
+-XX:+PrintSafepointStatistics
+-XX:PrintSafepointStatisticsCount=1
+
+# 使用工具分析
+jstack <pid>          # 查看线程锁状态
+jcmd <pid> Thread.print  # 线程转储
+```
+
+- 代码诊断
+```java
+public class LockStateDiagnosis {
+    public static void diagnoseLockContention() {
+        ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
+        ThreadInfo[] threadInfos = threadBean.dumpAllThreads(true, true);
+        
+        for (ThreadInfo info : threadInfos) {
+            if (info.getLockName() != null) {
+                System.out.println("线程 " + info.getThreadName() + 
+                                 " 等待锁: " + info.getLockName() +
+                                 " 被 " + info.getLockOwnerName() + " 持有");
+            }
+        }
+    }
+}
+```
+
+8. 总结
+
+**核心要点**：
+
+1. **无锁**：性能最好，适合原子操作
+2. **偏向锁**：单线程优化，Java 15+ 默认禁用
+3. **轻量级锁**：低竞争优化，CAS + 自旋
+4. **重量级锁**：高竞争保障，操作系统支持
+
+##### 8.3.3.2 四种锁的对象头变化详细介绍
+1. 什么是对象头？
+
+- 基本概念
+每个 Java 对象在内存中都由三部分组成：
+```
+[对象头] [实例数据] [对齐填充]
+```
+
+**对象头**包含对象的元数据信息，是实现锁机制、GC、哈希码等功能的基础。
+
+- 对象头结构（64位 JVM）
+```java
+public class ObjectHeaderStructure {
+    // 64位JVM中，对象头通常占12字节（96位）
+    // 包含两个主要部分：
+    
+    // 1. Mark Word (64位/8字节) - 存储对象运行时数据
+    // 2. Klass Pointer (32位/4字节) - 指向类元数据
+    
+    // 如果开启压缩指针（默认），Klass Pointer占32位
+    // 如果关闭压缩指针，Klass Pointer占64位
+}
+```
+
+2. Mark Word 的详细结构
+
+Mark Word 在不同锁状态下会存储不同的内容：
+
+2.1 无锁状态（64位）
+```
+[ unused:25 | identity_hashcode:31 | unused:1 | age:4 | biased_lock:0 | lock:01 ]
+```
+
+**字段解释**：
+- **unused (25位)**：未使用空间
+- **identity_hashcode (31位)**：对象的哈希码
+- **unused (1位)**：未使用
+- **age (4位)**：对象分代年龄（用于GC）
+- **biased_lock (1位)**：偏向锁标志，0表示未启用偏向锁
+- **lock (2位)**：锁状态标志，01表示无锁
+
+**代码示例**：
+```java
+public class NoLockStateExample {
+    private Object obj = new Object();
+    
+    public void demonstrateNoLockHeader() {
+        // 新创建的对象处于无锁状态
+        System.out.println(obj.hashCode());  // 调用hashCode()会生成identity_hashcode
+        
+        synchronized(obj) {
+            // 进入同步块，对象头会变化
+        }
+    }
+}
+```
+
+2.2 偏向锁状态
+```
+[ thread:54 | epoch:2 | unused:1 | age:4 | biased_lock:1 | lock:01 ]
+```
+
+**字段解释**：
+- **thread (54位)**：持有偏向锁的线程ID
+- **epoch (2位)**：偏向锁的时间戳，用于批量撤销
+- **unused (1位)**：未使用
+- **age (4位)**：对象分代年龄
+- **biased_lock (1位)**：偏向锁标志，1表示启用偏向锁
+- **lock (2位)**：锁状态标志，01与无锁相同（靠biased_lock区分）
+
+**代码示例**：
+```java
+public class BiasedLockExample {
+    private final Object lock = new Object();
+    
+    public void showBiasedLock() {
+        // 第一次加锁，对象头从无锁变为偏向锁
+        synchronized(lock) {
+            // 此时对象头记录了当前线程ID
+            // 后续同一线程加锁时，只需检查线程ID，无需CAS操作
+        }
+        
+        // 同一线程再次加锁，还是偏向锁状态
+        synchronized(lock) {
+            System.out.println("同一线程快速重入");
+        }
+    }
+}
+```
+
+2.3 轻量级锁状态
+```
+[ pointer_to_lock_record:62 | lock:00 ]
+```
+
+**字段解释**：
+- **pointer_to_lock_record (62位)**：指向栈中锁记录的指针
+- **lock (2位)**：锁状态标志，00表示轻量级锁
+
+**工作原理**：
+```java
+public class LightweightLockMechanism {
+    private final Object lock = new Object();
+    
+    public void lightweightLockDemo() {
+        // 当第二个线程尝试加锁时
+        synchronized(lock) {
+            // JVM会在当前线程的栈帧中创建Lock Record
+            // 然后将对象头的Mark Word复制到Lock Record中（Displaced Mark Word）
+            // 最后通过CAS将对象头替换为指向Lock Record的指针
+            
+            // 如果CAS成功：获取轻量级锁
+            // 如果CAS失败：自旋等待或升级为重量级锁
+        }
+    }
+}
+```
+
+2.4 重量级锁状态
+```
+[ pointer_to_monitor:62 | lock:10 ]
+```
+
+**字段解释**：
+- **pointer_to_monitor (62位)**：指向Monitor对象的指针
+- **lock (2位)**：锁状态标志，10表示重量级锁
+
+**Monitor 结构**：
+```java
+public class MonitorStructure {
+    // 重量级锁对应的Monitor对象包含：
+    // - Owner: 持有锁的线程
+    // - EntryList: 阻塞等待的线程队列  
+    // - WaitSet: 调用wait()的线程队列
+    // - Recursion: 重入次数
+}
+```
+
+3. 实际内存布局示例
+
+- 32位 vs 64位 JVM
+```java
+public class ObjectHeaderSizes {
+    public static void main(String[] args) {
+        // 32位JVM对象头：8字节
+        // 64位JVM对象头：16字节（开启压缩指针为12字节）
+        
+        Object obj = new Object();
+        System.out.println("对象大小受对象头影响");
+        
+        // 使用JOL工具查看实际内存布局
+        // 添加依赖：org.openjdk.jol:jol-core
+    }
+}
+```
+
+4. 锁状态转换的完整过程
+
+- 完整的对象头变化
+```java
+public class CompleteLockUpgrade {
+    private Object obj = new Object();
+    
+    public void fullUpgradeProcess() {
+        // 阶段0：无锁状态
+        // Mark Word: [unused:25|identity_hashcode:31|unused:1|age:4|0|01]
+        
+        // 阶段1：第一个线程加锁 → 偏向锁
+        Thread t1 = new Thread(() -> {
+            synchronized(obj) {
+                // Mark Word: [thread:54|epoch:2|unused:1|age:4|1|01]
+                System.out.println("Thread1: 偏向锁");
+            }
+        });
+        t1.start();
+        
+        try { t1.join(); } catch (InterruptedException e) {}
+        
+        // 阶段2：第二个线程竞争 → 轻量级锁
+        Thread t2 = new Thread(() -> {
+            synchronized(obj) {
+                // Mark Word: [pointer_to_lock_record:62|00]
+                System.out.println("Thread2: 轻量级锁");
+            }
+        });
+        t2.start();
+        
+        try { t2.join(); } catch (InterruptedException e) {}
+        
+        // 阶段3：多个线程竞争 → 重量级锁
+        for (int i = 0; i < 3; i++) {
+            new Thread(() -> {
+                synchronized(obj) {
+                    // Mark Word: [pointer_to_monitor:62|10]
+                    System.out.println("竞争线程: 重量级锁");
+                }
+            }).start();
+        }
+    }
+}
+```
+
+5. 哈希码的影响
+
+- 哈希码生成时机
+```java
+public class HashCodeImpact {
+    private Object obj1 = new Object();
+    private Object obj2 = new Object();
+    
+    public void hashCodeTiming() {
+        // obj1: 在无锁状态调用hashCode()
+        int hash1 = obj1.hashCode();  // 生成identity_hashcode并存入对象头
+        // 此时对象头: [unused:25|identity_hashcode:31|unused:1|age:4|0|01]
+        
+        synchronized(obj1) {
+            // 因为已经有哈希码，无法进入偏向锁状态
+            // 直接进入轻量级锁或重量级锁
+        }
+        
+        // obj2: 先在同步块内，后调用hashCode()
+        synchronized(obj2) {
+            // 可能先进入偏向锁或轻量级锁
+            int hash2 = obj2.hashCode();  // 哈希码存储在Monitor中
+        }
+    }
+}
+```
+
+6. 使用工具查看对象头
+
+- 使用 JOL (Java Object Layout)
+```java
+// 添加依赖：org.openjdk.jol:jol-core
+import org.openjdk.jol.info.ClassLayout;
+import org.openjdk.jol.vm.VM;
+
+public class JOLExample {
+    public static void main(String[] args) {
+        Object obj = new Object();
+        
+        // 查看对象内存布局
+        System.out.println(ClassLayout.parseInstance(obj).toPrintable());
+        
+        // 查看VM详细信息
+        System.out.println(VM.current().details());
+    }
+}
+```
+
+**输出示例**：
+```
+java.lang.Object object internals:
+ OFFSET  SIZE   TYPE DESCRIPTION                               VALUE
+      0     4        (object header)                           01 00 00 00 
+      4     4        (object header)                           00 00 00 00 
+      8     4        (object header)                           e5 01 00 f8 
+     12     4        (loss due to the next object alignment)
+Instance size: 16 bytes
+Space losses: 0 bytes internal + 4 bytes external = 4 bytes total
+```
+##### 8.3.3.3 哈希码的生成时机确实为什么会严重影响偏向锁的获取
+```java
+public class HeaderSpaceConflict {
+    // 问题：Mark Word 只有64位，无法同时存储所有信息
+    
+    // 偏向锁需要存储：线程ID(54位) + epoch(2位) + 年龄(4位) + 标志位(4位)
+    // 哈希码需要存储：31位identity_hashcode
+    // 两者无法共存！
+    
+    // 因此：一旦生成了哈希码，就无法进入偏向锁状态
+}
+```
+##### 8.3.3.4 JDK 15+ 取消偏向锁默认开启的主要原因
+
+  > 1. **复杂性过高**：实现和维护成本远超收益
+  > 2. **实际收益有限**：现代应用模式中偏向锁作用很小
+  > 3. **性能问题**：撤销成本高，可能引起STW暂停
+  > 4. **现代替代方案**：轻量级锁优化足够好，显式锁更灵活
+  > 5. **应用模式变化**：微服务、云原生等新架构不适用
+  > 6. **哈希码冲突**：只是众多问题中的一个体现
+
+- 1.1 维护复杂性过高
+```java
+public class BiasedLockComplexity {
+    // 偏向锁引入了巨大的实现复杂性
+    
+    // 撤销偏向锁的复杂场景：
+    public void revocationComplexity() {
+        Object lock = new Object();
+        
+        // 场景1：哈希码冲突
+        synchronized(lock) {
+            lock.hashCode(); // 触发偏向锁撤销
+        }
+        
+        // 场景2：等待通知
+        synchronized(lock) {
+            try {
+                lock.wait(); // 触发偏向锁撤销
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        
+        // 场景3：批量撤销
+        // 当多个对象偏向同一个线程，但该线程不再使用这些对象时
+        // JVM需要批量撤销这些偏向锁，逻辑极其复杂
+    }
+}
+```
+
+- 1.2 实际收益有限
+```java
+public class BiasedLockBenefitAnalysis {
+    
+    public void analyzeRealWorldUsage() {
+        // 在现代应用中，偏向锁的实际收益很小
+        
+        // 原因1：大多数锁对象生命周期短
+        Object shortLivedLock = new Object();
+        synchronized(shortLivedLock) {
+            // 很多锁对象只使用一次，偏向锁开销大于收益
+        }
+        
+        // 原因2：高竞争场景下偏向锁频繁撤销
+        Object highContentionLock = new Object();
+        for (int i = 0; i < 10; i++) {
+            new Thread(() -> {
+                synchronized(highContentionLock) {
+                    // 高竞争下偏向锁很快升级，撤销开销大
+                }
+            }).start();
+        }
+        
+        // 原因3：现代应用大量使用java.util.concurrent
+        // 这些类使用更高效的锁机制，不依赖synchronized
+    }
+}
+```
+
+- 1.3 性能问题
+```java
+public class BiasedLockPerformanceIssues {
+    
+    public void demonstratePerformanceProblems() {
+        // 问题1：撤销成本高
+        Object lock = new Object();
+        
+        // 第一次加锁：偏向锁
+        synchronized(lock) {
+            // 偏向锁建立
+        }
+        
+        // 第二个线程加锁：需要撤销+升级
+        new Thread(() -> {
+            synchronized(lock) {
+                // 这里发生了：
+                // 1. 安全点暂停（STW）
+                // 2. 偏向锁撤销
+                // 3. 升级为轻量级锁
+                // 这个过程的成本可能超过偏向锁的收益
+            }
+        }).start();
+        
+        // 问题2：批量撤销影响整体性能
+        // 当某个线程创建大量偏向锁对象但不再使用时
+        // JVM需要批量撤销，可能导致明显的暂停
+    }
+}
+```
+
+2. 具体技术问题
+
+2.1 安全点（Safepoint）问题
+```java
+public class SafepointIssues {
+    
+    public void safepointOverhead() {
+        // 偏向锁撤销必须在安全点进行
+        // 这会导致所有线程暂停
+        
+        Object[] locks = new Object[10000];
+        for (int i = 0; i < locks.length; i++) {
+            locks[i] = new Object();
+            synchronized(locks[i]) {
+                // 建立偏向锁
+            }
+        }
+        
+        // 当需要批量撤销这些偏向锁时
+        // 必须进入安全点，造成STW暂停
+        // 这对低延迟应用是致命的
+    }
+}
+```
+
+2.2 内存开销
+```java
+public class MemoryOverhead {
+    
+    public void memoryCostAnalysis() {
+        // 偏向锁增加了对象头的复杂性
+        // 虽然不增加额外内存，但增加了处理逻辑的复杂性
+        
+        // 每个偏向锁对象都需要维护额外的状态信息
+        // 在JVM内部，偏向锁的管理数据结构也很复杂
+    }
+}
+```
+
+3. 现代应用模式的变化
+
+3.1 锁使用模式变化
+```java
+public class ModernLockPatterns {
+    
+    public void modernConcurrencyPatterns() {
+        // 模式1：大量使用并发工具类
+        ConcurrentHashMap<String, String> map = new ConcurrentHashMap<>();
+        // 内部使用更精细的锁机制，不依赖synchronized
+        
+        // 模式2：无锁编程
+        AtomicInteger counter = new AtomicInteger();
+        counter.incrementAndGet(); // CAS操作，无锁
+        
+        // 模式3：线程局部变量
+        ThreadLocal<String> threadLocal = new ThreadLocal<>();
+        threadLocal.set("value"); // 无竞争
+        
+        // 模式4：不可变对象
+        String immutable = "immutable"; // 无需同步
+        
+        // 在这些现代模式中，偏向锁几乎没有作用
+    }
+}
+```
+
+3.2 微服务和云原生环境
+```java
+public class CloudNativeImpact {
+    
+    public void cloudNativeCharacteristics() {
+        // 在云原生环境中：
+        
+        // 1. 容器化部署，资源受限
+        // 偏向锁的复杂实现占用宝贵的资源
+        
+        // 2. 短生命周期应用
+        // 很多微服务实例生命周期短，偏向锁收益低
+        
+        // 3. 弹性伸缩
+        // 频繁的创建销毁使得偏向锁难以发挥作用
+        
+        // 4. 低延迟要求
+        // 偏向锁撤销的STW暂停不可接受
+    }
+}
+```
+
+4. 替代方案更加成熟
+
+4.1 轻量级锁的优化
+```java
+public class LightweightLockOptimizations {
+    
+    public void modernLightweightLock() {
+        Object lock = new Object();
+        
+        // 现代JVM对轻量级锁做了大量优化：
+        synchronized(lock) {
+            // 1. 更高效的自旋策略
+            // 2. 更快的锁升级判断
+            // 3. 更好的竞争处理
+            
+            // 在大多数场景下，轻量级锁的性能已经足够好
+            // 无需偏向锁的额外复杂性
+        }
+    }
+}
+```
+
+4.2 显式锁的普及
+```java
+import java.util.concurrent.locks.ReentrantLock;
+
+public class ExplicitLockAdoption {
+    private final ReentrantLock lock = new ReentrantLock();
+    
+    public void explicitLockAdvantages() {
+        lock.lock();
+        try {
+            // 显式锁的优点：
+            // 1. 可中断的锁获取
+            // 2. 超时控制
+            // 3. 公平性选择
+            // 4. 多个条件变量
+            
+            // 这些特性使得开发者在需要精细控制时选择显式锁
+            // 而不是依赖synchronized的自动优化
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+```
+5. 逐步废弃的时间线
+
+- JDK 版本演进
+```java
+public class BiasedLockTimeline {
+    
+    public void versionEvolution() {
+        // JDK 6: 引入偏向锁，默认开启
+        // JDK 15: 默认禁用偏向锁
+        // 未来版本：可能完全移除偏向锁
+        
+        // 通过JVM参数仍然可以启用：
+        // -XX:+UseBiasedLocking
+        
+        // 但官方不建议在生产环境使用
+    }
+}
+```
+
+6. 新的最佳实践
+```java
+public class NewBestPractices {
+    
+    public void updatedGuidelines() {
+        // 新的并发最佳实践：
+        
+        // 1. 优先使用java.util.concurrent
+        ConcurrentHashMap<String, String> map = new ConcurrentHashMap<>();
+        
+        // 2. 需要精细控制时使用显式锁
+        ReentrantLock lock = new ReentrantLock();
+        
+        // 3. 对于简单的同步，synchronized仍然很好
+        Object simpleLock = new Object();
+        synchronized(simpleLock) {
+            // 现代JVM的轻量级锁优化已经足够好
+        }
+        
+        // 4. 考虑无锁数据结构
+        AtomicInteger counter = new AtomicInteger();
+        
+        // 5. 利用不可变性和线程局部性
+    }
+}
+```
+
+7. 验证当前JVM设置
+
+- 检查偏向锁状态
+```java
+public class CheckBiasedLocking {
+    
+    public static void main(String[] args) {
+        // 检查当前JVM的偏向锁设置
+        
+        // 方法1：通过JMX
+        try {
+            java.lang.management.RuntimeMXBean runtimeMxBean = 
+                java.lang.management.ManagementFactory.getRuntimeMXBean();
+            java.util.List<String> arguments = runtimeMxBean.getInputArguments();
+            
+            for (String arg : arguments) {
+                if (arg.contains("BiasedLocking")) {
+                    System.out.println("偏向锁设置: " + arg);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        
+        // 方法2：尝试创建对象并观察行为
+        Object obj = new Object();
+        synchronized(obj) {
+            System.out.println("锁状态取决于JVM默认设置");
+        }
+    }
+}
+```
+##### 8.3.3.5 引起偏向锁撤销的场景
+偏向锁撤销是指**将对象从偏向锁状态转换回无锁状态或升级到其他锁状态的过程**。这是一个相对昂贵的操作，需要理解其触发条件和执行过程。
+
+触发偏向锁撤销的场景：
+
+- 其他线程竞争锁（最常见）
+```java
+public class CompetitionRevocation {
+    private final Object lock = new Object();
+    
+    public void competitionScenario() throws InterruptedException {
+        // 线程A获取偏向锁
+        Thread threadA = new Thread(() -> {
+            synchronized(lock) {
+                System.out.println("ThreadA: 获取偏向锁");
+                // 对象头: [thread:A|...|1|01]
+            }
+            // 退出同步块，但对象仍然偏向线程A
+        });
+        threadA.start();
+        threadA.join();
+        
+        // 线程B尝试加锁 - 触发偏向锁撤销
+        Thread threadB = new Thread(() -> {
+            synchronized(lock) {  // 这里发生偏向锁撤销！
+                System.out.println("ThreadB: 触发偏向锁撤销");
+                // 对象头变为: [pointer_to_lock_record|00] (轻量级锁)
+            }
+        });
+        threadB.start();
+    }
+}
+```
+- 调用 hashCode() 方法
+```java
+public class HashCodeRevocation {
+    private final Object lock = new Object();
+    
+    public void hashCodeScenario() {
+        // 先获取偏向锁
+        synchronized(lock) {
+            // 对象头: [thread:current|...|1|01]
+            
+            // 在同步块内调用hashCode() - 触发偏向锁撤销
+            int hash = lock.hashCode();  // 撤销！
+            // 对象头变为: [unused:25|identity_hashcode:31|...|0|01]
+            
+            System.out.println("hashCode调用导致偏向锁撤销");
+        }
+    }
+    
+    public void hashCodeBeforeLock() {
+        // 先调用hashCode()，阻止偏向锁
+        int hash = lock.hashCode();  // 对象头存储哈希码
+        
+        synchronized(lock) {
+            // 直接进入轻量级锁，无法使用偏向锁
+            System.out.println("无法进入偏向锁状态");
+        }
+    }
+}
+```
+- 调用 wait()/notify() 方法
+```java
+public class WaitNotifyRevocation {
+    private final Object lock = new Object();
+    
+    public void waitNotifyScenario() throws InterruptedException {
+        synchronized(lock) {
+            // 初始可能是偏向锁
+            // 对象头: [thread:current|...|1|01]
+            
+            // 调用wait() - 触发偏向锁撤销并升级为重量级锁
+            lock.wait(100);  // 撤销！
+            // 对象头变为: [pointer_to_monitor|10] (重量级锁)
+            
+            System.out.println("wait()调用导致偏向锁撤销和升级");
+        }
+    }
+}
+```
+- 批量撤销和批量重偏向
+```java
+public class BulkRevocation {
+    // 当某个线程创建大量偏向锁对象但不再使用时
+    // JVM会执行批量撤销以优化性能
+    
+    public void bulkRevocationScenario() {
+        // 线程A创建大量对象并加锁
+        Thread threadA = new Thread(() -> {
+            for (int i = 0; i < 1000; i++) {
+                Object obj = new Object();
+                synchronized(obj) {
+                    // 建立偏向锁
+                }
+            }
+        });
+        threadA.start();
+        
+        // 后续其他线程使用这些对象时
+        // JVM可能会批量撤销这些偏向锁
+    }
+}
+```
+偏向锁撤销回无锁状态主要发生在以下几种特定情况下：
+
+- 线程结束后自动撤销
+- 无竞争时调用 hashCode()
+- 批量撤销时部分对象回无锁
+- 偏向锁超时撤销
+- 通过 JVM 功能强制撤销-XX:BiasedLockingRevocationTimeout=1000
+#### 8.3.4 公平锁 VS 非公平锁
+
+公平锁是指多个线程按照申请锁的顺序来获取锁，线程直接进入队列中排队，队列中的第一个线程才能获得锁。公平锁的优点是等待锁的线程不会饿死。缺点是整体吞吐效率相对非公平锁要低，等待队列中除第一个线程以外的所有线程都会阻塞，CPU唤醒阻塞线程的开销比非公平锁大。
+
+非公平锁是多个线程加锁时直接尝试获取锁，获取不到才会到等待队列的队尾等待。但如果此时锁刚好可用，那么这个线程可以无需阻塞直接获取到锁，所以非公平锁有可能出现后申请锁的线程先获取锁的场景。非公平锁的优点是可以减少唤起线程的开销，整体的吞吐效率高，因为线程有几率不阻塞直接获得锁，CPU不必唤醒所有线程。缺点是处于等待队列中的线程可能会饿死，或者等很久才会获得锁。
+![公平锁](../assets/images/01-Java基础/49.公平锁.png)
+
+如上图所示，假设有一口水井，有管理员看守，管理员有一把锁，只有拿到锁的人才能够打水，打完水要把锁还给管理员。每个过来打水的人都要管理员的允许并拿到锁之后才能去打水，如果前面有人正在打水，那么这个想要打水的人就必须排队。管理员会查看下一个要去打水的人是不是队伍里排最前面的人，如果是的话，才会给你锁让你去打水；如果你不是排第一的人，就必须去队尾排队，这就是公平锁。
+
+但是对于非公平锁，管理员对打水的人没有要求。即使等待队伍里有排队等待的人，但如果在上一个人刚打完水把锁还给管理员而且管理员还没有允许等待队伍里下一个人去打水时，刚好来了一个插队的人，这个插队的人是可以直接从管理员那里拿到锁去打水，不需要排队，原本排队等待的人只能继续等待。如下图所示：
+![非公平锁](../assets/images/01-Java基础/50.非公平锁.png)
+
+#### 8.3.5 可重入锁 VS 非可重入锁
+
+可重入锁又名递归锁，是指在同一个线程在外层方法获取锁的时候，再进入该线程的内层方法会自动获取锁（前提锁对象得是同一个对象或者class），不会因为之前已经获取过还没释放而阻塞。Java中ReentrantLock和synchronized都是可重入锁，可重入锁的一个优点是可一定程度避免死锁。下面用示例代码来进行分析：
+```java
+public class Widget {
+    public synchronized void doSomething() {
+        System.out.println("方法1执行...");
+        doOthers();
+    }
+
+    public synchronized void doOthers() {
+        System.out.println("方法2执行...");
+    }
+}
+```
+在上面的代码中，类中的两个方法都是被内置锁synchronized修饰的，doSomething()方法中调用doOthers()方法。因为内置锁是可重入的，所以同一个线程在调用doOthers()时可以直接获得当前对象的锁，进入doOthers()进行操作。
+
+如果是一个不可重入锁，那么当前线程在调用doOthers()之前需要将执行doSomething()时获取当前对象的锁释放掉，实际上该对象锁已被当前线程所持有，且无法释放。所以此时会出现死锁。
+
+而为什么可重入锁就可以在嵌套调用时可以自动获得锁呢？我们通过图示和源码来分别解析一下。
+
+还是打水的例子，有多个人在排队打水，此时管理员允许锁和同一个人的多个水桶绑定。这个人用多个水桶打水时，第一个水桶和锁绑定并打完水之后，第二个水桶也可以直接和锁绑定并开始打水，所有的水桶都打完水之后打水人才会将锁还给管理员。这个人的所有打水流程都能够成功执行，后续等待的人也能够打到水。这就是可重入锁。
+![非公平锁](../assets/images/01-Java基础/51.可重入锁的打水示例.png)
+但如果是非可重入锁的话，此时管理员只允许锁和同一个人的一个水桶绑定。第一个水桶和锁绑定打完水之后并不会释放锁，导致第二个水桶不能和锁绑定也无法打水。当前线程出现死锁，整个等待队列中的所有线程都无法被唤醒。
+![非公平锁](../assets/images/01-Java基础/52.不可重入锁的打水示例.png)
+
+之前我们说过ReentrantLock和synchronized都是重入锁，那么我们通过重入锁ReentrantLock以及非可重入锁NonReentrantLock的源码来对比分析一下为什么非可重入锁在重复调用同步资源时会出现死锁。
+
+首先ReentrantLock和NonReentrantLock都继承父类AQS，其父类AQS中维护了一个同步状态status来计数重入次数，status初始值为0。
+
+当线程尝试获取锁时，可重入锁先尝试获取并更新status值，如果status == 0表示没有其他线程在执行同步代码，则把status置为1，当前线程开始执行。如果status != 0，则判断当前线程是否是获取到这个锁的线程，如果是的话执行status+1，且当前线程可以再次获取锁。而非可重入锁是直接去获取并尝试更新当前status的值，如果status != 0的话会导致其获取锁失败，当前线程阻塞。
+
+释放锁时，可重入锁同样先获取当前status的值，在当前线程是持有锁的线程的前提下。如果status-1 == 0，则表示当前线程所有重复获取锁的操作都已经执行完毕，然后该线程才会真正释放锁。而非可重入锁则是在确定当前线程是持有锁的线程之后，直接将status置为0，将锁释放。
+![可重入锁和不可重入锁的代码区别](../assets/images/01-Java基础/53.可重入锁和不可重入锁的代码区别.png)
+
+#### 8.3.6 独享锁(排他锁) VS 共享锁
+> 独享锁和共享锁同样是一种概念。我们先介绍一下具体的概念，然后通过ReentrantLock和ReentrantReadWriteLock的源码来介绍独享锁和共享锁。
+
+独享锁也叫排他锁，是指该锁一次只能被一个线程所持有。如果线程T对数据A加上排它锁后，则其他线程不能再对A加任何类型的锁。获得排它锁的线程即能读数据又能修改数据。JDK中的synchronized和JUC中Lock的实现类就是互斥锁。
+
+共享锁是指该锁可被多个线程所持有。如果线程T对数据A加上共享锁后，则其他线程只能对A再加共享锁，不能加排它锁。获得共享锁的线程只能读数据，不能修改数据。
+
+独享锁与共享锁也是通过AQS来实现的，通过实现不同的方法，来实现独享或者共享。
+
+下图为ReentrantReadWriteLock的部分源码：
+![ReentrantReadWriteLock的部分源码](../assets/images/01-Java基础/54.ReentrantReadWriteLock的部分源码.png)
+
+我们看到ReentrantReadWriteLock有两把锁：ReadLock和WriteLock，由词知意，一个读锁一个写锁，合称“读写锁”。再进一步观察可以发现ReadLock和WriteLock是靠内部类Sync实现的锁。Sync是AQS的一个子类，这种结构在CountDownLatch、ReentrantLock、Semaphore里面也都存在。
+
+在ReentrantReadWriteLock里面，读锁和写锁的锁主体都是Sync，但读锁和写锁的加锁方式不一样。读锁是共享锁，写锁是独享锁。读锁的共享锁可保证并发读非常高效，而读写、写读、写写的过程互斥，因为读锁和写锁是分离的。所以ReentrantReadWriteLock的并发性相比一般的互斥锁有了很大提升。
+
+详细的介绍可以参考 ReentrantReadWriteLock详解
 
 
 
