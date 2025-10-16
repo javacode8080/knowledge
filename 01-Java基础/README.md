@@ -23510,21 +23510,1429 @@ ConcurrentLinkedQueue通过无锁来做到了更高的并发量，是个高性�
 |-----------------------------------|----------------------------------------------------------------------|------------------------------|
 | **复合操作**                      | `isEmpty()` + `poll()` 非原子                                        | 加锁或改用 `poll()` 判空：  
 
+### 8.15 JUC集合: BlockingQueue,BlockingDeque详解
+> 什么是BlockingDeque?
+> BlockingQueue大家族有哪些? ArrayBlockingQueue, DelayQueue, LinkedBlockingQueue, SynchronousQueue...
+> BlockingQueue适合用在什么样的场景?
+> BlockingQueue常用的方法?
+> BlockingQueue插入方法有哪些? 这些方法(add(o),offer(o),put(o),offer(o, timeout, timeunit))的区别是什么?
+> BlockingDeque 与BlockingQueue有何关系，请对比下它们的方法?
+> BlockingDeque适合用在什么样的场景?
+> BlockingDeque大家族有哪些?
+> BlockingDeque 与BlockingQueue实现例子?
+#### 8.15.1 BlockingQueue和BlockingDeque
+##### 8.15.1.1 BlockingQueue
+BlockingQueue 通常用于一个线程生产对象，而另外一个线程消费这些对象的场景。下图是对这个原理的阐述:
+![BlockingQueue](../assets/images/01-Java基础/117.BlockingQueue.png)
+一个线程往里边放，另外一个线程从里边取的一个 BlockingQueue。
+
+一个线程将会持续生产新对象并将其插入到队列之中，直到队列达到它所能容纳的临界点。也就是说，它是有限的。如果该阻塞队列到达了其临界点，负责生产的线程将会在往里边插入新对象时发生阻塞。它会一直处于阻塞之中，直到负责消费的线程从队列中拿走一个对象。 负责消费的线程将会一直从该阻塞队列中拿出对象。如果消费线程尝试去从一个空的队列中提取对象的话，这个消费线程将会处于阻塞之中，直到一个生产线程把一个对象丢进队列。
+##### 8.15.1.2 BlockingQueue 的方法
+BlockingQueue 具有 4 组不同的方法用于插入、移除以及对队列中的元素进行检查。如果请求的操作不能得到立即执行的话，每个方法的表现也不同。这些方法如下:
+好的，这是对阻塞队列主要操作方法的整理表格：
 
 
+| 操作类型 | 方法名 | 抛出异常 | 返回特定值 | 阻塞 | 超时 |
+|---------|--------|----------|-----------|------|------|
+| **插入** | `add(o)` | ✅ 队列满时抛出`IllegalStateException` | ❌ | ❌ | ❌ |
+| | `offer(o)` | ❌ | ✅ 队列满时返回`false` | ❌ | ❌ |
+| | `put(o)` | ❌ | ❌ | ✅ 队列满时阻塞直到有空间 | ❌ |
+| | `offer(o, timeout, timeunit)` | ❌ | ✅ 超时后返回`false` | ✅ 队列满时阻塞 | ✅ 支持超时 |
+| **移除** | `remove()` | ✅ 队列空时抛出`NoSuchElementException` | ❌ | ❌ | ❌ |
+| | `poll()` | ❌ | ✅ 队列空时返回`null` | ❌ | ❌ |
+| | `take()` | ❌ | ❌ | ✅ 队列空时阻塞直到有元素 | ❌ |
+| | `poll(timeout, timeunit)` | ❌ | ✅ 超时后返回`null` | ✅ 队列空时阻塞 | ✅ 支持超时 |
+| **检查** | `element()` | ✅ 队列空时抛出`NoSuchElementException` | ❌ | ❌ | ❌ |
+| | `peek()` | ❌ | ✅ 队列空时返回`null` | ❌ | ❌ |
 
 
+四组不同的行为方式解释:
+- 抛异常: 如果试图的操作无法立即执行，抛一个异常。
+- 特定值: 如果试图的操作无法立即执行，返回一个特定的值(常常是 true / false)。
+- 阻塞: 如果试图的操作无法立即执行，该方法调用将会发生阻塞，直到能够执行。
+- 超时: 如果试图的操作无法立即执行，该方法调用将会发生阻塞，直到能够执行，但等待时间不会超过给定值。返回一个特定值以告知该操作是否成功(典型的是 true / false)。
+
+无法向一个 BlockingQueue 中插入 null。如果你试图插入 null，BlockingQueue 将会抛出一个 NullPointerException。 可以访问到 BlockingQueue 中的所有元素，而不仅仅是开始和结束的元素。比如说，你将一个对象放入队列之中以等待处理，但你的应用想要将其取消掉。那么你可以调用诸如 remove(o) 方法来将队列之中的特定对象进行移除。但是这么干效率并不高(译者注: 基于队列的数据结构，获取除开始或结束位置的其他对象的效率不会太高)，因此你尽量不要用这一类的方法，除非你确实不得不那么做。
+
+##### 8.15.1.3 BlockingDeque
+java.util.concurrent 包里的 BlockingDeque 接口表示一个线程安放入和提取实例的双端队列。
+
+BlockingDeque 类是一个双端队列，在不能够插入元素时，它将阻塞住试图插入元素的线程；在不能够抽取元素时，它将阻塞住试图抽取的线程。 deque(双端队列) 是 "Double Ended Queue" 的缩写。因此，双端队列是一个你可以从任意一端插入或者抽取元素的队列。
+
+在线程既是一个队列的生产者又是这个队列的消费者的时候可以使用到 BlockingDeque。如果生产者线程需要在队列的两端都可以插入数据，消费者线程需要在队列的两端都可以移除数据，这个时候也可以使用 BlockingDeque。BlockingDeque 图解:
+![BlockingDeque](../assets/images/01-Java基础/118.BlockingDeque.png)
+
+##### 8.15.1.4 BlockingDeque 的方法
+一个 BlockingDeque - 线程在双端队列的两端都可以插入和提取元素。 一个线程生产元素，并把它们插入到队列的任意一端。如果双端队列已满，插入线程将被阻塞，直到一个移除线程从该队列中移出了一个元素。如果双端队列为空，移除线程将被阻塞，直到一个插入线程向该队列插入了一个新元素。
+
+BlockingDeque 具有 4 组不同的方法用于插入、移除以及对双端队列中的元素进行检查。如果请求的操作不能得到立即执行的话，每个方法的表现也不同。这些方法如下:
+好的，这是针对双端队列（Deque）操作方法的整理表格：
+
+- First端（头部）操作
+
+| 操作类型 | 方法名 | 抛出异常 | 返回特定值 | 阻塞 | 超时 |
+|---------|--------|----------|-----------|------|------|
+| **插入** | `addFirst(o)` | ✅ 队列满时抛出异常 | ❌ | ❌ | ❌ |
+| | `offerFirst(o)` | ❌ | ✅ 队列满时返回`false` | ❌ | ❌ |
+| | `putFirst(o)` | ❌ | ❌ | ✅ 队列满时阻塞直到有空间 | ❌ |
+| | `offerFirst(o, timeout, timeunit)` | ❌ | ✅ 超时后返回`false` | ✅ 队列满时阻塞 | ✅ 支持超时 |
+| **移除** | `removeFirst()` | ✅ 队列空时抛出异常 | ❌ | ❌ | ❌ |
+| | `pollFirst()` | ❌ | ✅ 队列空时返回`null` | ❌ | ❌ |
+| | `takeFirst()` | ❌ | ❌ | ✅ 队列空时阻塞直到有元素 | ❌ |
+| | `pollFirst(timeout, timeunit)` | ❌ | ✅ 超时后返回`null` | ✅ 队列空时阻塞 | ✅ 支持超时 |
+| **检查** | `getFirst()` | ✅ 队列空时抛出异常 | ❌ | ❌ | ❌ |
+| | `peekFirst()` | ❌ | ✅ 队列空时返回`null` | ❌ | ❌ |
+
+- Last端（尾部）操作
+
+| 操作类型 | 方法名 | 抛出异常 | 返回特定值 | 阻塞 | 超时 |
+|---------|--------|----------|-----------|------|------|
+| **插入** | `addLast(o)` | ✅ 队列满时抛出异常 | ❌ | ❌ | ❌ |
+| | `offerLast(o)` | ❌ | ✅ 队列满时返回`false` | ❌ | ❌ |
+| | `putLast(o)` | ❌ | ❌ | ✅ 队列满时阻塞直到有空间 | ❌ |
+| | `offerLast(o, timeout, timeunit)` | ❌ | ✅ 超时后返回`false` | ✅ 队列满时阻塞 | ✅ 支持超时 |
+| **移除** | `removeLast()` | ✅ 队列空时抛出异常 | ❌ | ❌ | ❌ |
+| | `pollLast()` | ❌ | ✅ 队列空时返回`null` | ❌ | ❌ |
+| | `takeLast()` | ❌ | ❌ | ✅ 队列空时阻塞直到有元素 | ❌ |
+| | `pollLast(timeout, timeunit)` | ❌ | ✅ 超时后返回`null` | ✅ 队列空时阻塞 | ✅ 支持超时 |
+| **检查** | `getLast()` | ✅ 队列空时抛出异常 | ❌ | ❌ | ❌ |
+| | `peekLast()` | ❌ | ✅ 队列空时返回`null` | ❌ | ❌ |
 
 
+四组不同的行为方式解释:
+- 抛异常: 如果试图的操作无法立即执行，抛一个异常。
+- 特定值: 如果试图的操作无法立即执行，返回一个特定的值(常常是 true / false)。
+- 阻塞: 如果试图的操作无法立即执行，该方法调用将会发生阻塞，直到能够执行。
+- 超时: 如果试图的操作无法立即执行，该方法调用将会发生阻塞，直到能够执行，但等待时间不会超过给定值。返回一个特定值以告知该操作是否成功(典型的是 true / false)。
+##### 8.15.1.4 BlockingDeque 与BlockingQueue关系
+BlockingDeque 接口继承自 BlockingQueue 接口。这就意味着你可以像使用一个 BlockingQueue 那样使用 BlockingDeque。如果你这么干的话，各种插入方法将会把新元素添加到双端队列的尾端，而移除方法将会把双端队列的首端的元素移除。正如 BlockingQueue 接口的插入和移除方法一样。
 
+以下是 BlockingDeque 对 BlockingQueue 接口的方法的具体内部实现:
 
+| BlockingQueue 方法 | BlockingDeque 对应方法 | 说明 |
+|-------------------|----------------------|------|
+| **插入操作** | | |
+| `add(e)` | `addLast(e)` | 队列满时抛出异常 |
+| `offer(e)` | `offerLast(e)` | 队列满时返回 false |
+| `offer(e, timeout, unit)` | `offerLast(e, timeout, unit)` | 超时插入 |
+| `put(e)` | `putLast(e)` | 阻塞插入 |
+| **移除操作** | | |
+| `remove()` | `removeFirst()` | 队列空时抛出异常 |
+| `poll()` | `pollFirst()` | 队列空时返回 null |
+| `poll(timeout, unit)` | `pollFirst(timeout, unit)` | 超时移除 |
+| `take()` | `takeFirst()` | 阻塞移除 |
+| **检查操作** | | |
+| `element()` | `getFirst()` | 队列空时抛出异常 |
+| `peek()` | `peekFirst()` | 队列空时返回 null |
 
+#### 8.15.2 BlockingQueue接口的实现类
 
+这里是一个 Java 中使用 BlockingQueue 的示例。本示例使用的是 BlockingQueue 接口的 ArrayBlockingQueue 实现。 首先，BlockingQueueExample 类分别在两个独立的线程中启动了一个 Producer 和 一个 Consumer。Producer 向一个共享的 BlockingQueue 中注入字符串，而 Consumer 则会从中把它们拿出来。
+```java
+public class BlockingQueueExample {
+ 
+    public static void main(String[] args) throws Exception {
+ 
+        BlockingQueue queue = new ArrayBlockingQueue(1024);
+ 
+        Producer producer = new Producer(queue);
+        Consumer consumer = new Consumer(queue);
+ 
+        new Thread(producer).start();
+        new Thread(consumer).start();
+ 
+        Thread.sleep(4000);
+    }
+}
+```
+以下是 Producer 类。注意它在每次 put() 调用时是如何休眠一秒钟的。这将导致 Consumer 在等待队列中对象的时候发生阻塞。
+```java
+public class Producer implements Runnable{
+ 
+    protected BlockingQueue queue = null;
+ 
+    public Producer(BlockingQueue queue) {
+        this.queue = queue;
+    }
+ 
+    public void run() {
+        try {
+            queue.put("1");
+            Thread.sleep(1000);
+            queue.put("2");
+            Thread.sleep(1000);
+            queue.put("3");
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+以下是 Consumer 类。它只是把对象从队列中抽取出来，然后将它们打印到 System.out。
+```java
+public class Consumer implements Runnable{
+ 
+    protected BlockingQueue queue = null;
+ 
+    public Consumer(BlockingQueue queue) {
+        this.queue = queue;
+    }
+ 
+    public void run() {
+        try {
+            System.out.println(queue.take());
+            System.out.println(queue.take());
+            System.out.println(queue.take());
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+##### 8.15.2.1  数组阻塞队列 ArrayBlockingQueue
+ArrayBlockingQueue 类实现了 BlockingQueue 接口。
 
+ArrayBlockingQueue 是一个有界的阻塞队列，其内部实现是将对象放到一个数组里。有界也就意味着，它不能够存储无限多数量的元素。它有一个同一时间能够存储元素数量的上限。你可以在对其初始化的时候设定这个上限，但之后就无法对这个上限进行修改了(译者注: 因为它是基于数组实现的，也就具有数组的特性: 一旦初始化，大小就无法修改)。 ArrayBlockingQueue 内部以 FIFO(先进先出)的顺序对元素进行存储。队列中的头元素在所有元素之中是放入时间最久的那个，而尾元素则是最短的那个。 以下是在使用 ArrayBlockingQueue 的时候对其初始化的一个示例:
+```java
+BlockingQueue queue = new ArrayBlockingQueue(1024);
+queue.put("1");
+Object object = queue.take();
+```
+以下是使用了 Java 泛型的一个 BlockingQueue 示例。注意其中是如何对 String 元素放入和提取的:
+```java
+BlockingQueue<String> queue = new ArrayBlockingQueue<String>(1024);
+queue.put("1");
+String string = queue.take();
+```
+##### 8.15.2.2  延迟队列 DelayQueue
+DelayQueue 实现了 BlockingQueue 接口。
 
+DelayQueue 对元素进行持有直到一个特定的延迟到期。注入其中的元素必须实现 java.util.concurrent.Delayed 接口，该接口定义:
+```java
+public interface Delayed extends Comparable<Delayed< {
+    public long getDelay(TimeUnit timeUnit);
+}
+```
+DelayQueue 将会在每个元素的 getDelay() 方法返回的值的时间段之后才释放掉该元素。如果返回的是 0 或者负值，延迟将被认为过期，该元素将会在 DelayQueue 的下一次 take 被调用的时候被释放掉。
 
+传递给 getDelay 方法的 getDelay 实例是一个枚举类型，它表明了将要延迟的时间段。TimeUnit 枚举将会取以下值
+- DAYS
+- HOURS
+- INUTES
+- SECONDS
+- MILLISECONDS
+- MICROSECONDS
+- NANOSECONDS
 
+正如你所看到的，Delayed 接口也继承了 java.lang.Comparable 接口，这也就意味着 Delayed 对象之间可以进行对比。这个可能在对 DelayQueue 队列中的元素进行排序时有用，因此它们可以根据过期时间进行有序释放。 以下是使用 DelayQueue 的例子:
+```java
+public class DelayQueueExample {
+ 
+    public static void main(String[] args) {
+        DelayQueue queue = new DelayQueue();
+        Delayed element1 = new DelayedElement();
+        queue.put(element1);
+        Delayed element2 = queue.take();
+    }
+}
+```
+```java
+class DelayElement implements Delayed {
+    private final String data;
+    private final long expireTime; // 到期时间戳
+    
+    public DelayElement(String data, long delay, TimeUnit unit) {
+        this.data = data;
+        // 计算到期时间：当前时间 + 延迟时间
+        this.expireTime = System.currentTimeMillis() + unit.toMillis(delay);
+    }
+    
+    @Override
+    public long getDelay(TimeUnit unit) {
+        // 返回剩余延迟时间
+        long remaining = expireTime - System.currentTimeMillis();
+        return unit.convert(remaining, TimeUnit.MILLISECONDS);
+    }
+    
+    @Override
+    public int compareTo(Delayed other) {
+        // 按到期时间排序，最先到期的排在前面
+        return Long.compare(this.expireTime, ((DelayElement) other).expireTime);
+    }
+}
+```
+DelayedElement 是我所创建的一个 DelayedElement 接口的实现类，它不在 java.util.concurrent 包里。你需要自行创建你自己的 Delayed 接口的实现以使用 DelayQueue 类。
 
+元素到期后的处理：
+
+**元素不会自动丢弃**，而是有以下几种处理方式：
+
+1. 消费者主动获取
+```java
+DelayQueue<DelayElement> queue = new DelayQueue<>();
+
+// 方式1：take() - 阻塞直到有元素到期
+DelayElement element = queue.take(); // 阻塞等待，返回第一个到期的元素
+
+// 方式2：poll() - 非阻塞，立即返回
+DelayElement element = queue.poll(); // 如果没有到期元素，返回null
+
+// 方式3：poll(timeout) - 超时等待
+DelayElement element = queue.poll(5, TimeUnit.SECONDS); // 最多等待5秒
+```
+
+2. 元素状态
+
+- **未到期**：元素在队列中等待，`getDelay()` 返回正数
+- **已到期**：元素可以被消费者取出，`getDelay()` 返回 0 或负数
+- **被取出**：元素从队列中移除，交给消费者处理
+
+3. 完整使用示例
+```java
+public class DelayQueueExample {
+    public static void main(String[] args) throws InterruptedException {
+        DelayQueue<DelayElement> queue = new DelayQueue<>();
+        
+        // 添加3个元素，分别延迟 3s、1s、2s
+        queue.put(new DelayElement("Task1", 3, TimeUnit.SECONDS));
+        queue.put(new DelayElement("Task2", 1, TimeUnit.SECONDS));
+        queue.put(new DelayElement("Task3", 2, TimeUnit.SECONDS));
+        
+        // 按到期顺序取出
+        while (!queue.isEmpty()) {
+            DelayElement element = queue.take(); // 按 1s、2s、3s 的顺序取出
+            System.out.println("Processed: " + element.getData() + " at " + System.currentTimeMillis());
+        }
+    }
+}
+```
+
+- 关键特性总结
+
+| 特性 | 说明 |
+|------|------|
+| **时间指定** | 通过实现 `Delayed` 接口的 `getDelay()` 方法 |
+| **排序机制** | 按到期时间排序，最早到期的在队列头部（内部使用PriorityQueue） |
+| **到期处理** | 不会自动丢弃，需要消费者主动获取 |
+| **获取方式** | `take()`（阻塞）、`poll()`（非阻塞）、`poll(timeout)`（超时） |
+| **使用场景** | 缓存过期、任务调度、超时处理、限流器等 |
+
+**重要**：`DelayQueue` 不保证同一到期时间的多个元素的取出顺序，如果多个元素同时到期，它们的取出顺序是不确定的。
+
+##### 8.15.2.3 链阻塞队列 LinkedBlockingQueue
+LinkedBlockingQueue 类实现了 BlockingQueue 接口。
+
+LinkedBlockingQueue 内部以一个链式结构(链接节点)对其元素进行存储。如果需要的话，这一链式结构可以选择一个上限。如果没有定义上限，将使用 Integer.MAX_VALUE 作为上限。
+
+LinkedBlockingQueue 内部以 FIFO(先进先出)的顺序对元素进行存储。队列中的头元素在所有元素之中是放入时间最久的那个，而尾元素则是最短的那个。 以下是 LinkedBlockingQueue 的初始化和使用示例代码:
+```java
+BlockingQueue<String> unbounded = new LinkedBlockingQueue<String>();
+BlockingQueue<String> bounded   = new LinkedBlockingQueue<String>(1024);
+bounded.put("Value");
+String value = bounded.take();
+```
+##### 8.15.2.4 具有优先级的阻塞队列 PriorityBlockingQueue
+PriorityBlockingQueue 类实现了 BlockingQueue 接口。
+
+PriorityBlockingQueue 是一个无界的并发队列。它使用了和类 java.util.PriorityQueue 一样的排序规则。你无法向这个队列中插入 null 值。 所有插入到 PriorityBlockingQueue 的元素必须实现 java.lang.Comparable 接口。因此该队列中元素的排序就取决于你自己的 Comparable 实现。 注意 PriorityBlockingQueue 对于具有相等优先级(compare() == 0)的元素并不强制任何特定行为。
+
+同时注意，如果你从一个 PriorityBlockingQueue 获得一个 Iterator 的话，该 Iterator 并不能保证它对元素的遍历是以优先级为序的。 以下是使用 PriorityBlockingQueue 的示例:
+```java
+BlockingQueue queue   = new PriorityBlockingQueue();
+//String implements java.lang.Comparable
+queue.put("Value");
+String value = queue.take();
+```
+##### 8.15.2.5 同步队列 SynchronousQueue
+SynchronousQueue 类实现了 BlockingQueue 接口。
+
+SynchronousQueue 是一个特殊的队列，它的内部同时只能够容纳单个元素。如果该队列已有一元素的话，试图向队列中插入一个新元素的线程将会阻塞，直到另一个线程将该元素从队列中抽走。同样，如果该队列为空，试图向队列中抽取一个元素的线程将会阻塞，直到另一个线程向队列中插入了一条新的元素。 据此，把这个类称作一个队列显然是夸大其词了。它更多像是一个汇合点。
+#### 8.15.3 lockingDeque接口的实现类
+既然 BlockingDeque 是一个接口，那么你想要使用它的话就得使用它的众多的实现类的其中一个。java.util.concurrent 包提供了以下 BlockingDeque 接口的实现类: LinkedBlockingDeque。
+
+以下是如何使用 BlockingDeque 方法的一个简短代码示例:
+```java
+BlockingDeque<String> deque = new LinkedBlockingDeque<String>();
+deque.addFirst("1");
+deque.addLast("2");
+ 
+String two = deque.takeLast();
+String one = deque.takeFirst();
+```
+##### 8.15.3.1 链阻塞双端队列 LinkedBlockingDeque
+LinkedBlockingDeque 类实现了 BlockingDeque 接口。
+
+deque(双端队列) 是 "Double Ended Queue" 的缩写。因此，双端队列是一个你可以从任意一端插入或者抽取元素的队列。
+
+LinkedBlockingDeque 是一个双端队列，在它为空的时候，一个试图从中抽取数据的线程将会阻塞，无论该线程是试图从哪一端抽取数据。
+### 8.16 JUC线程池: FutureTask详解
+> FutureTask用来解决什么问题的? 为什么会出现?
+> FutureTask类结构关系怎么样的?
+> FutureTask的线程安全是由什么保证的?
+> FutureTask结果返回机制?
+> FutureTask内部运行状态的转变?
+> FutureTask通常会怎么用? 举例说明。
+#### 8.16.1 FutureTask简介
+FutureTask 为 Future 提供了基础实现，如获取任务执行结果(get)和取消任务(cancel)等。如果任务尚未完成，获取任务执行结果时将会阻塞。一旦执行结束，任务就不能被重启或取消(除非使用runAndReset执行计算)。FutureTask 常用来封装 Callable 和 Runnable，也可以作为一个任务提交到线程池中执行。除了作为一个独立的类之外，此类也提供了一些功能性函数供我们创建自定义 task 类使用。FutureTask 的线程安全由CAS来保证。
+#### 8.16.2 FutureTask类关系
+![FutureTask类关系](../assets/images/01-Java基础/119.FutureTask.png)
+可以看到,FutureTask实现了RunnableFuture接口，则RunnableFuture接口继承了Runnable接口和Future接口，所以FutureTask既能当做一个Runnable直接被Thread执行，也能作为Future用来得到Callable的计算结果。
+#### 8.16.3 FutureTask源码解析
+##### 8.16.3.1 Callable接口
+Callable是个泛型接口，泛型V就是要call()方法返回的类型。对比Runnable接口，Runnable不会返回数据也不能抛出异常。
+```java
+public interface Callable<V> {
+    /**
+     * Computes a result, or throws an exception if unable to do so.
+     *
+     * @return computed result
+     * @throws Exception if unable to compute a result
+     */
+    V call() throws Exception;
+}
+```
+##### 8.16.3.2 Future接口
+Future接口代表异步计算的结果，通过Future接口提供的方法可以查看异步计算是否执行完成，或者等待执行结果并获取执行结果，同时还可以取消执行。Future接口的定义如下:
+```java
+public interface Future<V> {
+    boolean cancel(boolean mayInterruptIfRunning);
+    boolean isCancelled();
+    boolean isDone();
+    V get() throws InterruptedException, ExecutionException;
+    V get(long timeout, TimeUnit unit)
+        throws InterruptedException, ExecutionException, TimeoutException;
+}
+```
+- cancel():cancel()方法用来取消异步任务的执行。如果异步任务已经完成或者已经被取消，或者由于某些原因不能取消，则会返回false。如果任务还没有被执行，则会返回true并且异步任务不会被执行。如果任务已经开始执行了但是还没有执行完成，若mayInterruptIfRunning为true，则会立即中断执行任务的线程并返回true，若mayInterruptIfRunning为false，则会返回true且不会中断任务执行线程。
+- isCanceled():判断任务是否被取消，如果任务在结束(正常执行结束或者执行异常结束)前被取消则返回true，否则返回false。
+- isDone():判断任务是否已经完成，如果完成则返回true，否则返回false。需要注意的是：任务执行过程中发生异常、任务被取消也属于任务已完成，也会返回true。
+- get():获取任务执行结果，如果任务还没完成则会阻塞等待直到任务执行完成。如果任务被取消则会抛出CancellationException异常，如果任务执行过程发生异常则会抛出ExecutionException异常，如果阻塞等待过程中被中断则会抛出InterruptedException异常。
+- get(long timeout,Timeunit unit):带超时时间的get()版本，如果阻塞等待过程中超时则会抛出TimeoutException异常。
+##### 8.16.3.3 核心属性
+```java
+//内部持有的callable任务，运行完毕后置空
+private Callable<V> callable;
+
+//从get()中返回的结果或抛出的异常
+private Object outcome; // non-volatile, protected by state reads/writes
+
+//运行callable的线程
+private volatile Thread runner;
+
+//使用Treiber栈保存等待线程
+private volatile WaitNode waiters;
+
+//任务状态
+private volatile int state;
+private static final int NEW          = 0;
+private static final int COMPLETING   = 1;
+private static final int NORMAL       = 2;
+private static final int EXCEPTIONAL  = 3;
+private static final int CANCELLED    = 4;
+private static final int INTERRUPTING = 5;
+private static final int INTERRUPTED  = 6;
+```
+其中需要注意的是state是volatile类型的，也就是说只要有任何一个线程修改了这个变量，那么其他所有的线程都会知道最新的值。
+
+7种状态具体表示：
+- NEW:表示是个新的任务或者还没被执行完的任务。这是初始状态。
+- COMPLETING:任务已经执行完成或者执行任务的时候发生异常，但是任务执行结果或者异常原因还没有保存到outcome字段(outcome字段用来保存任务执行结果，如果发生异常，则用来保存异常原因)的时候，状态会从NEW变更到COMPLETING。但是这个状态会时间会比较短，属于中间状态。
+- NORMAL:任务已经执行完成并且任务执行结果已经保存到outcome字段，状态会从COMPLETING转换到NORMAL。这是一个最终态。
+- EXCEPTIONAL:任务执行发生异常并且异常原因已经保存到outcome字段中后，状态会从COMPLETING转换到EXCEPTIONAL。这是一个最终态。
+- CANCELLED:任务还没开始执行或者已经开始执行但是还没有执行完成的时候，用户调用了cancel(false)方法取消任务且不中断任务执行线程，这个时候状态会从NEW转化为CANCELLED状态。这是一个最终态。
+- INTERRUPTING: 任务还没开始执行或者已经执行但是还没有执行完成的时候，用户调用了cancel(true)方法取消任务并且要中断任务执行线程但是还没有中断任务执行线程之前，状态会从NEW转化为INTERRUPTING。这是一个中间状态。
+- INTERRUPTED:调用interrupt()中断任务执行线程之后状态会从INTERRUPTING转换到INTERRUPTED。这是一个最终态。 有一点需要注意的是，所有值大于COMPLETING的状态都表示任务已经执行完成(任务正常执行完成，任务执行异常或者任务被取消)。
+
+各个状态之间的可能转换关系如下图所示:
+![FutureTask的7种状态](../assets/images/01-Java基础/120.FutureTask的7种状态.png)
+##### 8.16.3.4 构造函数
+- FutureTask(Callable<V> callable)
+```java
+public FutureTask(Callable<V> callable) {
+    if (callable == null)
+        throw new NullPointerException();
+    this.callable = callable;
+    this.state = NEW;       // ensure visibility of callable
+}
+```
+这个构造函数会把传入的Callable变量保存在this.callable字段中，该字段定义为private Callable<V> callable;用来保存底层的调用，在被执行完成以后会指向null,接着会初始化state字段为NEW。
+- FutureTask(Runnable runnable, V result)
+```java
+public FutureTask(Runnable runnable, V result) {
+    this.callable = Executors.callable(runnable, result);
+    this.state = NEW;       // ensure visibility of callable
+}
+```
+这个构造函数会把传入的Runnable封装成一个Callable对象保存在callable字段中，同时如果任务执行成功的话就会返回传入的result。这种情况下如果不需要返回值的话可以传入一个null。
+
+顺带看下Executors.callable()这个方法，这个方法的功能是把Runnable转换成Callable，代码如下:
+```java
+public static <T> Callable<T> callable(Runnable task, T result) {
+    if (task == null)
+       throw new NullPointerException();
+    return new RunnableAdapter<T>(task, result);
+}
+```
+可以看到这里采用的是适配器模式，调用RunnableAdapter<T>(task, result)方法来适配，实现如下:
+```java
+static final class RunnableAdapter<T> implements Callable<T> {
+    final Runnable task;
+    final T result;
+    RunnableAdapter(Runnable task, T result) {
+        this.task = task;
+        this.result = result;
+    }
+    public T call() {
+        task.run();
+        return result;
+    }
+}
+```
+这个适配器很简单，就是简单的实现了Callable接口，在call()实现中调用Runnable.run()方法，然后把传入的result作为任务的结果返回。
+
+在new了一个FutureTask对象之后，接下来就是在另一个线程中执行这个Task,无论是通过直接new一个Thread还是通过线程池，执行的都是run()方法，接下来就看看run()方法的实现。
+##### 8.16.3.5 核心方法 - run()
+```java
+public void run() {
+    //新建任务，CAS替换runner为当前线程
+    if (state != NEW ||
+        !UNSAFE.compareAndSwapObject(this, runnerOffset,
+                                     null, Thread.currentThread()))
+        return;
+    try {
+        Callable<V> c = callable;
+        if (c != null && state == NEW) {
+            V result;
+            boolean ran;
+            try {
+                result = c.call();
+                ran = true;
+            } catch (Throwable ex) {
+                result = null;
+                ran = false;
+                setException(ex);
+            }
+            if (ran)
+                set(result);//设置执行结果
+        }
+    } finally {
+        // runner must be non-null until state is settled to
+        // prevent concurrent calls to run()
+        runner = null;
+        // state must be re-read after nulling runner to prevent
+        // leaked interrupts
+        int s = state;
+        if (s >= INTERRUPTING)
+            handlePossibleCancellationInterrupt(s);//处理中断逻辑
+    }
+}
+```
+说明：
+
+- 运行任务，如果任务状态为NEW状态，则利用CAS修改为当前线程。执行完毕调用set(result)方法设置执行结果。set(result)源码如下：
+```java
+protected void set(V v) {
+    if (UNSAFE.compareAndSwapInt(this, stateOffset, NEW, COMPLETING)) {
+        outcome = v;
+        UNSAFE.putOrderedInt(this, stateOffset, NORMAL); // final state
+        finishCompletion();//执行完毕，唤醒等待线程
+    }
+}
+```
+- 首先利用cas修改state状态为COMPLETING，设置返回结果，然后使用 lazySet(UNSAFE.putOrderedInt)的方式设置state状态为NORMAL。结果设置完毕后，调用finishCompletion()方法唤醒等待线程，源码如下：
+```java
+private void finishCompletion() {
+    // assert state > COMPLETING;
+    for (WaitNode q; (q = waiters) != null;) {
+        if (UNSAFE.compareAndSwapObject(this, waitersOffset, q, null)) {//移除等待线程
+            for (;;) {//自旋遍历等待线程
+                Thread t = q.thread;
+                if (t != null) {
+                    q.thread = null;
+                    LockSupport.unpark(t);//唤醒等待线程
+                }
+                WaitNode next = q.next;
+                if (next == null)
+                    break;
+                q.next = null; // unlink to help gc
+                q = next;
+            }
+            break;
+        }
+    }
+    //任务完成后调用函数，自定义扩展
+    done();
+
+    callable = null;        // to reduce footprint
+}
+```
+- 回到run方法，如果在 run 期间被中断，此时需要调用handlePossibleCancellationInterrupt方法来处理中断逻辑，确保任何中断(例如cancel(true))只停留在当前run或runAndReset的任务中，源码如下：
+```java
+private void handlePossibleCancellationInterrupt(int s) {
+    //在中断者中断线程之前可能会延迟，所以我们只需要让出CPU时间片自旋等待
+    if (s == INTERRUPTING)
+        while (state == INTERRUPTING)
+            Thread.yield(); // wait out pending interrupt
+}
+```
+##### 8.16.3.6 核心方法 - get()
+```java
+//获取执行结果
+public V get() throws InterruptedException, ExecutionException {
+    int s = state;
+    if (s <= COMPLETING)
+        s = awaitDone(false, 0L);
+    return report(s);
+}
+```
+说明：FutureTask 通过get()方法获取任务执行结果。如果任务处于未完成的状态(state <= COMPLETING)，就调用awaitDone方法(后面单独讲解)等待任务完成。任务完成后，通过report方法获取执行结果或抛出执行期间的异常。report源码如下：
+```java
+//返回执行结果或抛出异常
+private V report(int s) throws ExecutionException {
+    Object x = outcome;
+    if (s == NORMAL)
+        return (V)x;
+    if (s >= CANCELLED)
+        throw new CancellationException();
+    throw new ExecutionException((Throwable)x);
+}
+```
+##### 8.16.3.7 核心方法 - awaitDone(boolean timed, long nanos)
+```java
+private int awaitDone(boolean timed, long nanos)
+    throws InterruptedException {
+    final long deadline = timed ? System.nanoTime() + nanos : 0L;
+    WaitNode q = null;
+    boolean queued = false;
+    for (;;) {//自旋
+        if (Thread.interrupted()) {//获取并清除中断状态
+            removeWaiter(q);//移除等待WaitNode
+            throw new InterruptedException();
+        }
+
+        int s = state;
+        if (s > COMPLETING) {
+            if (q != null)
+                q.thread = null;//置空等待节点的线程
+            return s;
+        }
+        else if (s == COMPLETING) // cannot time out yet
+            Thread.yield();
+        else if (q == null)
+            q = new WaitNode();
+        else if (!queued)
+            //CAS修改waiter
+            queued = UNSAFE.compareAndSwapObject(this, waitersOffset,
+                                                 q.next = waiters, q);
+        else if (timed) {
+            nanos = deadline - System.nanoTime();
+            if (nanos <= 0L) {
+                removeWaiter(q);//超时，移除等待节点
+                return state;
+            }
+            LockSupport.parkNanos(this, nanos);//阻塞当前线程
+        }
+        else
+            LockSupport.park(this);//阻塞当前线程
+    }
+}
+```
+说明：awaitDone用于等待任务完成，或任务因为中断或超时而终止。返回任务的完成状态。
+- 如果当前状态为结束状态(state>COMPLETING),则根据需要置空等待节点的线程，并返回 Future 状态；
+- 如果当前状态为正在完成(COMPLETING)，说明此时 Future 还不能做出超时动作，为任务让出CPU执行时间片yeild()；
+- 如果state为NEW，先新建一个WaitNode，然后CAS修改当前waiters；
+- 如果等待超时，则调用removeWaiter移除等待节点，返回任务状态；
+- 如果设置了超时时间但是尚未超时，则park阻塞当前线程；
+- 其他情况直接阻塞当前线程。
+
+如果线程被中断，首先清除中断状态，调用removeWaiter移除等待节点，然后抛出InterruptedException。removeWaiter源码如下：
+```java
+private void removeWaiter(WaitNode node) {
+    if (node != null) {
+        node.thread = null;//首先置空线程
+        retry:
+        for (;;) {          // restart on removeWaiter race
+            //依次遍历查找
+            for (WaitNode pred = null, q = waiters, s; q != null; q = s) {
+                s = q.next;
+                if (q.thread != null)
+                    pred = q;
+                else if (pred != null) {
+                    pred.next = s;
+                    if (pred.thread == null) // check for race
+                        continue retry;
+                }
+                else if (!UNSAFE.compareAndSwapObject(this, waitersOffset,q, s)) //cas替换
+                    continue retry;
+            }
+            break;
+        }
+    }
+}
+```
+##### 8.16.3.8 核心方法 - cancel(boolean mayInterruptIfRunning)
+```java
+public boolean cancel(boolean mayInterruptIfRunning) {
+    //如果当前Future状态为NEW，根据参数修改Future状态为INTERRUPTING或CANCELLED
+    if (!(state == NEW &&
+          UNSAFE.compareAndSwapInt(this, stateOffset, NEW,
+              mayInterruptIfRunning ? INTERRUPTING : CANCELLED)))
+        return false;
+    try {    // in case call to interrupt throws exception
+        if (mayInterruptIfRunning) {//可以在运行时中断
+            try {
+                Thread t = runner;
+                if (t != null)
+                    t.interrupt();
+            } finally { // final state
+                UNSAFE.putOrderedInt(this, stateOffset, INTERRUPTED);
+            }
+        }
+    } finally {
+        finishCompletion();//移除并唤醒所有等待线程
+    }
+    return true;
+}
+```
+说明：尝试取消任务。如果任务已经完成或已经被取消，此操作会失败。
+- 如果当前Future状态为NEW，根据参数修改Future状态为INTERRUPTING或CANCELLED。
+- 如果当前状态不为NEW，则根据参数mayInterruptIfRunning决定是否在任务运行中也可以中断。中断操作完成后，调用finishCompletion移除并唤醒所有等待线程。
+
+#### 8.16.4 FutureTask示例
+常用使用方式：
+- 第一种方式: Future + ExecutorService
+- 第二种方式: FutureTask + ExecutorService
+- 第三种方式: FutureTask + Thread# 
+
+##### 8.16.4.1 Future使用示例
+```java
+public class FutureDemo {
+      public static void main(String[] args) {
+          ExecutorService executorService = Executors.newCachedThreadPool();
+          Future future = executorService.submit(new Callable<Object>() {
+              @Override
+              public Object call() throws Exception {
+                  Long start = System.currentTimeMillis();
+                  while (true) {
+                      Long current = System.currentTimeMillis();
+                     if ((current - start) > 1000) {
+                         return 1;
+                     }
+                 }
+             }
+         });
+  
+         try {
+             Integer result = (Integer)future.get();
+             System.out.println(result);
+         }catch (Exception e){
+             e.printStackTrace();
+         }
+     }
+}
+```
+##### 8.16.4.2 FutureTask+Thread例子
+```java
+import java.util.concurrent.*;
+ 
+public class CallDemo {
+ 
+    public static void main(String[] args) throws ExecutionException, InterruptedException {
+ 
+        /**
+         * 第一种方式:Future + ExecutorService
+         * Task task = new Task();
+         * ExecutorService service = Executors.newCachedThreadPool();
+         * Future<Integer> future = service.submit(task1);
+         * service.shutdown();
+         */
+ 
+ 
+        /**
+         * 第二种方式: FutureTask + ExecutorService
+         * ExecutorService executor = Executors.newCachedThreadPool();
+         * Task task = new Task();
+         * FutureTask<Integer> futureTask = new FutureTask<Integer>(task);
+         * executor.submit(futureTask);
+         * executor.shutdown();
+         */
+ 
+        /**
+         * 第三种方式:FutureTask + Thread
+         */
+ 
+        // 2. 新建FutureTask,需要一个实现了Callable接口的类的实例作为构造函数参数
+        FutureTask<Integer> futureTask = new FutureTask<Integer>(new Task());
+        // 3. 新建Thread对象并启动
+        Thread thread = new Thread(futureTask);
+        thread.setName("Task thread");
+        thread.start();
+ 
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+ 
+        System.out.println("Thread [" + Thread.currentThread().getName() + "] is running");
+ 
+        // 4. 调用isDone()判断任务是否结束
+        if(!futureTask.isDone()) {
+            System.out.println("Task is not done");
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+        int result = 0;
+        try {
+            // 5. 调用get()方法获取任务结果,如果任务没有执行完成则阻塞等待
+            result = futureTask.get();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+ 
+        System.out.println("result is " + result);
+ 
+    }
+ 
+    // 1. 继承Callable接口,实现call()方法,泛型参数为要返回的类型
+    static class Task  implements Callable<Integer> {
+ 
+        @Override
+        public Integer call() throws Exception {
+            System.out.println("Thread [" + Thread.currentThread().getName() + "] is running");
+            int result = 0;
+            for(int i = 0; i < 100;++i) {
+                result += i;
+            }
+ 
+            Thread.sleep(3000);
+            return result;
+        }
+    }
+}
+
+```
+#### 8.16.5 FutureTask的常见业务使用模式
+
+1. 基本应用模式
+
+作为 Future 使用（最常用）
+```java
+public class FutureTaskBasicUsage {
+    public static void main(String[] args) throws Exception {
+        // 创建 Callable 任务
+        Callable<Integer> callableTask = () -> {
+            System.out.println("任务开始执行...");
+            Thread.sleep(2000); // 模拟耗时操作
+            return 42; // 返回计算结果
+        };
+        
+        // 包装成 FutureTask
+        FutureTask<Integer> futureTask = new FutureTask<>(callableTask);
+        
+        // 提交给线程执行
+        Thread workerThread = new Thread(futureTask);
+        workerThread.start();
+        
+        // 主线程可以继续做其他工作
+        System.out.println("主线程继续处理其他任务...");
+        
+        // 在需要结果时获取（会阻塞直到计算完成）
+        Integer result = futureTask.get();
+        System.out.println("计算结果: " + result);
+    }
+}
+```
+
+2. 与线程池结合使用
+
+使用 ExecutorService 提交
+```java
+public class FutureTaskWithExecutor {
+    public static void main(String[] args) throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+        
+        // 创建多个 FutureTask
+        FutureTask<Integer> task1 = new FutureTask<>(() -> heavyComputation(1));
+        FutureTask<Integer> task2 = new FutureTask<>(() -> heavyComputation(2));
+        FutureTask<Integer> task3 = new FutureTask<>(() -> heavyComputation(3));
+        
+        // 提交到线程池
+        executor.execute(task1);
+        executor.execute(task2);
+        executor.execute(task3);
+        
+        // 获取所有结果
+        System.out.println("Task1 结果: " + task1.get());
+        System.out.println("Task2 结果: " + task2.get());
+        System.out.println("Task3 结果: " + task3.get());
+        
+        executor.shutdown();
+    }
+    
+    private static Integer heavyComputation(int id) throws InterruptedException {
+        System.out.println("任务 " + id + " 开始执行");
+        Thread.sleep(1000);
+        return id * 100;
+    }
+}
+```
+
+3. 高级应用场景
+
+异步计算与结果缓存
+```java
+public class AsyncComputer<V> {
+    private final Map<String, FutureTask<V>> cache = new ConcurrentHashMap<>();
+    
+    public V compute(final String key) throws Exception {
+        FutureTask<V> future = cache.get(key);
+        if (future == null) {
+            Callable<V> eval = () -> {
+                // 模拟昂贵的计算
+                System.out.println("计算 key: " + key);
+                Thread.sleep(1000);
+                return (V) ("结果-" + key);
+            };
+            
+            FutureTask<V> newTask = new FutureTask<>(eval);
+            future = cache.putIfAbsent(key, newTask);
+            if (future == null) {
+                future = newTask;
+                newTask.run(); // 启动计算
+            }
+        }
+        return future.get(); // 等待计算结果
+    }
+}
+```
+
+超时控制
+```java
+public class TimeoutExample {
+    public static void main(String[] args) {
+        FutureTask<String> futureTask = new FutureTask<>(() -> {
+            Thread.sleep(5000); // 模拟长时间任务
+            return "完成";
+        });
+        
+        new Thread(futureTask).start();
+        
+        try {
+            // 设置超时时间为 2 秒
+            String result = futureTask.get(2, TimeUnit.SECONDS);
+            System.out.println("结果: " + result);
+        } catch (TimeoutException e) {
+            System.out.println("任务超时，尝试取消");
+            futureTask.cancel(true); // 尝试中断任务
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+任务链式执行
+```java
+public class ChainedTasks {
+    public static void main(String[] args) throws Exception {
+        // 第一阶段任务
+        FutureTask<Integer> firstStage = new FutureTask<>(() -> {
+            System.out.println("执行第一阶段");
+            return 10;
+        });
+        
+        // 第二阶段任务依赖第一阶段结果
+        FutureTask<String> secondStage = new FutureTask<>(() -> {
+            Integer firstResult = firstStage.get(); // 等待第一阶段完成
+            System.out.println("执行第二阶段，使用第一阶段结果: " + firstResult);
+            return "最终结果: " + (firstResult * 2);
+        });
+        
+        // 启动任务
+        new Thread(firstStage).start();
+        new Thread(secondStage).start();
+        
+        System.out.println("最终结果: " + secondStage.get());
+    }
+}
+```
+
+4. 与 CompletableFuture 的对比
+
+虽然 `CompletableFuture` 更强大，但 `FutureTask` 在某些场景下仍有优势：
+
+```java
+public class FutureTaskVsCompletableFuture {
+    
+    // 使用 FutureTask - 更轻量，手动控制
+    public static FutureTask<String> futureTaskWay() {
+        FutureTask<String> task = new FutureTask<>(() -> {
+            // 复杂计算
+            return "FutureTask 结果";
+        });
+        new Thread(task).start();
+        return task;
+    }
+    
+    // 使用 CompletableFuture - 功能更丰富
+    public static CompletableFuture<String> completableFutureWay() {
+        return CompletableFuture.supplyAsync(() -> {
+            // 复杂计算
+            return "CompletableFuture 结果";
+        });
+    }
+}
+```
+
+5. 实际应用场景总结
+
+| 应用场景 | 说明 | 优势 |
+|---------|------|------|
+| **异步计算** | 将耗时操作放到后台线程 | 避免阻塞主线程 |
+| **结果缓存** | 避免重复计算相同内容 | 提高性能，线程安全 |
+| **超时控制** | 限制任务执行时间 | 防止长时间阻塞 |
+| **任务依赖** | 构建任务执行链 | 明确执行顺序 |
+| **资源清理** | 在任务完成后清理资源 | 使用 `done()` 方法回调 |
+
+6. 注意事项
+
+```java
+public class FutureTaskBestPractices {
+    
+    public void goodPractice() throws Exception {
+        FutureTask<String> task = new FutureTask<>(() -> "result");
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        
+        try {
+            executor.execute(task);
+            String result = task.get(5, TimeUnit.SECONDS); // 总是设置超时
+            System.out.println(result);
+        } catch (TimeoutException e) {
+            task.cancel(true); // 超时后取消任务
+        } finally {
+            executor.shutdown(); // 清理资源
+        }
+    }
+    
+    // 避免的用法：重复执行同一个 FutureTask
+    public void badPractice() {
+        FutureTask<String> task = new FutureTask<>(() -> "result");
+        
+        new Thread(task).start(); // 第一次执行
+        // new Thread(task).start(); // 错误！同一个 FutureTask 只能执行一次
+    }
+}
+```
+
+**总结**：`FutureTask` 主要用于将 `Callable` 或 `Runnable` 任务包装成可取消的异步计算，它提供了检查计算是否完成、等待计算完成以及获取计算结果的方法。在与线程池结合使用时特别有用，可以实现高效的异步编程模式。
+### 8.17 JUC线程池: CompletableFuture详解
+`CompletableFuture` 是 Java 8 引入的强大的异步编程工具，它实现了 `Future` 和 `CompletionStage` 接口，提供了丰富的异步编程能力。
+
+#### 8.17.1 基本概念
+
+- 核心特性
+  - **异步计算**：支持非阻塞的异步操作
+  - **链式调用**：可以串联多个异步操作
+  - **组合操作**：支持多个 Future 的组合
+  - **异常处理**：完善的异常处理机制
+  - **手动完成**：可以手动设置结果或异常
+
+- 与 FutureTask 对比
+
+| 特性 | FutureTask | CompletableFuture |
+|------|------------|------------------|
+| 异步组合 | 不支持 | 强大支持 |
+| 异常处理 | 基础 | 丰富 |
+| 回调机制 | 无 | 完善 |
+| 使用复杂度 | 简单 | 相对复杂 |
+| 功能丰富度 | 基础 | 非常丰富 |
+
+#### 8.17.2. 创建 CompletableFuture
+
+##### 8.17.2.1 静态工厂方法
+```java
+public class CreationExamples {
+    
+    // 1. 创建已完成的 Future
+    CompletableFuture<String> completedFuture = 
+        CompletableFuture.completedFuture("Hello World");
+    
+    // 2. 运行异步任务（无返回值）
+    CompletableFuture<Void> runAsyncFuture = 
+        CompletableFuture.runAsync(() -> {
+            System.out.println("异步执行任务");
+        });
+    
+    // 3. 供应异步任务（有返回值）
+    CompletableFuture<String> supplyAsyncFuture = 
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                throw new IllegalStateException(e);
+            }
+            return "异步计算结果";
+        });
+    
+    // 4. 使用自定义线程池
+    ExecutorService customExecutor = Executors.newFixedThreadPool(3);
+    CompletableFuture<String> customFuture = 
+        CompletableFuture.supplyAsync(() -> "使用自定义线程池", customExecutor);
+}
+```
+
+#### 8.17.3. 结果处理与转换
+
+##### 8.17.3.1 同步获取结果
+```java
+public class ResultHandling {
+    
+    public static void main(String[] args) throws Exception {
+        CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> "Hello");
+        
+        // 阻塞获取结果
+        String result1 = future.get();
+        String result2 = future.get(1, TimeUnit.SECONDS); // 超时获取
+        String result3 = future.join(); // 不检查异常版本
+        
+        System.out.println("结果: " + result1);
+    }
+}
+```
+
+##### 8.17.3.2 异步回调处理
+```java
+public class AsyncCallbacks {
+    
+    public static void main(String[] args) {
+        CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {
+            System.out.println("计算任务在: " + Thread.currentThread().getName());
+            return "原始结果";
+        });
+        
+        // thenApply - 同步转换
+        CompletableFuture<String> thenApplyFuture = future.thenApply(result -> {
+            System.out.println("thenApply 在: " + Thread.currentThread().getName());
+            return result + " -> 转换后";
+        });
+        
+        // thenApplyAsync - 异步转换
+        CompletableFuture<String> thenApplyAsyncFuture = future.thenApplyAsync(result -> {
+            System.out.println("thenApplyAsync 在: " + Thread.currentThread().getName());
+            return result + " -> 异步转换后";
+        });
+        
+        // thenAccept - 消费结果
+        future.thenAccept(result -> {
+            System.out.println("消费结果: " + result);
+        });
+        
+        // thenRun - 不关心结果，只执行操作
+        future.thenRun(() -> {
+            System.out.println("任务完成，执行清理操作");
+        });
+    }
+}
+```
+
+#### 8.17.4. 组合多个 CompletableFuture
+##### 8.17.4.1 链式组合
+```java
+public class ChainingExamples {
+    
+    public static void main(String[] args) {
+        // 模拟异步操作
+        CompletableFuture<String> userFuture = getUserInfo();
+        CompletableFuture<Integer> creditFuture = getCreditScore();
+        
+        // thenCompose - 扁平化链式调用
+        CompletableFuture<String> composedFuture = userFuture.thenCompose(user -> {
+            return getUserDetails(user);
+        });
+        
+        // thenCombine - 合并两个独立 Future 的结果
+        CompletableFuture<String> combinedFuture = userFuture.thenCombine(creditFuture, 
+            (user, credit) -> "用户: " + user + ", 信用分: " + credit);
+        
+        // thenAcceptBoth - 同时消费两个结果
+        userFuture.thenAcceptBoth(creditFuture, (user, credit) -> {
+            System.out.println("用户: " + user + ", 信用分: " + credit);
+        });
+    }
+    
+    private static CompletableFuture<String> getUserInfo() {
+        return CompletableFuture.supplyAsync(() -> "张三");
+    }
+    
+    private static CompletableFuture<Integer> getCreditScore() {
+        return CompletableFuture.supplyAsync(() -> 750);
+    }
+    
+    private static CompletableFuture<String> getUserDetails(String user) {
+        return CompletableFuture.supplyAsync(() -> user + " 的详细信息");
+    }
+}
+```
+
+##### 8.17.4.2 多 Future 组合
+```java
+public class MultipleFutures {
+    
+    public static void main(String[] args) {
+        List<CompletableFuture<String>> futures = Arrays.asList(
+            createFuture("任务1", 1000),
+            createFuture("任务2", 2000),
+            createFuture("任务3", 1500)
+        );
+        
+        // allOf - 等待所有 Future 完成
+        CompletableFuture<Void> allFutures = CompletableFuture.allOf(
+            futures.toArray(new CompletableFuture[0])
+        );
+        
+        CompletableFuture<List<String>> allResults = allFutures.thenApply(v -> 
+            futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.toList())
+        );
+        
+        // anyOf - 任意一个完成即可
+        CompletableFuture<Object> anyFuture = CompletableFuture.anyOf(
+            futures.toArray(new CompletableFuture[0])
+        );
+        
+        anyFuture.thenAccept(result -> {
+            System.out.println("第一个完成的任务: " + result);
+        });
+    }
+    
+    private static CompletableFuture<String> createFuture(String name, int delay) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Thread.sleep(delay);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+            return name + " 完成";
+        });
+    }
+}
+```
+
+#### 8.17.5. 异常处理
+
+##### 8.17.5.1 完整的异常处理机制
+```java
+public class ExceptionHandling {
+    
+    public static void main(String[] args) {
+        CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {
+            if (Math.random() > 0.5) {
+                throw new RuntimeException("模拟异常");
+            }
+            return "成功结果";
+        });
+        
+        // exceptionally - 异常时返回默认值
+        CompletableFuture<String> safeFuture = future.exceptionally(ex -> {
+            System.out.println("捕获异常: " + ex.getMessage());
+            return "默认值";
+        });
+        
+        // handle - 同时处理正常和异常情况
+        CompletableFuture<String> handledFuture = future.handle((result, ex) -> {
+            if (ex != null) {
+                return "处理异常: " + ex.getMessage();
+            }
+            return "处理结果: " + result;
+        });
+        
+        // whenComplete - 无论成功失败都执行
+        future.whenComplete((result, ex) -> {
+            if (ex != null) {
+                System.out.println("任务失败: " + ex.getMessage());
+            } else {
+                System.out.println("任务成功: " + result);
+            }
+        });
+    }
+}
+```
+
+#### 8.17.6. 高级特性
+
+##### 8.17.6.1 超时控制
+```java
+public class TimeoutExamples {
+    
+    public static CompletableFuture<String> withTimeout(
+            CompletableFuture<String> future, long timeout, TimeUnit unit) {
+        
+        CompletableFuture<String> timeoutFuture = new CompletableFuture<>();
+        
+        // 超时任务
+        CompletableFuture<Void> timeoutTask = CompletableFuture.runAsync(() -> {
+            try {
+                Thread.sleep(unit.toMillis(timeout));
+                timeoutFuture.completeExceptionally(new TimeoutException("操作超时"));
+            } catch (InterruptedException e) {
+                // 忽略中断
+            }
+        });
+        
+        // 任意一个完成就结束
+        future.whenComplete((result, ex) -> {
+            timeoutTask.cancel(true);
+            if (ex != null) {
+                timeoutFuture.completeExceptionally(ex);
+            } else {
+                timeoutFuture.complete(result);
+            }
+        });
+        
+        return timeoutFuture;
+    }
+}
+```
+
+##### 8.17.6.2 手动控制
+```java
+public class ManualControl {
+    
+    public static void main(String[] args) {
+        CompletableFuture<String> future = new CompletableFuture<>();
+        
+        // 手动完成
+        new Thread(() -> {
+            try {
+                Thread.sleep(1000);
+                future.complete("手动完成的结果");
+                // future.completeExceptionally(new RuntimeException("手动异常"));
+            } catch (InterruptedException e) {
+                future.completeExceptionally(e);
+            }
+        }).start();
+        
+        // 取消任务
+        // future.cancel(true);
+        
+        future.thenAccept(result -> {
+            System.out.println("收到结果: " + result);
+        });
+    }
+}
+```
+
+##### 8.17.7. 实际应用场景
+
+##### 8.17.7.1 异步服务调用
+```java
+public class AsyncService {
+    
+    private final ExecutorService executor = Executors.newFixedThreadPool(5);
+    
+    public CompletableFuture<UserProfile> getUserProfile(String userId) {
+        return CompletableFuture.supplyAsync(() -> getUserBasicInfo(userId), executor)
+            .thenCompose(userBasic -> 
+                CompletableFuture.supplyAsync(() -> getCreditInfo(userBasic), executor)
+                    .thenCombine(
+                        CompletableFuture.supplyAsync(() -> getOrderHistory(userBasic), executor),
+                        (credit, orders) -> combineProfile(userBasic, credit, orders)
+                    )
+            )
+            .exceptionally(ex -> {
+                System.err.println("获取用户画像失败: " + ex.getMessage());
+                return createDefaultProfile(userId);
+            });
+    }
+    
+    // 模拟服务方法
+    private UserBasicInfo getUserBasicInfo(String userId) { /* ... */ }
+    private CreditInfo getCreditInfo(UserBasicInfo user) { /* ... */ }
+    private List<Order> getOrderHistory(UserBasicInfo user) { /* ... */ }
+    private UserProfile combineProfile(UserBasicInfo basic, CreditInfo credit, List<Order> orders) { /* ... */ }
+    private UserProfile createDefaultProfile(String userId) { /* ... */ }
+}
+```
+
+##### 8.17.7.2 批量异步处理
+```java
+public class BatchProcessing {
+    
+    public CompletableFuture<List<String>> processBatch(List<String> items) {
+        List<CompletableFuture<String>> futures = items.stream()
+            .map(item -> processItemAsync(item))
+            .collect(Collectors.toList());
+            
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+            .thenApply(v -> futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.toList()));
+    }
+    
+    private CompletableFuture<String> processItemAsync(String item) {
+        return CompletableFuture.supplyAsync(() -> {
+            // 模拟处理逻辑
+            return "处理: " + item;
+        });
+    }
+}
+```
+
+#### 8.17.8. 最佳实践
+
+##### 8.17.8.1 线程池管理
+```java
+public class BestPractices {
+    
+    // 为不同类型的任务使用不同的线程池
+    private static final ExecutorService IO_EXECUTOR = 
+        Executors.newCachedThreadPool();
+    private static final ExecutorService COMPUTATION_EXECUTOR = 
+        Executors.newWorkStealingPool();
+    
+    public void properThreadPoolUsage() {
+        // I/O 密集型任务
+        CompletableFuture<String> ioFuture = CompletableFuture.supplyAsync(() -> {
+            // 模拟 I/O 操作
+            return dbQuery();
+        }, IO_EXECUTOR);
+        
+        // CPU 密集型任务
+        CompletableFuture<Integer> computationFuture = CompletableFuture.supplyAsync(() -> {
+            // 复杂计算
+            return heavyComputation();
+        }, COMPUTATION_EXECUTOR);
+    }
+    
+    // 避免在回调中阻塞
+    public void avoidBlockingInCallbacks() {
+        CompletableFuture.supplyAsync(() -> "data")
+            .thenApplyAsync(data -> transformData(data), COMPUTATION_EXECUTOR) // ✅ 正确
+            .thenAccept(data -> System.out.println(data));
+            
+        // 避免这样写：
+        // .thenApply(data -> { Thread.sleep(1000); return data; }) // ❌ 阻塞
+    }
+}
+```
+
+#### 8.17.9 总结
+
+`CompletableFuture` 提供了强大的异步编程能力：
+
+- **创建**：`supplyAsync()`, `runAsync()`
+- **转换**：`thenApply()`, `thenApplyAsync()`
+- **组合**：`thenCompose()`, `thenCombine()`
+- **消费**：`thenAccept()`, `thenRun()`
+- **异常处理**：`exceptionally()`, `handle()`, `whenComplete()`
+- **多任务**：`allOf()`, `anyOf()`
+
+合理使用 `CompletableFuture` 可以构建高效、可读性强的异步应用程序。
 
 
 
