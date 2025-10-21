@@ -9,7 +9,7 @@
 | 01   | [Java基础](01-Java基础/README.md) | 语法特性、集合框架、IO/NIO、多线程      | ⭐⭐⭐⭐⭐  |
 | 02   | [计算机网络](02-计算机网络/README.md) | TCP/IP、HTTP/HTTPS、WebSocket、网络协议 | ⭐⭐⭐⭐   |
 | 03   | [JVM](03-JVM/README.md)           | 内存模型、类加载、GC算法、性能调优      | ⭐⭐⭐⭐   |
-| 04   | [主流框架](04-主流框架/README.md)   | Spring全家桶、MyBatis、SpringBoot、SpringClould/Dubbo等     | ⭐⭐⭐⭐⭐  |
+| 04   | [主流框架](04-主流框架/README.md)   | Servlet容器(tomcat/Undertow/Jetty)、Spring全家桶、MyBatis、SpringBoot、SpringClould/Dubbo等     | ⭐⭐⭐⭐⭐  |
 | 05   | [数据库](05-数据库/README.md)       | cmu15-445数据库基础教程、postgresql+MySQL、SQL调优          | ⭐⭐⭐⭐   |
 | 06   | [中间件](06-中间件/README.md)       | Redis、MQ、Zookeeper、Elasticsearch、Kafka等           | ⭐⭐⭐    |
 | 07   | [分布式与微服务](07-分布式与微服务/README.md) | 分布式事务、服务治理、SpringCloud | ⭐⭐⭐⭐   |
