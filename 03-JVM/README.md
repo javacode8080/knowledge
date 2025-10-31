@@ -2400,7 +2400,7 @@ public class ScalarReplacementExample {
 | 数据内容 | JDK 7（永久代） | JDK 8+（元空间 + 堆） |
 | :--- | :--- | :--- |
 | **类的元信息**<br>（类名、方法、字段、注解等） | **永久代** | **元空间**（本地内存） |
-| **运行时常量池**<br>（字面量、符号引用等） | **永久代** | **堆**（Java Heap） |
+| **运行时常量池**<br>（字面量、符号引用等） | **永久代** | **元空间**（本地内存）|
 | **字符串常量池**<br>（String Table） | **永久代** | **堆**（Java Heap） |
 | **静态变量**<br>（static variables） | **永久代** | **堆**（Java Heap） |
 
@@ -3633,7 +3633,7 @@ G1 GC主要有三种收集类型：
 - **年轻代收集（Young GC）**：主要负责回收年轻代（Eden区和Survivor区）。这个收集是**完全STW**的，但暂停时间通常较短，因为只处理年轻代。
 - **混合收集（Mixed GC）**：在并发标记周期完成后触发，同时回收年轻代和部分老年代。混合收集本身是STW的，但依赖并发标记来减少老年代的暂停时间。（**并发标记周期（Concurrent Marking Cycle）是为混合收集（Mixed GC）服务的一个准备阶段,一个前置任务**）
 - **Full GC**：当G1无法通过并发方式回收足够内存时（如晋升失败或并发模式失败），会回退到串行Full GC，这是**完全STW**的，应尽量避免。
-# 十、GC - Java 垃圾回收器之ZGC详解
+# 十、GC - <a id = 'Java垃圾回收器之ZGC详解'>Java 垃圾回收器之ZGC详解</a>
 ## 10.1 ZGC概述
 > ZGC（The Z Garbage Collector）是JDK 11中推出的一款低延迟垃圾回收器，它的设计目标包括：
 - 停顿时间不超过10ms；
@@ -3836,7 +3836,7 @@ TP(Top Percentile)是一项衡量系统延迟的指标：TP999表示99.9%请求�
 - Zeus在升级JDK 11+ZGC中，通过将风险和问题分类，然后各个击破，最终顺利实现了升级目标，GC停顿也几乎不再影响系统可用性。
 - 最后推荐大家升级ZGC，Zeus系统因为业务特点，遇到了较多问题，而风控其他团队在升级时都非常顺利。
 
-## 十一、各垃圾收集器的对比
+# 十一、各垃圾收集器的对比
 | 垃圾回收器 | **状态** | 核心目标 | 吞吐量 | 延迟（停顿时间） | 适用场景 | JDK 默认 | 关键特点与退役原因 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Serial GC** | 活跃 | 简单/低开销 | 低 | 高（单线程STW） | 客户端模式、微服务 | 客户端模式 | 单线程，适用于极小堆（<100MB） |
@@ -3846,113 +3846,771 @@ TP(Top Percentile)是一项衡量系统延迟的指标：TP999表示99.9%请求�
 | **Shenandoah** | 活跃 | **极致低延迟** | 中高 | **极低**（<10ms） | 对响应时间极度敏感的服务 | 需额外启用 | 革命性的并发整理(转发指针)，Red Hat贡献 |
 | **ZGC** | 活跃 | **极致低延迟** | 中高 | **极低**（<10ms） | 超大堆、硬实时要求 | 需额外启用 | 基于着色指针，Oracle主推的未来方向 |
 
+# 十二、GC - Java 垃圾回收器之CMS GC问题分析与解决
+## 12.1 写在前面
+> 本文主要针对 Hotspot VM 中“CMS + ParNew”组合的一些使用场景进行总结。重点通过部分源码对根因进行分析以及对排查方法进行总结，排查过程会省略较多，另外本文专业术语较多，有一定的阅读门槛，如未介绍清楚，还请自行查阅相关材料。
 
+### 12.1.1 引言
+自 Sun 发布 Java 语言以来，开始使用 GC 技术来进行内存自动管理，避免了手动管理带来的悬挂指针（Dangling Pointer）问题，很大程度上提升了开发效率，从此 GC 技术也一举成名。GC 有着非常悠久的历史，1960 年有着“Lisp 之父”和“人工智能之父”之称的 John McCarthy 就在论文中发布了 GC 算法，60 年以来， GC 技术的发展也突飞猛进，但不管是多么前沿的收集器也都是基于三种基本算法的组合或应用，也就是说 GC 要解决的根本问题这么多年一直都没有变过。笔者认为，在不太远的将来， GC 技术依然不会过时，比起日新月异的新技术，GC 这门古典技术更值得我们学习。
 
+目前，互联网上 Java 的 GC 资料要么是主要讲解理论，要么就是针对单一场景的 GC 问题进行了剖析，对整个体系总结的资料少之又少。前车之鉴，后事之师，美团的几位工程师搜集了内部各种 GC 问题的分析文章，并结合个人的理解做了一些总结，希望能起到“抛砖引玉”的作用，文中若有错误之处，还请大家不吝指正。
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+GC 问题处理能力能不能系统性掌握？一些影响因素都是互为因果的问题该怎么分析？比如一个服务 RT 突然上涨，有 GC 耗时增大、线程 Block 增多、慢查询增多、CPU 负载高四个表象，到底哪个是诱因？如何判断 GC 有没有问题？使用 CMS 有哪些常见问题？如何判断根因是什么？如何解决或避免这些问题？阅读完本文，相信你将会对 CMS GC 的问题处理有一个系统性的认知，更能游刃有余地解决这些问题，下面就让我们开始吧！
+### 12.1.2 概览
+想要系统性地掌握 GC 问题处理，笔者这里给出一个学习路径，整体文章的框架也是按照这个结构展开，主要分四大步。
+![cms-gc-1](../assets/images/03-JVM/83.cms-gc-1.png)
+- `建立知识体系`： 从 JVM 的内存结构到垃圾收集的算法和收集器，学习 GC 的基础知识，掌握一些常用的 GC 问题分析工具。
+- `确定评价指标`： 了解基本 GC 的评价方法，摸清如何设定独立系统的指标，以及在业务场景中判断 GC 是否存在问题的手段。
+- `场景调优实践`： 运用掌握的知识和系统评价指标，分析与解决九种 CMS 中常见 GC 问题场景。
+- `总结优化经验`： 对整体过程做总结并提出笔者的几点建议，同时将总结到的经验完善到知识体系之中。
+## 12.2 GC 基础
+在正式开始前，先做些简要铺垫，介绍下 JVM 内存划分、收集算法、收集器等常用概念介绍，基础比较好的同学可以直接跳过这部分。
+### 12.2.1 基础概念
+- `GC`： GC 本身有三种语义，下文需要根据具体场景带入不同的语义：
+  - Garbage Collection：垃圾收集技术，名词。
+  - Garbage Collector：垃圾收集器，名词。
+  - Garbage Collecting：垃圾收集动作，动词。
+- `Mutator`： 生产垃圾的角色，也就是我们的应用程序，垃圾制造者，通过 Allocator 进行 allocate 和 free。
+- `TLAB`： Thread Local Allocation Buffer 的简写，基于 CAS 的独享线程（Mutator Threads）可以优先将对象分配在 Eden 中的一块内存，因为是 Java 线程独享的内存区没有锁竞争，所以分配速度更快，每个 TLAB 都是一个线程独享的。
+- `Card Table`： 中文翻译为卡表，主要是用来标记卡页的状态，每个卡表项对应一个卡页。当卡页中一个对象引用有写操作时，写屏障将会标记对象所在的卡表状态改为 dirty，卡表的本质是用来解决跨代引用的问题。
+### 12.2.2 Card Table
+#### 一、什么是 Card Table？
+
+**Card Table** 可以理解为一个**“小本子”或“标记地图”**，它记录了堆内存中哪些区域可能包含对年轻代对象的引用。
+
+从技术上讲：
+*   Card Table 是一个**字节数组**，其中的每个字节称为一个 **“卡”（Card）**。
+*   堆内存被划分成若干个连续的、大小相等的内存块（例如 512 字节），每一个这样的内存块对应 Card Table 中的一个卡。
+*   卡的状态非常简单，通常只有两种：
+    *   **脏（Dirty）**：表示这个卡对应的内存块中的对象，自从上次垃圾回收以来，**可能**被修改过（即写入了新的引用）。
+    *   **干净（Clean）**：表示这个卡对应的内存块自上次垃圾回收以来没有被修改过。
+
+#### 二、它起到什么作用？目的是什么？
+
+**核心作用：** 在执行 **Minor GC（年轻代垃圾回收）** 时，快速、准确地找到所有对年轻代对象的引用，而无需扫描整个老年代。
+
+**目的：** **极大地提升垃圾回收的效率，缩短 STW 停顿时间。**
+
+为了理解这个目的，我们需要先了解一个背景知识：**分代假说** 和 **跨代引用**。
+
+1.  **分代假说**：大多数JVM的GC器都采用分代收集，将堆分为年轻代和老年代。基于“绝大多数对象都是朝生夕死”的假说，GC会频繁地对年轻代进行回收（Minor GC）。
+2.  **跨代引用问题**：
+    *   年轻代中的对象可能会被老年代中的对象引用（例如，一个长期存活的老年代对象持有一个新创建的年轻代对象的引用）。
+    *   当进行 Minor GC 时，为了确定年轻代中的某个对象是否存活，**必须检查所有可能引用它的地方，包括老年代**。
+    *   如果每次 Minor GC 都去扫描整个庞大的老年代，那将是一个非常耗时的操作，会严重延长 STW 时间，这与分代收集的设计初衷背道而驰。
+
+**Card Table 就是为了解决“跨代引用”带来的扫描开销问题而引入的。**
+
+#### 三、它是如何工作的？（工作原理）
+
+Card Table 的工作机制与 **写屏障** 紧密配合。
+
+**1. 写屏障**
+
+*   这不是内存屏障，而是一小段代码。JVM 在编译程序时，会在所有可能**更新对象引用**的指令之后（例如 `objectA.field = objectB`），插入这段额外的代码。
+*   你可以把它想象成一个“哨兵”，监视着所有对对象字段的写操作。
+
+**2. 工作流程**
+
+整个流程可以概括为以下几个步骤：
+
+*   **步骤 1： 监控写操作**
+    当程序执行 `老年代对象A.字段 = 年轻代对象B` 这样的语句时，写屏障代码会被触发。
+
+*   **步骤 2： 标记卡为脏**
+    写屏障会检查被修改的字段（即 `对象A`）位于堆内存的哪个位置。然后，它找到这个内存地址对应的那个“卡”，并将它在 Card Table 中的条目标记为“脏”。
+    *   *注意：写屏障并不记录具体是哪个引用被修改了，它只是粗粒度地标记整个内存块为“脏”。这非常快，只是一次内存写入。*
+
+*   **步骤 3： Minor GC 前的准备**
+    当需要进行 Minor GC 时，垃圾回收器知道，只有那些被标记为“脏”的卡对应的老年代内存区域，才**可能**包含对年轻代的引用。
+
+*   **步骤 4： 精确扫描**
+    垃圾回收器不再扫描整个老年代，而是直接遍历 Card Table，找到所有“脏”卡。然后，**只扫描这些“脏”卡对应的老年代内存块**，从中找出所有对年轻代的引用，并将这些引用加入到 GC Roots 的集合中。
+
+*   **步骤 5： 清理 Card Table**
+    Minor GC 结束后，在进入下一个垃圾回收周期前，JVM 会将整个 Card Table 重置为“干净”状态。
+
+#### 四、为什么引入这个概念？
+
+引入 Card Table 的核心原因就是 **“以空间换时间”**。
+
+*   **解决的问题**：直接扫描整个老年代来寻找跨代引用的性能瓶颈。
+*   **带来的好处**：
+    *   **大幅减少扫描范围**：将扫描区域从整个老年代缩小到少数几个“脏”的内存块。
+    *   **显著降低 STW 停顿时间**：这是最重要的收益，使得对响应时间敏感的应用（如Web服务、交易系统）能够运行得更平滑。
+    *   **开销可控**：
+        *   **空间开销**：Card Table 本身很小（例如，对于 16GB 的堆，每 512 字节一个卡，Card Table 大小约为 16GB / 512 ≈ 32MB）。
+        *   **时间开销**：写屏障带来的性能损耗通常很小，现代 JVM 对其有高度优化。相比于全堆扫描带来的巨大停顿，这点损耗是完全可以接受的。
+
+#### 总结与类比
+
+| 概念 | 解释 | 类比 |
+| :--- | :--- | :--- |
+| **堆内存** | 存储所有对象的大仓库。 | 一个巨大的图书馆，里面有成千上万本书（对象）。 |
+| **年轻代 / 老年代** | 图书馆的新书区（周转快）和旧书区（长期存放）。 | 新书区、旧书区。 |
+| **跨代引用** | 旧书区的一本书里夹着一张纸条，写着新书区某本书的索书号（引用）。 | 一张引用纸条。 |
+| **Minor GC** | 清理新书区无人问津的书。需要检查是否还有纸条引用它们。 | 清理新书区。 |
+| **没有 Card Table** | 清理时，管理员必须翻遍整个旧书区的每一本书，检查所有纸条。效率极低。 | 翻遍整个旧书区。 |
+| **Card Table** | 一个记录本，记录了旧书区哪些书架（内存块）的书最近被动过（可能新增了纸条）。 | 一个记录本。 |
+| **写屏障** | 每当有人往旧书区的书里夹纸条时，他必须顺手在记录本上标记对应的书架号。 | 夹纸条时顺手做标记。 |
+| **工作原理** | 清理新书区时，管理员只看记录本，只去检查那些被标记过的书架，大大提高了效率。 | 只看记录本，检查标记过的书架。 |
+### 12.2.3 JVM 内存划分
+从 JCP（Java Community Process）的官网中可以看到，目前 Java 版本最新已经到了 Java 16，未来的 Java 17 以及现在的 Java 11 和 Java 8 是 LTS 版本，JVM 规范也在随着迭代在变更，由于本文主要讨论 CMS，此处还是放 Java 8 的内存结构。
+![Java8的内存划分](../assets/images/03-JVM/84.Java8的内存划分.jpg)
+
+GC 主要工作在 Heap 区和 MetaSpace 区（上图蓝色部分），在 Direct Memory 中，如果使用的是 DirectByteBuffer，那么在分配内存不够时则是 GC 通过 Cleaner#clean 间接管理。任何自动内存管理系统都会面临的步骤：为新对象分配空间，然后收集垃圾对象空间，下面我们就展开介绍一下这些基础知识
+### 12.2.4 分配对象
+Java 中对象地址操作主要使用 Unsafe 调用了 C 的 allocate 和 free 两个方法，分配方法有两种：
+- `空闲链表（free list）`： 通过额外的存储记录空闲的地址，将随机 IO 变为顺序 IO，但带来了额外的空间消耗。
+- `碰撞指针（bump pointer）`： 通过一个指针作为分界点，需要分配内存时，仅需把指针往空闲的一端移动与对象大小相等的距离，分配效率较高，但使用场景有限。
+### 12.2.5 收集对象
+#### 12.2.5.1 识别垃圾
+- `引用计数法（Reference Counting）`： 对每个对象的引用进行计数，每当有一个地方引用它时计数器 +1、引用失效则 -1，引用的计数放到对象头中，大于 0 的对象被认为是存活对象。虽然循环引用的问题可通过 Recycler 算法解决，但是在多线程环境下，引用计数变更也要进行昂贵的同步操作，性能较低，早期的编程语言会采用此算法。
+- `可达性分析，又称引用链法（Tracing GC）`： 从 GC Root 开始进行对象搜索，可以被搜索到的对象即为可达对象，此时还不足以判断对象是否存活/死亡，需要经过多次标记才能更加准确地确定，整个连通图之外的对象便可以作为垃圾被回收掉。目前 Java 中主流的虚拟机均采用此算法。
+> 备注：引用计数法是可以处理循环引用问题的，下次面试时不要再这么说啦~ ~
+#### 12.2.5.2 收集算法
+自从有自动内存管理出现之时就有的一些收集算法，不同的收集器也是在不同场景下进行组合。
+
+- `Mark-Sweep（标记-清除）`： 回收过程主要分为两个阶段，第一阶段为追踪（Tracing）阶段，即从 GC Root 开始遍历对象图，并标记（Mark）所遇到的每个对象，第二阶段为清除（Sweep）阶段，即回收器检查堆中每一个对象，并将所有未被标记的对象进行回收，整个过程不会发生对象移动。整个算法在不同的实现中会使用三色抽象（Tricolour Abstraction）、位图标记（BitMap）等技术来提高算法的效率，存活对象较多时较高效。
+- `Mark-Compact （标记-整理）`： 这个算法的主要目的就是解决在非移动式回收器中都会存在的碎片化问题，也分为两个阶段，第一阶段与 Mark-Sweep 类似，第二阶段则会对存活对象按照整理顺序（Compaction Order）进行整理。主要实现有双指针（Two-Finger）回收算法、滑动回收（Lisp2）算法和引线整理（Threaded Compaction）算法等。
+- `Copying（复制）`: 将空间分为两个大小相同的 From 和 To 两个半区，同一时间只会使用其中一个，每次进行回收时将一个半区的存活对象通过复制的方式转移到另一个半区。有递归（Robert R. Fenichel 和 Jerome C. Yochelson提出）和迭代（Cheney 提出）算法，以及解决了前两者递归栈、缓存行等问题的近似优先搜索算法。复制算法可以通过碰撞指针的方式进行快速地分配内存，但是也存在着空间利用率不高的缺点，另外就是存活对象比较大时复制的成本比较高。
+
+三种算法在是否移动对象、空间和时间方面的一些对比，假设存活对象数量为 L、堆空间大小为 H，则：
+![收集算法对比](../assets/images/03-JVM/84.收集算法对比.png)
+
+把 mark(标记)、sweep(清除)、compaction(整理)、copying(复制)这几种动作的耗时放在一起看，大致有这样的关系：
+![收集算法对比](../assets/images/03-JVM/85.收集算法各阶段耗时对比.jpg)
+
+虽然 compaction 与 copying 都涉及移动对象，但取决于具体算法，compaction 可能要先计算一次对象的目标地址，然后修正指针，最后再移动对象。copying 则可以把这几件事情合为一体来做，所以可以快一些。另外，还需要留意 GC 带来的开销不能只看 Collector 的耗时，还得看 Allocator 。如果能保证内存没碎片，分配就可以用 pointer bumping 方式，只需要挪一个指针就完成了分配，非常快。而如果内存有碎片就得用 freelist 之类的方式管理，分配速度通常会慢一些。
+### 12.2.6 收集器
+目前在 Hotspot VM 中主要有分代收集和分区收集两大类，具体可以看下面的这个图，不过未来会逐渐向分区收集发展。在美团内部，有部分业务尝试用了 ZGC（感兴趣的同学可以学习下这篇文章 <a href = '#Java垃圾回收器之ZGC详解'>新一代垃圾回收器ZGC的探索与实践</a>），其余基本都停留在 CMS 和 G1 上。另外在 JDK11 后提供了一个不执行任何垃圾回收动作的回收器 Epsilon（A No-Op Garbage Collector）用作性能分析。另外一个就是 Azul 的 Zing JVM，其 C4（Concurrent Continuously Compacting Collector）收集器也在业内有一定的影响力。
+![GC收集器分类](../assets/images/03-JVM/86.GC收集器分类.jpg)
+> 备注：值得一提的是，早些年国内 GC 技术的布道者 RednaxelaFX （江湖人称 R 大）也曾就职于 Azul，本文的一部分材料也参考了他的一些文章。
+#### 12.2.6.1 分代收集器
+- ParNew： 一款多线程的收集器，采用复制算法，主要工作在 Young 区，可以通过 -XX:ParallelGCThreads 参数来控制收集的线程数，整个过程都是 STW 的，常与 CMS 组合使用。
+- CMS： 以获取最短回收停顿时间为目标，采用“标记-清除”算法，分 4 大步进行垃圾收集，其中初始标记和重新标记会 STW ，多数应用于互联网站或者 B/S 系统的服务器端上，JDK9 被标记弃用，JDK14 被删除，详情可见 <a href = 'https://openjdk.org/jeps/363'>JEP 363</a>。
+#### 12.2.6.2 分区收集器
+- `G1`： 一种服务器端的垃圾收集器，应用在多处理器和大容量内存环境中，在实现高吞吐量的同时，尽可能地满足垃圾收集暂停时间的要求。
+- `ZGC`： JDK11 中推出的一款低延迟垃圾回收器，适用于大内存低延迟服务的内存管理和回收，SPECjbb 2015 基准测试，在 128G 的大堆下，最大停顿时间才 1.68 ms，停顿时间远胜于 G1 和 CMS。
+- `Shenandoah`： 由 Red Hat 的一个团队负责开发，与 G1 类似，基于 Region 设计的垃圾收集器，但不需要 Remember Set 或者 Card Table 来记录跨 Region 引用，停顿时间和堆的大小没有任何关系。停顿时间与 ZGC 接近，下图为与 CMS 和 G1 等收集器的 benchmark。
+![收集器对比](../assets/images/03-JVM/87.收集器对比.jpg)
+#### 12.2.6.3 常用收集器
+目前使用最多的是 CMS 和 G1 收集器，二者都有分代的概念，主要内存结构如下：
+![常用收集器](../assets/images/03-JVM/88.常用收集器.png)
+#### 12.2.6.4 其他收集器
+以上仅列出常见收集器，除此之外还有很多，如 Metronome、Stopless、Staccato、Chicken、Clover 等实时回收器，Sapphire、Compressor、Pauseless 等并发复制/整理回收器，Doligez-Leroy-Conthier 等标记整理回收器，由于篇幅原因，不在此一一介绍。
+### 12.2.7 常用工具
+工欲善其事，必先利其器，此处列出一些笔者常用的工具，具体情况大家可以自由选择，本文的问题都是使用这些工具来定位和分析的。
+#### 12.2.7.1 命令行终端
+- 标准终端类：jps、jinfo、jstat、jstack、jmap
+- 功能整合类：jcmd、vjtools、arthas、grey
+#### 12.2.7.2 可视化界面
+- 简易：JConsole、JVisualvm、HA、GCHisto、GCViewer
+- 进阶：MAT、JProfiler
+- `命令行推荐 arthas ，可视化界面推荐 JProfiler`，此外还有一些在线的平台 gceasy、heaphero、fastthread ，美团内部的 Scalpel（一款自研的 JVM 问题诊断工具，暂时未开源）也比较好用。
+## 12.3 GC 问题判断
+在做 GC 问题排查和优化之前，我们需要先来明确下到底是不是 GC 直接导致的问题，或者应用代码导致的 GC 异常，最终出现问题。
+
+### 12.3.1 判断 GC 有没有问题？
+#### 12.3.1.1 设定评价标准
+评判 GC 的两个核心指标：
+- **延迟（Latency）**： 也可以理解为最大停顿时间，即垃圾收集过程中一次 STW 的最长时间，越短越好，一定程度上可以接受频次的增大，GC 技术的主要发展方向。
+- **吞吐量（Throughput）**： 应用系统的生命周期内，由于 GC 线程会占用 Mutator 当前可用的 CPU 时钟周期，吞吐量即为 Mutator 有效花费的时间占系统总运行时间的百分比，例如系统运行了 100 min，GC 耗时 1 min，则系统吞吐量为 99%，吞吐量优先的收集器可以接受较长的停顿。
+
+目前各大互联网公司的系统基本都更追求低延时，避免一次 GC 停顿的时间过长对用户体验造成损失，衡量指标需要结合一下应用服务的 SLA（服务等级协议），主要如下两点来判断：
+![评价标准](../assets/images/03-JVM/89.评价标准.png)
+
+简而言之，即为一次停顿的时间不超过应用服务的 TP9999 **（99.99% 可用性：表示系统在一年中允许的不可用时间仅为 0.01%）**，GC 的吞吐量不小于 99.99%。举个例子，假设某个服务 A 的 TP9999 为 80 ms，平均 GC 停顿为 30 ms，那么该服务的最大停顿时间最好不要超过 80 ms，GC 频次控制在 5 min 以上一次。如果满足不了，那就需要调优或者通过更多资源来进行并联冗余。（大家可以先停下来，看看监控平台上面的 gc.meantime 分钟级别指标，如果超过了 6 ms 那单机 GC 吞吐量就达不到 4 个 9 了。）
+> 备注：除了这两个指标之外还有 Footprint（资源量大小测量）、反应速度等指标，互联网这种实时系统追求低延迟，而很多嵌入式系统则追求 Footprint。
+#### 12.3.1.2 读懂 GC Cause
+拿到 GC 日志，我们就可以简单分析 GC 情况了，通过一些工具，我们可以比较直观地看到 Cause 的分布情况，如下图就是使用 gceasy 绘制的图表：
+![GCCause](../assets/images/03-JVM/90.GCCause.png)
+
+如上图所示，我们很清晰的就能知道是什么原因引起的 GC，以及每次的时间花费情况，但是要分析 GC 的问题，先要读懂 GC Cause，即 JVM 什么样的条件下选择进行 GC 操作，具体 Cause 的分类可以看一下 Hotspot 源码：src/share/vm/gc/shared/gcCause.hpp 和 src/share/vm/gc/shared/gcCause.cpp 中。
+```cpp
+const char* GCCause::to_string(GCCause::Cause cause) {
+  switch (cause) {
+    case _java_lang_system_gc:
+      return "System.gc()";
+
+    case _full_gc_alot:
+      return "FullGCAlot";
+
+    case _scavenge_alot:
+      return "ScavengeAlot";
+
+    case _allocation_profiler:
+      return "Allocation Profiler";
+
+    case _jvmti_force_gc:
+      return "JvmtiEnv ForceGarbageCollection";
+
+    case _gc_locker:
+      return "GCLocker Initiated GC";
+
+    case _heap_inspection:
+      return "Heap Inspection Initiated GC";
+
+    case _heap_dump:
+      return "Heap Dump Initiated GC";
+
+    case _wb_young_gc:
+      return "WhiteBox Initiated Young GC";
+
+    case _wb_conc_mark:
+      return "WhiteBox Initiated Concurrent Mark";
+
+    case _wb_full_gc:
+      return "WhiteBox Initiated Full GC";
+
+    case _no_gc:
+      return "No GC";
+
+    case _allocation_failure:
+      return "Allocation Failure";
+
+    case _tenured_generation_full:
+      return "Tenured Generation Full";
+
+    case _metadata_GC_threshold:
+      return "Metadata GC Threshold";
+
+    case _metadata_GC_clear_soft_refs:
+      return "Metadata GC Clear Soft References";
+
+    case _cms_generation_full:
+      return "CMS Generation Full";
+
+    case _cms_initial_mark:
+      return "CMS Initial Mark";
+
+    case _cms_final_remark:
+      return "CMS Final Remark";
+
+    case _cms_concurrent_mark:
+      return "CMS Concurrent Mark";
+
+    case _old_generation_expanded_on_last_scavenge:
+      return "Old Generation Expanded On Last Scavenge";
+
+    case _old_generation_too_full_to_scavenge:
+      return "Old Generation Too Full To Scavenge";
+
+    case _adaptive_size_policy:
+      return "Ergonomics";
+
+    case _g1_inc_collection_pause:
+      return "G1 Evacuation Pause";
+
+    case _g1_humongous_allocation:
+      return "G1 Humongous Allocation";
+
+    case _dcmd_gc_run:
+      return "Diagnostic Command";
+
+    case _last_gc_cause:
+      return "ILLEGAL VALUE - last gc cause - ILLEGAL VALUE";
+
+    default:
+      return "unknown GCCause";
+  }
+  ShouldNotReachHere();
+}
+```
+重点需要关注的几个GC Cause：
+- `System.gc()`： 手动触发GC操作。
+- `CMS`： CMS GC 在执行过程中的一些动作，重点关注 CMS Initial Mark 和 CMS Final Remark 两个 STW 阶段。
+- `Promotion Failure`： Old 区没有足够的空间分配给 Young 区晋升的对象（即使总可用内存足够大）。
+- `Concurrent Mode Failure`： CMS GC 运行期间，Old 区预留的空间不足以分配给新的对象，此时收集器会发生退化，严重影响 GC 性能，下面的一个案例即为这种场景。
+- `GCLocker Initiated GC`： 如果线程执行在 JNI 临界区时，刚好需要进行 GC，此时 GC Locker 将会阻止 GC 的发生，同时阻止其他线程进入 JNI 临界区，直到最后一个线程退出临界区时触发一次 GC。
+
+什么时机使用这些 Cause 触发回收，大家可以看一下 CMS 的代码，这里就不讨论了，具体在 /src/hotspot/share/gc/cms/concurrentMarkSweepGeneration.cpp 中。
+```cpp
+bool CMSCollector::shouldConcurrentCollect() {
+  LogTarget(Trace, gc) log;
+
+  if (_full_gc_requested) {
+    log.print("CMSCollector: collect because of explicit  gc request (or GCLocker)");
+    return true;
+  }
+
+  FreelistLocker x(this);
+  // ------------------------------------------------------------------
+  // Print out lots of information which affects the initiation of
+  // a collection.
+  if (log.is_enabled() && stats().valid()) {
+    log.print("CMSCollector shouldConcurrentCollect: ");
+
+    LogStream out(log);
+    stats().print_on(&out);
+
+    log.print("time_until_cms_gen_full %3.7f", stats().time_until_cms_gen_full());
+    log.print("free=" SIZE_FORMAT, _cmsGen->free());
+    log.print("contiguous_available=" SIZE_FORMAT, _cmsGen->contiguous_available());
+    log.print("promotion_rate=%g", stats().promotion_rate());
+    log.print("cms_allocation_rate=%g", stats().cms_allocation_rate());
+    log.print("occupancy=%3.7f", _cmsGen->occupancy());
+    log.print("initiatingOccupancy=%3.7f", _cmsGen->initiating_occupancy());
+    log.print("cms_time_since_begin=%3.7f", stats().cms_time_since_begin());
+    log.print("cms_time_since_end=%3.7f", stats().cms_time_since_end());
+    log.print("metadata initialized %d", MetaspaceGC::should_concurrent_collect());
+  }
+  // ------------------------------------------------------------------
+
+  // If the estimated time to complete a cms collection (cms_duration())
+  // is less than the estimated time remaining until the cms generation
+  // is full, start a collection.
+  if (!UseCMSInitiatingOccupancyOnly) {
+    if (stats().valid()) {
+      if (stats().time_until_cms_start() == 0.0) {
+        return true;
+      }
+    } else {
+   
+      if (_cmsGen->occupancy() >= _bootstrap_occupancy) {
+        log.print(" CMSCollector: collect for bootstrapping statistics: occupancy = %f, boot occupancy = %f",
+                  _cmsGen->occupancy(), _bootstrap_occupancy);
+        return true;
+      }
+    }
+  }
+  if (_cmsGen->should_concurrent_collect()) {
+    log.print("CMS old gen initiated");
+    return true;
+  }
+
+  CMSHeap* heap = CMSHeap::heap();
+  if (heap->incremental_collection_will_fail(true /* consult_young */)) {
+    log.print("CMSCollector: collect because incremental collection will fail ");
+    return true;
+  }
+
+  if (MetaspaceGC::should_concurrent_collect()) {
+    log.print("CMSCollector: collect for metadata allocation ");
+    return true;
+  }
+
+  // CMSTriggerInterval starts a CMS cycle if enough time has passed.
+  if (CMSTriggerInterval >= 0) {
+    if (CMSTriggerInterval == 0) {
+      // Trigger always
+      return true;
+    }
+
+    // Check the CMS time since begin (we do not check the stats validity
+    // as we want to be able to trigger the first CMS cycle as well)
+    if (stats().cms_time_since_begin() >= (CMSTriggerInterval / ((double) MILLIUNITS))) {
+      if (stats().valid()) {
+        log.print("CMSCollector: collect because of trigger interval (time since last begin %3.7f secs)",
+                  stats().cms_time_since_begin());
+      } else {
+        log.print("CMSCollector: collect because of trigger interval (first collection)");
+      }
+      return true;
+    }
+  }
+
+  return false;
+}
+```
+### 12.3.2 判断是不是 GC 引发的问题？
+到底是结果（现象）还是原因，在一次 GC 问题处理的过程中，如何判断是 GC 导致的故障，还是系统本身引发 GC 问题。这里继续拿在本文开头提到的一个 Case：“GC 耗时增大、线程 Block 增多、慢查询增多、CPU 负载高等四个表象，如何判断哪个是根因？”，笔者这里根据自己的经验大致整理了四种判断方法供参考：
+- `时序分析`： 先发生的事件是根因的概率更大，通过监控手段分析各个指标的异常时间点，还原事件时间线，如先观察到 CPU 负载高（要有足够的时间 Gap），那么整个问题影响链就可能是：CPU 负载高 -> 慢查询增多 -> GC 耗时增大 -> 线程Block增多 -> RT 上涨。
+- `概率分析`： 使用统计概率学，结合历史问题的经验进行推断，由近到远按类型分析，如过往慢查的问题比较多，那么整个问题影响链就可能是：慢查询增多 -> GC 耗时增大 -> CPU 负载高 -> 线程 Block 增多 -> RT上涨。
+- `实验分析`： 通过故障演练等方式对问题现场进行模拟，触发其中部分条件（一个或多个），观察是否会发生问题，如只触发线程 Block 就会发生问题，那么整个问题影响链就可能是：线程Block增多 -> CPU 负载高 -> 慢查询增多 -> GC 耗时增大 -> RT 上涨。
+- `反证分析`： 对其中某一表象进行反证分析，即判断表象的发不发生跟结果是否有相关性，例如我们从整个集群的角度观察到某些节点慢查和 CPU 都正常，但也出了问题，那么整个问题影响链就可能是：GC 耗时增大 -> 线程 Block 增多 -> RT 上涨。
+
+不同的根因，后续的分析方法是完全不同的。如果是 CPU 负载高那可能需要用火焰图看下热点、如果是慢查询增多那可能需要看下 DB 情况、如果是线程 Block 引起那可能需要看下锁竞争的情况，最后如果各个表象证明都没有问题，那可能 GC 确实存在问题，可以继续分析 GC 问题了。
+### 12.3.3 问题分类导读
+#### 12.3.3.1 Mutator 类型
+Mutator 的类型根据对象存活时间比例图来看主要分为两种，在弱分代假说中也提到类似的说法，如下图所示 “Survival Time” 表示对象存活时间，“Rate” 表示对象分配比例：
+- IO 交互型： 互联网上目前大部分的服务都属于该类型，例如分布式 RPC、MQ、HTTP 网关服务等，对内存要求并不大，大部分对象在 TP9999 的时间内都会死亡， Young 区越大越好。
+- MEM 计算型： 主要是分布式数据计算 Hadoop，分布式存储 HBase、Cassandra，自建的分布式缓存等，对内存要求高，对象存活时间长，Old 区越大越好。
+
+当然，除了二者之外还有介于两者之间的场景，本篇文章主要讨论第一种情况。对象 Survival Time 分布图，对我们设置 GC 参数有着非常重要的指导意义，如下图就可以简单推算分代的边界。
+![对象Survival-Time分布图](../assets/images/03-JVM/91.对象Survival-Time分布图.png)
+#### 12.3.3.2  GC 问题分类
+笔者选取了九种不同类型的 GC 问题，覆盖了大部分场景，如果有更好的场景，欢迎在评论区给出。
+- Unexpected GC： 意外发生的 GC，实际上不需要发生，我们可以通过一些手段去避免。
+  - Space Shock： 空间震荡问题，参见“场景一：动态扩容引起的空间震荡”。
+  - Explicit GC： 显示执行 GC 问题，参见“场景二：显式 GC 的去与留”。
+- Partial GC： 部分收集操作的 GC，只对某些分代/分区进行回收。
+  - Young GC： 分代收集里面的 Young 区收集动作，也可以叫做 Minor GC。
+    -  ParNew： Young GC 频繁，参见“场景四：过早晋升”。
+-  Old GC： 分代收集里面的 Old 区收集动作，也可以叫做 Major GC，有些也会叫做 Full GC，但其实这种叫法是不规范的，在 CMS 发生 Foreground GC 时才是 Full GC，CMSScavengeBeforeRemark 参数也只是在 Remark 前触发一次Young GC。 
+   -  CMS： Old GC 频繁，参见“场景五：CMS Old GC 频繁”。
+   -  CMS： Old GC 不频繁但单次耗时大，参见“场景六：单次 CMS Old GC 耗时长”。
+-  Full GC： 全量收集的 GC，对整个堆进行回收，STW 时间会比较长，一旦发生，影响较大，也可以叫做 Major GC，参见“场景七：内存碎片&收集器退化”。
+-  MetaSpace： 元空间回收引发问题，参见“场景三：MetaSpace 区 OOM”。Direct Memory：
+-  直接内存（也可以称作为堆外内存）回收引发问题，参见“场景八：堆外内存 OOM”。
+-  JNI： 本地 Native 方法引发问题，参见“场景九：JNI 引发的 GC 问题”。
+#### 12.3.3.3 排查难度
+一个问题的`解决难度跟它的常见程度成反比`，大部分我们都可以通过各种搜索引擎找到类似的问题，然后用同样的手段尝试去解决。当一个问题在各种网站上都找不到相似的问题时，那么可能会有两种情况，一种这不是一个问题，另一种就是遇到一个隐藏比较深的问题，遇到这种问题可能就要深入到源码级别去调试了。以下 GC 问题场景，排查难度从上到下依次递增。
+## 12.4 常见场景分析与解决
+### 12.4.1 场景一：动态扩容引起的空间震荡
+#### 12.4.1.1 现象
+服务刚刚启动时 GC 次数较多，最大空间剩余很多但是依然发生 GC，这种情况我们可以通过观察 GC 日志或者通过监控工具来观察堆的空间变化情况即可。GC Cause 一般为 Allocation Failure，且在 GC 日志中会观察到经历一次 GC ，堆内各个空间的大小会被调整，如下图所示：
+#### 12.4.1.2 原因
+在 JVM 的参数中 -Xms 和 -Xmx 设置的不一致，在初始化时只会初始 -Xms 大小的空间存储信息，每当空间不够用时再向操作系统申请，这样的话必然要进行一次 GC。具体是通过`ConcurrentMarkSweepGeneration::compute_new_size()` 方法计算新的空间大小：
+```cpp
+void ConcurrentMarkSweepGeneration::compute_new_size() {
+  assert_locked_or_safepoint(Heap_lock);
+
+  // If incremental collection failed, we just want to expand
+  // to the limit.
+  if (incremental_collection_failed()) {
+    clear_incremental_collection_failed();
+    grow_to_reserved();
+    return;
+  }
+
+  // The heap has been compacted but not reset yet.
+  // Any metric such as free() or used() will be incorrect.
+
+  CardGeneration::compute_new_size();
+
+  // Reset again after a possible resizing
+  if (did_compact()) {
+    cmsSpace()->reset_after_compaction();
+  }
+}
+```
+另外，如果空间剩余很多时也会进行缩容操作，JVM 通过 -XX:MinHeapFreeRatio 和 -XX:MaxHeapFreeRatio 来控制扩容和缩容的比例，调节这两个值也可以控制伸缩的时机，例如扩容便是使用`GenCollectedHeap::expand_heap_and_allocate() `来完成的，代码如下：
+```cpp
+HeapWord* GenCollectedHeap::expand_heap_and_allocate(size_t size, bool   is_tlab) {
+  HeapWord* result = NULL;
+  if (_old_gen->should_allocate(size, is_tlab)) {
+    result = _old_gen->expand_and_allocate(size, is_tlab);
+  }
+  if (result == NULL) {
+    if (_young_gen->should_allocate(size, is_tlab)) {
+      result = _young_gen->expand_and_allocate(size, is_tlab);
+    }
+  }
+  assert(result == NULL || is_in_reserved(result), "result not in heap");
+  return result;
+}
+```
+整个伸缩的模型理解可以看这个图，当 committed 的空间大小超过了低水位/高水位的大小，capacity 也会随之调整：
+![堆空间的动态调整](../assets/images/03-JVM/91.堆空间的动态调整.png)
+#### 12.4.1.3 策略
+- `定位`：观察 CMS GC 触发时间点 Old/MetaSpace 区的 committed 占比是不是一个固定的值，或者像上文提到的观察总的内存使用率也可以。
+- `解决`：尽量将`成对出现的空间大小配置参数设置成固定`的，如 -Xms 和 -Xmx，-XX:MaxNewSize 和 -XX:NewSize，-XX:MetaSpaceSize 和 -XX:MaxMetaSpaceSize 等。
+#### 12.4.1.4 小结
+一般来说，我们需要保证 Java 虚拟机的堆是稳定的，确保 -Xms 和 -Xmx 设置的是一个值（即初始值和最大值一致），获得一个稳定的堆，同理在 MetaSpace 区也有类似的问题。不过在不追求停顿时间的情况下震荡的空间也是有利的，可以动态地伸缩以节省空间，例如作为富客户端的 Java 应用。
+
+这个问题虽然初级，但是发生的概率还真不小，尤其是在一些规范不太健全的情况下。
+### 12.4.2 场景二：显式 GC 的去与留
+#### 12.4.2.1 现象
+除了扩容缩容会触发 CMS GC 之外，还有 Old 区达到回收阈值、MetaSpace 空间不足、Young 区晋升失败、大对象担保失败等几种触发条件，如果这些情况都没有发生却触发了 GC ？这种情况有可能是代码中手动调用了 System.gc 方法，此时可以找到 GC 日志中的 GC Cause 确认下。那么这种 GC 到底有没有问题，翻看网上的一些资料，有人说可以添加 -XX:+DisableExplicitGC 参数来避免这种 GC，也有人说不能加这个参数，加了就会影响 Native Memory 的回收。先说结论，`笔者这里建议保留 System.gc`，那为什么要保留？我们一起来分析下。
+#### 12.4.2.2 原因
+找到 System.gc 在 Hotspot 中的源码，可以发现增加 -XX:+DisableExplicitGC 参数后，这个方法变成了一个空方法，如果没有加的话便会调用 Universe::heap()::collect 方法，继续跟进到这个方法中，发现 System.gc 会引发一次 STW 的 Full GC，对整个堆做收集。
+```java
+JVM_ENTRY_NO_ENV(void, JVM_GC(void))
+  JVMWrapper("JVM_GC");
+  if (!DisableExplicitGC) {
+    Universe::heap()->collect(GCCause::_java_lang_system_gc);
+  }
+JVM_END
+void GenCollectedHeap::collect(GCCause::Cause cause) {
+  if (cause == GCCause::_wb_young_gc) {
+    // Young collection for the WhiteBox API.
+    collect(cause, YoungGen);
+  } else {
+#ifdef ASSERT
+  if (cause == GCCause::_scavenge_alot) {
+    // Young collection only.
+    collect(cause, YoungGen);
+  } else {
+    // Stop-the-world full collection.
+    collect(cause, OldGen);
+  }
+#else
+    // Stop-the-world full collection.
+    collect(cause, OldGen);
+#endif
+  }
+}
+```
+- 保留 System.gc
+
+此处补充一个知识点，`CMS GC 共分为 Background 和 Foreground 两种模式`，前者就是我们常规理解中的并发收集，可以不影响正常的业务线程运行，但 Foreground Collector 却有很大的差异，他会进行一次压缩式 GC。此压缩式 GC 使用的是跟 Serial Old GC 一样的 Lisp2 算法，其使用 Mark-Compact 来做 Full GC，一般称之为 MSC（Mark-Sweep-Compact），它收集的范围是 Java 堆的 Young 区和 Old 区以及 MetaSpace。由上面的算法章节中我们知道 compact 的代价是巨大的，那么使用 Foreground Collector 时将会带来非常长的 STW。如果在应用程序中 System.gc 被频繁调用，那就非常危险了。
+- 去掉 System.gc
+
+如果禁用掉的话就会带来另外一个内存泄漏问题，此时就需要说一下 DirectByteBuffer，它有着零拷贝等特点，被 Netty 等各种 NIO 框架使用，会使用到堆外内存。堆内存由 JVM 自己管理，堆外内存必须要手动释放，DirectByteBuffer 没有 Finalizer，它的 Native Memory 的清理工作是通过 sun.misc.Cleaner 自动完成的，是一种基于 PhantomReference 的清理工具，比普通的 Finalizer 轻量些。
+
+为 DirectByteBuffer 分配空间过程中会显式调用 System.gc ，希望通过 Full GC 来强迫已经无用的 DirectByteBuffer 对象释放掉它们关联的 Native Memory，下面为代码实现：
+```cpp
+// These methods should be called whenever direct memory is allocated or
+// freed.  They allow the user to control the amount of direct memory
+// which a process may access.  All sizes are specified in bytes.
+static void reserveMemory(long size) {
+
+    synchronized (Bits.class) {
+        if (!memoryLimitSet && VM.isBooted()) {
+            maxMemory = VM.maxDirectMemory();
+            memoryLimitSet = true;
+        }
+        if (size <= maxMemory - reservedMemory) {
+            reservedMemory += size;
+            return;
+        }
+    }
+
+    System.gc();
+    try {
+        Thread.sleep(100);
+    } catch (InterruptedException x) {
+        // Restore interrupt status
+        Thread.currentThread().interrupt();
+    }
+    synchronized (Bits.class) {
+        if (reservedMemory + size > maxMemory)
+            throw new OutOfMemoryError("Direct buffer memory");
+        reservedMemory += size;
+    }
+
+}
+```
+HotSpot VM 只会在 Old GC 的时候才会对 Old 中的对象做 Reference Processing，而在 Young GC 时只会对 Young 里的对象做 Reference Processing。Young 中的 DirectByteBuffer 对象会在 Young GC 时被处理，也就是说，做 CMS GC 的话会对 Old 做 Reference Processing，进而能触发 Cleaner 对已死的 DirectByteBuffer 对象做清理工作。但如果很长一段时间里没做过 GC 或者只做了 Young GC 的话则不会在 Old 触发 Cleaner 的工作，那么就可能让本来已经死亡，但已经晋升到 Old 的 DirectByteBuffer 关联的 Native Memory 得不到及时释放。这几个实现特征使得依赖于 System.gc 触发 GC 来保证 DirectByteMemory 的清理工作能及时完成。如果打开了 -XX:+DisableExplicitGC，清理工作就可能得不到及时完成，于是就有发生 Direct Memory 的 OOM。
+#### 12.4.2.3 策略
+通过上面的分析看到，无论是保留还是去掉都会有一定的风险点，不过目前互联网中的 RPC 通信会大量使用 NIO，所以笔者在这里建议保留。此外 JVM 还提供了 -XX:+ExplicitGCInvokesConcurrent 和 -XX:+ExplicitGCInvokesConcurrentAndUnloadsClasses 参数来将 System.gc 的触发类型从 Foreground 改为 Background，同时 Background 也会做 Reference Processing，这样的话就能大幅降低了 STW 开销，同时也不会发生 NIO Direct Memory OOM。
+#### 12.4.2.4 小结
+不止 CMS，在 G1 或 ZGC中开启 ExplicitGCInvokesConcurrent 模式，都会采用高性能的并发收集方式进行收集，不过还是建议在代码规范方面也要做好约束，规范好 System.gc 的使用。
+> P.S. HotSpot 对 System.gc 有特别处理，最主要的地方体现在一次 System.gc 是否与普通 GC 一样会触发 GC 的统计/阈值数据的更新，HotSpot 里的许多 GC 算法都带有自适应的功能，会根据先前收集的效率来决定接下来的 GC 中使用的参数，但 System.gc 默认不更新这些统计数据，避免用户强行 GC 对这些自适应功能的干扰（可以参考 -XX:+UseAdaptiveSizePolicyWithSystemGC 参数，默认是 false）。
+### 12.4.3 场景三：MetaSpace 区 OOM
+#### 12.4.3.1 现象
+VM 在启动后或者某个时间点开始，**MetaSpace 的已使用大小在持续增长，同时每次 GC 也无法释放，调大 MetaSpace 空间也无法彻底解决。**
+
+#### 12.4.3.2 原因
+在讨论为什么会 OOM 之前，我们先来看一下这个区里面会存什么数据，Java7 之前字符串常量池被放到了 Perm 区，所有被 intern 的 String 都会被存在这里，由于 String.intern 是不受控的，所以 `-XX:MaxPermSize` 的值也不太好设置，经常会出现 `java.lang.OutOfMemoryError: PermGen space` 异常，所以在 Java7 之后常量池等字面量（Literal）、类静态变量（Class Static）、符号引用（Symbols Reference）等几项被移到 Heap 中。而 Java8 之后 PermGen 也被移除，取而代之的是 MetaSpace。
+
+在最底层，JVM 通过 mmap 接口向操作系统申请内存映射，每次申请 2MB 空间，这里是虚拟内存映射，不是真的就消耗了主存的 2MB，只有之后在使用的时候才会真的消耗内存。申请的这些内存放到一个链表中 VirtualSpaceList，作为其中的一个 Node。
+
+在上层，MetaSpace 主要由 Klass Metaspace 和 NoKlass Metaspace 两大部分组成。
+- `Klass MetaSpace`： 就是用来存 Klass 的，就是 Class 文件在 JVM 里的运行时数据结构，这部分默认放在 Compressed Class Pointer Space 中，是一块连续的内存区域，紧接着 Heap。Compressed Class Pointer Space 不是必须有的，如果设置了 -XX:-UseCompressedClassPointers，或者 -Xmx 设置大于 32 G，就不会有这块内存，这种情况下 Klass 都会存在 NoKlass Metaspace 里。
+- `NoKlass MetaSpace`： 专门来存 Klass 相关的其他的内容，比如 Method，ConstantPool 等，可以由多块不连续的内存组成。虽然叫做 NoKlass Metaspace，但是也其实可以存 Klass 的内容，上面已经提到了对应场景。 具体的定义都可以在源码 shared/vm/memory/metaspace.hpp 中找到：
+```java
+class Metaspace : public AllStatic {
+
+  friend class MetaspaceShared;
+
+ public:
+  enum MetadataType {
+    ClassType,
+    NonClassType,
+    MetadataTypeCount
+  };
+  enum MetaspaceType {
+    ZeroMetaspaceType = 0,
+    StandardMetaspaceType = ZeroMetaspaceType,
+    BootMetaspaceType = StandardMetaspaceType + 1,
+    AnonymousMetaspaceType = BootMetaspaceType + 1,
+    ReflectionMetaspaceType = AnonymousMetaspaceType + 1,
+    MetaspaceTypeCount
+  };
+
+ private:
+
+  // Align up the word size to the allocation word size
+  static size_t align_word_size_up(size_t);
+
+  // Aligned size of the metaspace.
+  static size_t _compressed_class_space_size;
+
+  static size_t compressed_class_space_size() {
+    return _compressed_class_space_size;
+  }
+
+  static void set_compressed_class_space_size(size_t size) {
+    _compressed_class_space_size = size;
+  }
+
+  static size_t _first_chunk_word_size;
+  static size_t _first_class_chunk_word_size;
+
+  static size_t _commit_alignment;
+  static size_t _reserve_alignment;
+  DEBUG_ONLY(static bool   _frozen;)
+
+  // Virtual Space lists for both classes and other metadata
+  static metaspace::VirtualSpaceList* _space_list;
+  static metaspace::VirtualSpaceList* _class_space_list;
+
+  static metaspace::ChunkManager* _chunk_manager_metadata;
+  static metaspace::ChunkManager* _chunk_manager_class;
+
+  static const MetaspaceTracer* _tracer;
+}
+```
+MetaSpace 的对象为什么无法释放，我们看下面两点：
+- `MetaSpace 内存管理`： 类和其元数据的生命周期与其对应的类加载器相同，只要类的类加载器是存活的，在 Metaspace 中的类元数据也是存活的，不能被回收。每个加载器有单独的存储空间，通过 ClassLoaderMetaspace 来进行管理 SpaceManager* 的指针，相互隔离的。
+- `MetaSpace 弹性伸缩`： 由于 MetaSpace 空间和 Heap 并不在一起，所以这块的空间可以不用设置或者单独设置，一般情况下避免 MetaSpace 耗尽 VM 内存都会设置一个 MaxMetaSpaceSize，在运行过程中，如果实际大小小于这个值，JVM 就会通过 -XX:MinMetaspaceFreeRatio 和 -XX:MaxMetaspaceFreeRatio 两个参数动态控制整个 MetaSpace 的大小，具体使用可以看 MetaSpaceGC::compute_new_size() 方法（下方代码），这个方法会在 CMSCollector 和 G1CollectorHeap 等几个收集器执行 GC 时调用。这个里面会根据 used_after_gc，MinMetaspaceFreeRatio 和 MaxMetaspaceFreeRatio 这三个值计算出来一个新的 _capacity_until_GC 值（水位线）。然后根据实际的 _capacity_until_GC 值使用 MetaspaceGC::inc_capacity_until_GC() 和 MetaspaceGC::dec_capacity_until_GC() 进行 expand 或 shrink，这个过程也可以参照场景一中的伸缩模型进行理解。
+```cpp
+void MetaspaceGC::compute_new_size() {
+  assert(_shrink_factor <= 100, "invalid shrink factor");
+  uint current_shrink_factor = _shrink_factor;
+  _shrink_factor = 0;
+  const size_t used_after_gc = MetaspaceUtils::committed_bytes();
+  const size_t capacity_until_GC = MetaspaceGC::capacity_until_GC();
+
+  const double minimum_free_percentage = MinMetaspaceFreeRatio / 100.0;
+  const double maximum_used_percentage = 1.0 - minimum_free_percentage;
+
+  const double min_tmp = used_after_gc / maximum_used_percentage;
+  size_t minimum_desired_capacity =
+    (size_t)MIN2(min_tmp, double(max_uintx));
+  // Don't shrink less than the initial generation size
+  minimum_desired_capacity = MAX2(minimum_desired_capacity,
+                                  MetaspaceSize);
+
+  log_trace(gc, metaspace)("MetaspaceGC::compute_new_size: ");
+  log_trace(gc, metaspace)("    minimum_free_percentage: %6.2f  maximum_used_percentage: %6.2f",
+                           minimum_free_percentage, maximum_used_percentage);
+  log_trace(gc, metaspace)("     used_after_gc       : %6.1fKB", used_after_gc / (double) K);
+
+
+  size_t shrink_bytes = 0;
+  if (capacity_until_GC < minimum_desired_capacity) {
+    // If we have less capacity below the metaspace HWM, then
+    // increment the HWM.
+    size_t expand_bytes = minimum_desired_capacity - capacity_until_GC;
+    expand_bytes = align_up(expand_bytes, Metaspace::commit_alignment());
+    // Don't expand unless it's significant
+    if (expand_bytes >= MinMetaspaceExpansion) {
+      size_t new_capacity_until_GC = 0;
+      bool succeeded = MetaspaceGC::inc_capacity_until_GC(expand_bytes, &new_capacity_until_GC);
+      assert(succeeded, "Should always succesfully increment HWM when at safepoint");
+
+      Metaspace::tracer()->report_gc_threshold(capacity_until_GC,
+                                               new_capacity_until_GC,
+                                               MetaspaceGCThresholdUpdater::ComputeNewSize);
+      log_trace(gc, metaspace)("    expanding:  minimum_desired_capacity: %6.1fKB  expand_bytes: %6.1fKB  MinMetaspaceExpansion: %6.1fKB  new metaspace HWM:  %6.1fKB",
+                               minimum_desired_capacity / (double) K,
+                               expand_bytes / (double) K,
+                               MinMetaspaceExpansion / (double) K,
+                               new_capacity_until_GC / (double) K);
+    }
+    return;
+  }
+
+  // No expansion, now see if we want to shrink
+  // We would never want to shrink more than this
+  assert(capacity_until_GC >= minimum_desired_capacity,
+         SIZE_FORMAT " >= " SIZE_FORMAT,
+         capacity_until_GC, minimum_desired_capacity);
+  size_t max_shrink_bytes = capacity_until_GC - minimum_desired_capacity;
+
+  // Should shrinking be considered?
+  if (MaxMetaspaceFreeRatio < 100) {
+    const double maximum_free_percentage = MaxMetaspaceFreeRatio / 100.0;
+    const double minimum_used_percentage = 1.0 - maximum_free_percentage;
+    const double max_tmp = used_after_gc / minimum_used_percentage;
+    size_t maximum_desired_capacity = (size_t)MIN2(max_tmp, double(max_uintx));
+    maximum_desired_capacity = MAX2(maximum_desired_capacity,
+                                    MetaspaceSize);
+    log_trace(gc, metaspace)("    maximum_free_percentage: %6.2f  minimum_used_percentage: %6.2f",
+                             maximum_free_percentage, minimum_used_percentage);
+    log_trace(gc, metaspace)("    minimum_desired_capacity: %6.1fKB  maximum_desired_capacity: %6.1fKB",
+                             minimum_desired_capacity / (double) K, maximum_desired_capacity / (double) K);
+
+    assert(minimum_desired_capacity <= maximum_desired_capacity,
+           "sanity check");
+
+    if (capacity_until_GC > maximum_desired_capacity) {
+      // Capacity too large, compute shrinking size
+      shrink_bytes = capacity_until_GC - maximum_desired_capacity;
+      shrink_bytes = shrink_bytes / 100 * current_shrink_factor;
+
+      shrink_bytes = align_down(shrink_bytes, Metaspace::commit_alignment());
+
+      assert(shrink_bytes <= max_shrink_bytes,
+             "invalid shrink size " SIZE_FORMAT " not <= " SIZE_FORMAT,
+             shrink_bytes, max_shrink_bytes);
+      if (current_shrink_factor == 0) {
+        _shrink_factor = 10;
+      } else {
+        _shrink_factor = MIN2(current_shrink_factor * 4, (uint) 100);
+      }
+      log_trace(gc, metaspace)("    shrinking:  initThreshold: %.1fK  maximum_desired_capacity: %.1fK",
+                               MetaspaceSize / (double) K, maximum_desired_capacity / (double) K);
+      log_trace(gc, metaspace)("    shrink_bytes: %.1fK  current_shrink_factor: %d  new shrink factor: %d  MinMetaspaceExpansion: %.1fK",
+                               shrink_bytes / (double) K, current_shrink_factor, _shrink_factor, MinMetaspaceExpansion / (double) K);
+    }
+  }
+
+  // Don't shrink unless it's significant
+  if (shrink_bytes >= MinMetaspaceExpansion &&
+      ((capacity_until_GC - shrink_bytes) >= MetaspaceSize)) {
+    size_t new_capacity_until_GC = MetaspaceGC::dec_capacity_until_GC(shrink_bytes);
+    Metaspace::tracer()->report_gc_threshold(capacity_until_GC,
+                                             new_capacity_until_GC,
+                                             MetaspaceGCThresholdUpdater::ComputeNewSize);
+  }
+}
+```
+由场景一可知，为了避免弹性伸缩带来的额外 GC 消耗，我们会将 -XX:MetaSpaceSize 和 -XX:MaxMetaSpaceSize 两个值设置为固定的，但是这样也会导致在空间不够的时候无法扩容，然后频繁地触发 GC，最终 OOM。所以关键原因就是 ClassLoader 不停地在内存中 load 了新的 Class ，一般这种问题都发生在动态类加载等情况上。
+#### 12.4.3.3 策略
+了解大概什么原因后，如何定位和解决就很简单了，可以 dump 快照之后通过 JProfiler 或 MAT 观察 Classes 的 Histogram（直方图） 即可，或者直接通过命令即可定位， jcmd 打几次 Histogram 的图，看一下具体是哪个包下的 Class 增加较多就可以定位了。不过有时候也要结合InstBytes、KlassBytes、Bytecodes、MethodAll 等几项指标综合来看下。如下图便是笔者使用 jcmd 排查到一个 Orika 的问题。
+```sh
+jcmd <PID> GC.class_stats|awk '{print$13}'|sed  's/\(.*\)\.\(.*\)/\1/g'|sort |uniq -c|sort -nrk1
+```
+![jcmd](../assets/images/03-JVM/92.jcmd.png)
+
+如果无法从整体的角度定位，可以添加 -XX:+TraceClassLoading 和 -XX:+TraceClassUnLoading 参数观察详细的类加载和卸载信息。
+#### 12.4.3.4 小结
+原理理解比较复杂，但定位和解决问题会比较简单，经常会出问题的几个点有 Orika 的 classMap、JSON 的 ASMSerializer、Groovy 动态加载类等，基本都集中在反射、Javasisit 字节码增强、CGLIB 动态代理、OSGi 自定义类加载器等的技术点上。另外就是及时给 MetaSpace 区的使用率加一个监控，如果指标有波动提前发现并解决问题。
+#### 12.4.3.5 补充(元空间因为ClassLoader未释放导致的无法回收)
+##### **1. 元空间垃圾回收（Metaspace GC）与类卸载**
+
+元空间本身是会进行垃圾回收的。当满足特定条件时，JVM 会进行 **Full GC**，其中就包括对元空间的清理（即卸载不再使用的类）。但这个过程非常苛刻。
+
+一个类要被卸载，必须同时满足以下三个条件：
+1.  **该类的所有实例都已被回收**（堆中不存在任何该类的实例对象）。
+2.  **加载该类的 `ClassLoader` 实例已被回收**。
+3.  **该类对应的 `java.lang.Class` 对象没有被任何地方引用**（例如通过反射）。
+
+这三个条件中，**第2条——“ClassLoader 被回收”——是最大的瓶颈。**
+
+---
+
+##### **2. 为什么 ClassLoader 会“一直存在”？**
+
+在很多应用场景下，ClassLoader 的生命周期与应用程序的生命周期是绑定的，导致其无法被回收。常见情况包括：
+
+###### **a) 应用服务器（如 Tomcat, Jetty）的热部署/热加载**
+- 每次重新部署应用时，服务器通常会创建一个新的 **WebApp ClassLoader** 来加载新版本的应用类。
+- 理想情况下，旧的 ClassLoader 应该随着旧应用的卸载而被回收。
+- **但问题在于**：如果应用程序代码中存在**内存泄漏**（例如，有全局静态集合类持有了由旧 ClassLoader 加载的对象的引用），就会导致旧的 ClassLoader 无法被 GC 回收。
+- 这样，每次热部署都会留下一个“僵尸”ClassLoader 以及它加载的所有类元数据，最终撑爆元空间，导致 `OutOfMemoryError: Metaspace`。
+
+###### **b) 使用动态字节码技术（如 CGLib, Javassist）**
+- 框架（如 Spring AOP、Hibernate）会动态生成代理类。这些代理类通常由框架自己创建的 ClassLoader 加载。
+- 如果框架没有正确管理这些 ClassLoader 的生命周期，或者生成的代理类被长期引用，同样会导致 ClassLoader 无法被回收。
+
+###### **c) 线程上下文类加载器（Thread Context ClassLoader）使用不当**
+- 如果某个长期存活的线程（如线程池中的线程）的上下文类加载器被设置为一个自定义的 ClassLoader，而这个 ClassLoader 加载的类又被该线程间接引用，也会阻止其被回收。
+
+---
+
+##### **3. 如何诊断和避免？**
+
+###### **诊断工具：**
+- 使用 **JVisualVM** 或 **JProfiler** 等工具，安装插件（如 `VisualGC`）来监控 **Metaspace** 的使用情况，观察其是否只增不减。
+- 使用命令行工具 `jmap -clstats <pid>` 来查看当前 JVM 中所有的 ClassLoader 及其统计信息，判断是否有大量同类型的 ClassLoader 累积。
+
+###### **避免措施：**
+1.  **合理设置元空间大小**：通过 JVM 参数 `-XX:MaxMetaspaceSize` 设置一个上限，避免无限扩张耗尽系统内存。
+2.  **监控和代码审查**：在频繁热部署的环境下，密切关注元空间增长。检查代码中是否存在静态集合、缓存等可能持有类或对象引用的地方。
+3.  **框架选择**：选择那些对 ClassLoader 生命周期管理良好的框架和库。
+
+---
+
+##### **总结**
+
+您可以这样理解这个链条：
+
+**应用程序内存泄漏（如静态集合持有对象） → 对象所属的 ClassLoader 无法被回收 → 该 ClassLoader 加载的所有类都无法被卸载 → 这些类的元数据永久占据元空间 → 多次部署后，元空间被撑爆。**
 
 
 
