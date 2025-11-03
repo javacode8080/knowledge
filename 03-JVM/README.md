@@ -4611,325 +4611,1874 @@ jcmd <PID> GC.class_stats|awk '{print$13}'|sed  's/\(.*\)\.\(.*\)/\1/g'|sort |un
 您可以这样理解这个链条：
 
 **应用程序内存泄漏（如静态集合持有对象） → 对象所属的 ClassLoader 无法被回收 → 该 ClassLoader 加载的所有类都无法被卸载 → 这些类的元数据永久占据元空间 → 多次部署后，元空间被撑爆。**
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+### 12.4.4 场景四：过早晋升 *
+#### 12.4.4.1 现象
+这种场景主要发生在分代的收集器上面，专业的术语称为“Premature Promotion”。90% 的对象朝生夕死，只有在 Young 区经历过几次 GC 的洗礼后才会晋升到 Old 区，每经历一次 GC 对象的 GC Age 就会增长 1，最大通过 `-XX:MaxTenuringThreshold`来控制。
+
+过早晋升一般不会直接影响 GC，总会伴随着浮动垃圾、大对象担保失败等问题，但这些问题不是立刻发生的，我们可以观察以下几种现象来判断是否发生了过早晋升。
+
+分配速率接近于晋升速率，对象晋升年龄较小。
+
+GC 日志中出现`“Desired survivor size 107347968 bytes, new threshold 1(max 6)”`等信息，说明此时经历过一次 GC 就会放到 Old 区。
+
+**Full GC 比较频繁**，且经历过一次 GC 之后 Old 区的变化比例非常大。
+
+比如说 Old 区触发的回收阈值是 80%，经历过一次 GC 之后下降到了 10%，这就说明 Old 区的 70% 的对象存活时间其实很短，如下图所示，Old 区大小每次 GC 后从 2.1G 回收到 300M，也就是说回收掉了 1.8G 的垃圾，只有 300M 的活跃对象。整个 Heap 目前是 4G，活跃对象只占了不到十分之一。
+![Old区垃圾占比过大](../assets/images/03-JVM/93.Old区垃圾占比过大.png)
+
+过早晋升的危害：
+- Young GC 频繁，总的吞吐量下降。
+- Full GC 频繁，可能会有较大停顿。
+#### 12.4.4.2 原因
+主要的原因有以下两点：
+- `Young/Eden 区过小`： 过小的直接后果就是 Eden 被装满的时间变短，本应该回收的对象参与了 GC 并晋升，Young GC 采用的是复制算法，由基础篇我们知道 copying 耗时远大于 mark，也就是 Young GC 耗时本质上就是 copy 的时间（CMS 扫描 Card Table 或 G1 扫描 Remember Set 出问题的情况另说），没来及回收的对象增大了回收的代价，所以 Young GC 时间增加，同时又无法快速释放空间，Young GC 次数也跟着增加。
+- `分配速率过大`： 分配速率过大指的是**应用程序在单位时间内创建新对象的速度超过了年轻代（Young Generation）的回收能力**。可以观察出问题前后 Mutator 的分配速率，如果有明显波动可以尝试观察网卡流量、存储类中间件慢查询日志等信息，看是否有大量数据被加载到内存中。
+
+同时无法 GC 掉对象还会带来另外一个问题，引发动态年龄计算：JVM 通过 -XX:MaxTenuringThreshold 参数来控制晋升年龄，每经过一次 GC，年龄就会加一，达到最大年龄就可以进入 Old 区，最大值为 15（因为 JVM 中使用 4 个比特来表示对象的年龄）。设定固定的 MaxTenuringThreshold 值作为晋升条件：
+- `MaxTenuringThreshold` 如果设置得过大，原本应该晋升的对象一直停留在 Survivor 区，直到 Survivor 区溢出，一旦溢出发生，Eden + Survivor 中对象将不再依据年龄全部提升到 Old 区，这样对象老化的机制就失效了。
+- `MaxTenuringThreshold` 如果设置得过小，过早晋升即对象不能在 Young 区充分被回收，大量短期对象被晋升到 Old 区，Old 区空间迅速增长，引起频繁的 Major GC，分代回收失去了意义，严重影响 GC 性能。
+
+相同应用在不同时间的表现不同，特殊任务的执行或者流量成分的变化，都会导致对象的生命周期分布发生波动，那么固定的阈值设定，因为无法动态适应变化，会造成和上面问题，所以 Hotspot 会使用动态计算的方式来调整晋升的阈值。
+
+具体动态计算可以看一下 Hotspot 源码，具体在 /src/hotspot/share/gc/shared/ageTable.cpp 的 compute_tenuring_threshold方法中：
+```cpp
+uint ageTable::compute_tenuring_threshold(size_t survivor_capacity) {
+  //TargetSurvivorRatio默认50，意思是：在回收之后希望survivor区的占用率达到这个比例
+  size_t desired_survivor_size = (size_t)((((double) survivor_capacity)*TargetSurvivorRatio)/100);
+  size_t total = 0;
+  uint age = 1;
+  assert(sizes[0] == 0, "no objects with age zero should be recorded");
+  while (age < table_size) {//table_size=16
+    total += sizes[age];
+    //如果加上这个年龄的所有对象的大小之后，占用量>期望的大小，就设置age为新的晋升阈值
+    if (total > desired_survivor_size) break;
+    age++;
+  }
+
+  uint result = age < MaxTenuringThreshold ? age : MaxTenuringThreshold;
+  if (PrintTenuringDistribution || UsePerfData) {
+
+    //打印期望的survivor的大小以及新计算出来的阈值，和设置的最大阈值
+    if (PrintTenuringDistribution) {
+      gclog_or_tty->cr();
+      gclog_or_tty->print_cr("Desired survivor size " SIZE_FORMAT " bytes, new threshold %u (max %u)",
+        desired_survivor_size*oopSize, result, (int) MaxTenuringThreshold);
+    }
+
+    total = 0;
+    age = 1;
+    while (age < table_size) {
+      total += sizes[age];
+      if (sizes[age] > 0) {
+        if (PrintTenuringDistribution) {
+          gclog_or_tty->print_cr("- age %3u: " SIZE_FORMAT_W(10) " bytes, " SIZE_FORMAT_W(10) " total",
+                                        age,    sizes[age]*oopSize,          total*oopSize);
+        }
+      }
+      if (UsePerfData) {
+        _perf_sizes[age]->set_value(sizes[age]*oopSize);
+      }
+      age++;
+    }
+    if (UsePerfData) {
+      SharedHeap* sh = SharedHeap::heap();
+      CollectorPolicy* policy = sh->collector_policy();
+      GCPolicyCounters* gc_counters = policy->counters();
+      gc_counters->tenuring_threshold()->set_value(result);
+      gc_counters->desired_survivor_size()->set_value(
+        desired_survivor_size*oopSize);
+    }
+  }
+
+  return result;
+}
+```
+可以看到 Hotspot 遍历所有对象时，从所有年龄为 0 的对象占用的空间开始累加，如果加上年龄等于 n 的所有对象的空间之后，使用 Survivor 区的条件值（TargetSurvivorRatio / 100，TargetSurvivorRatio 默认值为 50）进行判断，若大于这个值则结束循环，将 n 和 MaxTenuringThreshold 比较，若 n 小，则阈值为 n，若 n 大，则只能去设置最大阈值为 MaxTenuringThreshold。**动态年龄触发后导致更多的对象进入了 Old 区，造成资源浪费。**
+#### 12.4.4.3 策略
+知道问题原因后我们就有解决的方向，如果是 Young/Eden 区过小，我们可以在总的 Heap 内存不变的情况下适当增大 Young 区，具体怎么增加？一般情况下 Old 的大小应当为活跃对象的 2~3 倍左右，考虑到浮动垃圾问题最好在 3 倍左右，剩下的都可以分给 Young 区。
+
+拿笔者的一次典型过早晋升优化来看，原配置为 Young 1.2G + Old 2.8G，通过观察 CMS GC 的情况找到存活对象大概为 300~400M，于是调整 Old 1.5G 左右，剩下 2.5G 分给 Young 区。仅仅调了一个 Young 区大小参数（-Xmn），整个 JVM 一分钟 Young GC 从 26 次降低到了 11 次，单次时间也没有增加，总的 GC 时间从 1100ms 降低到了 500ms，CMS GC 次数也从 40 分钟左右一次降低到了 7 小时 30 分钟一次。
+![GC次数减少](../assets/images/03-JVM/94.GC次数减少.png)
+如果是分配速率过大：
+- 偶发较大：通过内存分析工具找到问题代码，从业务逻辑上做一些优化。
+- 一直较大：当前的 Collector 已经不满足 Mutator 的期望了，这种情况要么扩容 Mutator 的 VM，要么调整 GC 收集器类型或加大空间。
+#### 12.4.4.4 小结
+过早晋升问题一般不会特别明显，但日积月累之后可能会爆发一波收集器退化之类的问题，所以我们还是要提前避免掉的，可以看看自己系统里面是否有这些现象，如果比较匹配的话，可以尝试优化一下。一行代码优化的 ROI 还是很高的。
+
+如果在观察 Old 区前后比例变化的过程中，发现可以回收的比例非常小，如从 80% 只回收到了 60%，说明我们大部分对象都是存活的，Old 区的空间可以适当调大些。
+#### 12.4.4.5 加餐
+关于在调整 Young 与 Old 的比例时，如何选取具体的 NewRatio 值，这里将问题抽象成为一个蓄水池模型，找到以下关键衡量指标，大家可以根据自己场景进行推算。
+![蓄水池模型](../assets/images/03-JVM/95.蓄水池模型.png)
+![蓄水池模型计算公式](../assets/images/03-JVM/96.蓄水池模型计算公式.png)
+- NewRatio 的值 r 与 va、vp、vyc、voc、rs 等值存在一定函数相关性（rs 越小 r 越大、r 越小 vp 越小，…，之前尝试使用 NN 来辅助建模，但目前还没有完全算出具体的公式，有想法的同学可以在评论区给出你的答案）。
+- 总停顿时间 T 为 Young GC 总时间 Tyc 和 Old GC 总时间 Toc 之和，其中 Tyc 与 vyc 和 vp 相关，Toc 与 voc相关。
+- 忽略掉 GC 时间后，两次 Young GC 的时间间隔要大于 TP9999 时间，这样尽量让对象在 Eden 区就被回收，可以减少很多停顿。
+### 12.4.5 场景五：CMS Old GC 频繁*
+#### 12.4.5.1 现象
+Old 区频繁的做 CMS GC，但是每次耗时不是特别长，整体最大 STW 也在可接受范围内，但由于 GC 太频繁导致吞吐下降比较多。
+#### 12.4.5.2 原因
+这种情况比较常见，基本都是一次 Young GC 完成后，负责处理 CMS GC 的一个后台线程 concurrentMarkSweepThread 会不断地轮询，使用 shouldConcurrentCollect() 方法做一次检测，判断是否达到了回收条件。如果达到条件，使用 collect_in_background() 启动一次 Background 模式 GC。轮询的判断是使用 sleepBeforeNextCycle() 方法，间隔周期为 -XX:CMSWaitDuration 决定，默认为2s。
+
+具体代码在： src/hotspot/share/gc/cms/concurrentMarkSweepThread.cpp。
+```cpp
+void ConcurrentMarkSweepThread::run_service() {
+  assert(this == cmst(), "just checking");
+
+  if (BindCMSThreadToCPU && !os::bind_to_processor(CPUForCMSThread)) {
+    log_warning(gc)("Couldn't bind CMS thread to processor " UINTX_FORMAT, CPUForCMSThread);
+  }
+
+  while (!should_terminate()) {
+    sleepBeforeNextCycle();
+    if (should_terminate()) break;
+    GCIdMark gc_id_mark;
+    GCCause::Cause cause = _collector->_full_gc_requested ?
+      _collector->_full_gc_cause : GCCause::_cms_concurrent_mark;
+    _collector->collect_in_background(cause);
+  }
+  verify_ok_to_terminate();
+}
+void ConcurrentMarkSweepThread::sleepBeforeNextCycle() {
+  while (!should_terminate()) {
+    if(CMSWaitDuration >= 0) {
+      // Wait until the next synchronous GC, a concurrent full gc
+      // request or a timeout, whichever is earlier.
+      wait_on_cms_lock_for_scavenge(CMSWaitDuration);
+    } else {
+      // Wait until any cms_lock event or check interval not to call shouldConcurrentCollect permanently
+      wait_on_cms_lock(CMSCheckInterval);
+    }
+    // Check if we should start a CMS collection cycle
+    if (_collector->shouldConcurrentCollect()) {
+      return;
+    }
+    // .. collection criterion not yet met, let's go back
+    // and wait some more
+  }
+}
+```
+判断是否进行回收的代码在：/src/hotspot/share/gc/cms/concurrentMarkSweepGeneration.cpp。
+```cpp
+bool CMSCollector::shouldConcurrentCollect() {
+  LogTarget(Trace, gc) log;
+
+  if (_full_gc_requested) {
+    log.print("CMSCollector: collect because of explicit  gc request (or GCLocker)");
+    return true;
+  }
+
+  FreelistLocker x(this);
+  // ------------------------------------------------------------------
+  // Print out lots of information which affects the initiation of
+  // a collection.
+  if (log.is_enabled() && stats().valid()) {
+    log.print("CMSCollector shouldConcurrentCollect: ");
+
+    LogStream out(log);
+    stats().print_on(&out);
+
+    log.print("time_until_cms_gen_full %3.7f", stats().time_until_cms_gen_full());
+    log.print("free=" SIZE_FORMAT, _cmsGen->free());
+    log.print("contiguous_available=" SIZE_FORMAT, _cmsGen->contiguous_available());
+    log.print("promotion_rate=%g", stats().promotion_rate());
+    log.print("cms_allocation_rate=%g", stats().cms_allocation_rate());
+    log.print("occupancy=%3.7f", _cmsGen->occupancy());
+    log.print("initiatingOccupancy=%3.7f", _cmsGen->initiating_occupancy());
+    log.print("cms_time_since_begin=%3.7f", stats().cms_time_since_begin());
+    log.print("cms_time_since_end=%3.7f", stats().cms_time_since_end());
+    log.print("metadata initialized %d", MetaspaceGC::should_concurrent_collect());
+  }
+  // ------------------------------------------------------------------
+  if (!UseCMSInitiatingOccupancyOnly) {
+    if (stats().valid()) {
+      if (stats().time_until_cms_start() == 0.0) {
+        return true;
+      }
+    } else {
+  
+      if (_cmsGen->occupancy() >= _bootstrap_occupancy) {
+        log.print(" CMSCollector: collect for bootstrapping statistics: occupancy = %f, boot occupancy = %f",
+                  _cmsGen->occupancy(), _bootstrap_occupancy);
+        return true;
+      }
+    }
+  }
+
+  if (_cmsGen->should_concurrent_collect()) {
+    log.print("CMS old gen initiated");
+    return true;
+  }
+
+  // We start a collection if we believe an incremental collection may fail;
+  // this is not likely to be productive in practice because it's probably too
+  // late anyway.
+  CMSHeap* heap = CMSHeap::heap();
+  if (heap->incremental_collection_will_fail(true /* consult_young */)) {
+    log.print("CMSCollector: collect because incremental collection will fail ");
+    return true;
+  }
+
+  if (MetaspaceGC::should_concurrent_collect()) {
+    log.print("CMSCollector: collect for metadata allocation ");
+    return true;
+  }
+
+  // CMSTriggerInterval starts a CMS cycle if enough time has passed.
+  if (CMSTriggerInterval >= 0) {
+    if (CMSTriggerInterval == 0) {
+      // Trigger always
+      return true;
+    }
+
+    // Check the CMS time since begin (we do not check the stats validity
+    // as we want to be able to trigger the first CMS cycle as well)
+    if (stats().cms_time_since_begin() >= (CMSTriggerInterval / ((double) MILLIUNITS))) {
+      if (stats().valid()) {
+        log.print("CMSCollector: collect because of trigger interval (time since last begin %3.7f secs)",
+                  stats().cms_time_since_begin());
+      } else {
+        log.print("CMSCollector: collect because of trigger interval (first collection)");
+      }
+      return true;
+    }
+  }
+
+  return false;
+}
+```
+分析其中逻辑判断是否触发 GC，分为以下几种情况：
+- `触发 CMS GC`： 通过调用 _collector->collect_in_background() 进行触发 Background GC 。
+  - CMS 默认采用 JVM 运行时的统计数据判断是否需要触发 CMS GC，如果需要根据 -XX:CMSInitiatingOccupancyFraction 的值进行判断，需要设置参数 -XX:+UseCMSInitiatingOccupancyOnly。
+  - 如果开启了 -XX:UseCMSInitiatingOccupancyOnly 参数，判断当前 Old 区使用率是否大于阈值，则触发 CMS GC，该阈值可以通过参数 -XX:CMSInitiatingOccupancyFraction 进行设置，如果没有设置，默认为 92%。
+  - 如果之前的 Young GC 失败过，或者下次 Young 区执行 Young GC 可能失败，这两种情况下都需要触发 CMS GC。
+  - CMS 默认不会对 MetaSpace 或 Perm 进行垃圾收集，如果希望对这些区域进行垃圾收集，需要设置参数 -XX:+CMSClassUnloadingEnabled。
+- `触发 Full GC`： 直接进行 Full GC，这种情况到场景七中展开说明。
+  - 如果 _full_gc_requested 为真，说明有明确的需求要进行 GC，比如调用 System.gc。
+  - 在 Eden 区为对象或 TLAB 分配内存失败，导致一次 Young GC，在 GenCollectorPolicy 类的 satisfy_failed_allocation() 方法中进行判断。
+
+大家可以看一下源码中的日志打印，通过日志我们就可以比较清楚地知道具体的原因，然后就可以着手分析了。
+#### 12.4.5.3 策略
+我们这里还是拿最常见的达到回收比例这个场景来说，与过早晋升不同的是这些对象确实存活了一段时间，Survival Time 超过了 TP9999 时间，但是又达不到长期存活，如各种数据库、网络链接，带有失效时间的缓存等。
+
+处理这种常规内存泄漏问题基本是一个思路，主要步骤如下：
+![常规内存泄漏问题处理思路](../assets/images/03-JVM/97.常规内存泄漏问题处理思路.jpg)
+
+Dump Diff 和 Leak Suspects 比较直观就不介绍了，这里说下其它几个关键点：
+
+- `内存 Dump`： 使用 jmap、arthas 等 dump 堆进行快照时记得摘掉流量，同时分别在 CMS GC 的发生前后分别 dump 一次。
+- `分析 Top Component`： 要记得按照对象、类、类加载器、包等多个维度观察 Histogram，同时使用 outgoing 和 incoming 分析关联的对象，另外就是 Soft Reference 和 Weak Reference、Finalizer 等也要看一下。
+- `分析 Unreachable`： 重点看一下这个，关注下 Shallow 和 Retained 的大小。如下图所示，笔者之前一次 GC 优化，就根据 Unreachable Objects 发现了 Hystrix 的滑动窗口问题。
+#### 12.4.5.4 小结
+经过整个流程下来基本就能定位问题了，不过在优化的过程中记得使用控制变量的方法来优化，防止一些会加剧问题的改动被掩盖。
+
+### 12.4.6 场景六：单次 CMS Old GC 耗时长*
+#### 12.4.3.1 现象
+CMS GC 单次 STW 最大超过 1000ms，不会频繁发生，如下图所示最长达到了 8000ms。某些场景下会引起“雪崩效应”，这种场景非常危险，我们应该尽量避免出现。
+![单次CMSOldGC耗时长](../assets/images/03-JVM/98.单次CMSOldGC耗时长.jpg)
+#### 12.4.3.2 原因
+CMS 在回收的过程中，STW 的阶段主要是 Init Mark 和 Final Remark 这两个阶段，也是导致 CMS Old GC 最多的原因，另外有些情况就是在 STW 前等待 Mutator 的线程到达 SafePoint 也会导致时间过长，但这种情况较少，我们在此处主要讨论前者。发生收集器退化或者碎片压缩的场景请看场景七。
+
+想要知道这两个阶段为什么会耗时，我们需要先看一下这两个阶段都会干什么。
+
+核心代码都在 /src/hotspot/share/gc/cms/concurrentMarkSweepGeneration.cpp 中，内部有个线程 ConcurrentMarkSweepThread 轮询来校验，Old 区的垃圾回收相关细节被完全封装在 CMSCollector 中，调用入口就是 ConcurrentMarkSweepThread 调用的 CMSCollector::collect_in_background 和 ConcurrentMarkSweepGeneration 调用的 CMSCollector::collect 方法，此处我们讨论大多数场景的 collect_in_background。整个过程中会 STW 的主要是 initial Mark 和 Final Remark，核心代码在 VM_CMS_Initial_Mark / VM_CMS_Final_Remark 中，执行时需要将执行权交由 VMThread 来执行。
+- CMS Init Mark执行步骤，实现在 CMSCollector::checkpointRootsInitialWork() 和 CMSParInitialMarkTask::work 中，整体步骤和代码如下：
+```cpp
+void CMSCollector::checkpointRootsInitialWork() {
+  assert(SafepointSynchronize::is_at_safepoint(), "world should be stopped");
+  assert(_collectorState == InitialMarking, "just checking");
+
+  // Already have locks.
+  assert_lock_strong(bitMapLock());
+  assert(_markBitMap.isAllClear(), "was reset at end of previous cycle");
+
+  // Setup the verification and class unloading state for this
+  // CMS collection cycle.
+  setup_cms_unloading_and_verification_state();
+
+  GCTraceTime(Trace, gc, phases) ts("checkpointRootsInitialWork", _gc_timer_cm);
+
+  // Reset all the PLAB chunk arrays if necessary.
+  if (_survivor_plab_array != NULL && !CMSPLABRecordAlways) {
+    reset_survivor_plab_arrays();
+  }
+
+  ResourceMark rm;
+  HandleMark  hm;
+
+  MarkRefsIntoClosure notOlder(_span, &_markBitMap);
+  CMSHeap* heap = CMSHeap::heap();
+
+  verify_work_stacks_empty();
+  verify_overflow_empty();
+
+  heap->ensure_parsability(false);  // fill TLABs, but no need to retire them
+  // Update the saved marks which may affect the root scans.
+  heap->save_marks();
+
+  // weak reference processing has not started yet.
+  ref_processor()->set_enqueuing_is_done(false);
+
+  // Need to remember all newly created CLDs,
+  // so that we can guarantee that the remark finds them.
+  ClassLoaderDataGraph::remember_new_clds(true);
+
+  // Whenever a CLD is found, it will be claimed before proceeding to mark
+  // the klasses. The claimed marks need to be cleared before marking starts.
+  ClassLoaderDataGraph::clear_claimed_marks();
+
+  print_eden_and_survivor_chunk_arrays();
+
+  {
+    if (CMSParallelInitialMarkEnabled) {
+      // The parallel version.
+      WorkGang* workers = heap->workers();
+      assert(workers != NULL, "Need parallel worker threads.");
+      uint n_workers = workers->active_workers();
+
+      StrongRootsScope srs(n_workers);
+
+      CMSParInitialMarkTask tsk(this, &srs, n_workers);
+      initialize_sequential_subtasks_for_young_gen_rescan(n_workers);
+      // If the total workers is greater than 1, then multiple workers
+      // may be used at some time and the initialization has been set
+      // such that the single threaded path cannot be used.
+      if (workers->total_workers() > 1) {
+        workers->run_task(&tsk);
+      } else {
+        tsk.work(0);
+      }
+    } else {
+      // The serial version.
+      CLDToOopClosure cld_closure(&notOlder, true);
+      heap->rem_set()->prepare_for_younger_refs_iterate(false); // Not parallel.
+
+      StrongRootsScope srs(1);
+
+      heap->cms_process_roots(&srs,
+                             true,   // young gen as roots
+                             GenCollectedHeap::ScanningOption(roots_scanning_options()),
+                             should_unload_classes(),
+                             &notOlder,
+                             &cld_closure);
+    }
+  }
+
+  // Clear mod-union table; it will be dirtied in the prologue of
+  // CMS generation per each young generation collection.
+  assert(_modUnionTable.isAllClear(),
+       "Was cleared in most recent final checkpoint phase"
+       " or no bits are set in the gc_prologue before the start of the next "
+       "subsequent marking phase.");
+
+  assert(_ct->cld_rem_set()->mod_union_is_clear(), "Must be");
+  // Save the end of the used_region of the constituent generations
+  // to be used to limit the extent of sweep in each generation.
+  save_sweep_limits();
+  verify_overflow_empty();
+}
+void CMSParInitialMarkTask::work(uint worker_id) {
+  elapsedTimer _timer;
+  ResourceMark rm;
+  HandleMark   hm;
+
+  // ---------- scan from roots --------------
+  _timer.start();
+  CMSHeap* heap = CMSHeap::heap();
+  ParMarkRefsIntoClosure par_mri_cl(_collector->_span, &(_collector->_markBitMap));
+
+  // ---------- young gen roots --------------
+  {
+    work_on_young_gen_roots(&par_mri_cl);
+    _timer.stop();
+    log_trace(gc, task)("Finished young gen initial mark scan work in %dth thread: %3.3f sec", worker_id, _timer.seconds());
+  }
+
+  // ---------- remaining roots --------------
+  _timer.reset();
+  _timer.start();
+
+  CLDToOopClosure cld_closure(&par_mri_cl, true);
+
+  heap->cms_process_roots(_strong_roots_scope,
+                          false,     // yg was scanned above
+                          GenCollectedHeap::ScanningOption(_collector->CMSCollector::roots_scanning_options()),
+                          _collector->should_unload_classes(),
+                          &par_mri_cl,
+                          &cld_closure,
+                          &_par_state_string);
+
+  assert(_collector->should_unload_classes()
+         || (_collector->CMSCollector::roots_scanning_options() & GenCollectedHeap::SO_AllCodeCache),
+         "if we didn't scan the code cache, we have to be ready to drop nmethods with expired weak oops");
+  _timer.stop();
+  log_trace(gc, task)("Finished remaining root initial mark scan work in %dth thread: %3.3f sec", worker_id, _timer.seconds());
+}
+```
+![CMS初始标记](../assets/images/03-JVM/99.CMS初始标记.jpg)
+
+整个过程比较简单，从 GC Root 出发标记 Old 中的对象，处理完成后借助 BitMap 处理下 Young 区对 Old 区的引用，整个过程基本都比较快，很少会有较大的停顿。
+- CMS Final Remark 执行步骤，实现在 CMSCollector::checkpointRootsFinalWork() 中，整体代码和步骤如下：
+```cpp
+void CMSCollector::checkpointRootsFinalWork() {
+  GCTraceTime(Trace, gc, phases) tm("checkpointRootsFinalWork", _gc_timer_cm);
+
+  assert(haveFreelistLocks(), "must have free list locks");
+  assert_lock_strong(bitMapLock());
+
+  ResourceMark rm;
+  HandleMark   hm;
+
+  CMSHeap* heap = CMSHeap::heap();
+
+  if (should_unload_classes()) {
+    CodeCache::gc_prologue();
+  }
+  assert(haveFreelistLocks(), "must have free list locks");
+  assert_lock_strong(bitMapLock());
+
+  heap->ensure_parsability(false);  // fill TLAB's, but no need to retire them
+  // Update the saved marks which may affect the root scans.
+  heap->save_marks();
+
+  print_eden_and_survivor_chunk_arrays();
+
+  {
+    if (CMSParallelRemarkEnabled) {
+      GCTraceTime(Debug, gc, phases) t("Rescan (parallel)", _gc_timer_cm);
+      do_remark_parallel();
+    } else {
+      GCTraceTime(Debug, gc, phases) t("Rescan (non-parallel)", _gc_timer_cm);
+      do_remark_non_parallel();
+    }
+  }
+  verify_work_stacks_empty();
+  verify_overflow_empty();
+
+  {
+    GCTraceTime(Trace, gc, phases) ts("refProcessingWork", _gc_timer_cm);
+    refProcessingWork();
+  }
+  verify_work_stacks_empty();
+  verify_overflow_empty();
+
+  if (should_unload_classes()) {
+    CodeCache::gc_epilogue();
+  }
+  JvmtiExport::gc_epilogue();
+  assert(_markStack.isEmpty(), "No grey objects");
+  size_t ser_ovflw = _ser_pmc_remark_ovflw + _ser_pmc_preclean_ovflw +
+                     _ser_kac_ovflw        + _ser_kac_preclean_ovflw;
+  if (ser_ovflw > 0) {
+    log_trace(gc)("Marking stack overflow (benign) (pmc_pc=" SIZE_FORMAT ", pmc_rm=" SIZE_FORMAT ", kac=" SIZE_FORMAT ", kac_preclean=" SIZE_FORMAT ")",
+                         _ser_pmc_preclean_ovflw, _ser_pmc_remark_ovflw, _ser_kac_ovflw, _ser_kac_preclean_ovflw);
+    _markStack.expand();
+    _ser_pmc_remark_ovflw = 0;
+    _ser_pmc_preclean_ovflw = 0;
+    _ser_kac_preclean_ovflw = 0;
+    _ser_kac_ovflw = 0;
+  }
+  if (_par_pmc_remark_ovflw > 0 || _par_kac_ovflw > 0) {
+     log_trace(gc)("Work queue overflow (benign) (pmc_rm=" SIZE_FORMAT ", kac=" SIZE_FORMAT ")",
+                          _par_pmc_remark_ovflw, _par_kac_ovflw);
+     _par_pmc_remark_ovflw = 0;
+    _par_kac_ovflw = 0;
+  }
+   if (_markStack._hit_limit > 0) {
+     log_trace(gc)(" (benign) Hit max stack size limit (" SIZE_FORMAT ")",
+                          _markStack._hit_limit);
+   }
+   if (_markStack._failed_double > 0) {
+     log_trace(gc)(" (benign) Failed stack doubling (" SIZE_FORMAT "), current capacity " SIZE_FORMAT,
+                          _markStack._failed_double, _markStack.capacity());
+   }
+  _markStack._hit_limit = 0;
+  _markStack._failed_double = 0;
+
+  if ((VerifyAfterGC || VerifyDuringGC) &&
+      CMSHeap::heap()->total_collections() >= VerifyGCStartAt) {
+    verify_after_remark();
+  }
+
+  _gc_tracer_cm->report_object_count_after_gc(&_is_alive_closure);
+
+  // Change under the freelistLocks.
+  _collectorState = Sweeping;
+  // Call isAllClear() under bitMapLock
+  assert(_modUnionTable.isAllClear(),
+      "Should be clear by end of the final marking");
+  assert(_ct->cld_rem_set()->mod_union_is_clear(),
+      "Should be clear by end of the final marking");
+}
+```
+![CMS最终标记](../assets/images/03-JVM/100.CMS最终标记.jpg)
+
+Final Remark 是最终的第二次标记，这种情况只有在 Background GC 执行了 InitialMarking 步骤的情形下才会执行，如果是 Foreground GC 执行的 InitialMarking 步骤则不需要再次执行 FinalRemark。Final Remark 的开始阶段与 Init Mark 处理的流程相同，但是后续多了 Card Table 遍历、Reference 实例的清理并将其加入到 Reference 维护的 pend_list 中，如果要收集元数据信息，还要清理 SystemDictionary、CodeCache、SymbolTable、StringTable 等组件中不再使用的资源。
+#### 12.4.6.3 策略
+知道了两个 STW 过程执行流程，我们分析解决就比较简单了，由于大部分问题都出在 Final Remark 过程，这里我们也拿这个场景来举例，主要步骤：
+
++ **【方向】** 观察详细 GC 日志，找到出问题时 Final Remark 日志，分析下 Reference 处理和元数据处理 real 耗时是否正常，详细信息需要通过 -XX:+PrintReferenceGC 参数开启。基本在日志里面就能定位到大概是哪个方向出了问题，耗时超过 10% 的就需要关注。
+```sh
+2019-02-27T19:55:37.920+0800: 516952.915: [GC (CMS Final Remark) 516952.915: [ParNew516952.939: [SoftReference, 0 refs, 0.0003857 secs]516952.939: [WeakReference, 1362 refs, 0.0002415 secs]516952.940: [FinalReference, 146 refs, 0.0001233 secs]516952.940: [PhantomReference, 0 refs, 57 refs, 0.0002369 secs]516952.940: [JNI Weak Reference, 0.0000662 secs]
+[class unloading, 0.1770490 secs]516953.329: [scrub symbol table, 0.0442567 secs]516953.373: [scrub string table, 0.0036072 secs][1 CMS-remark: 1638504K(2048000K)] 1667558K(4352000K), 0.5269311 secs] [Times: user=1.20 sys=0.03, real=0.53 secs]
+```
++ **【根因】** 有了具体的方向我们就可以进行深入的分析，一般来说最容易出问题的地方就是 Reference 中的 FinalReference 和元数据信息处理中的 scrub symbol table 两个阶段，想要找到具体问题代码就需要内存分析工具 MAT 或 JProfiler 了，注意要 dump 即将开始 CMS GC 的堆。在用 MAT 等工具前也可以先用命令行看下对象 Histogram，有可能直接就能定位问题。
+  - 对 FinalReference 的分析主要观察 java.lang.ref.Finalizer 对象的 dominator tree，找到泄漏的来源。经常会出现问题的几个点有 Socket 的 SocksSocketImpl 、Jersey 的 ClientRuntime、MySQL 的 ConnectionImpl 等等。
+  - scrub symbol table 表示清理元数据符号引用耗时，符号引用是 Java 代码被编译成字节码时，方法在 JVM 中的表现形式，生命周期一般与 Class 一致，当 _should_unload_classes 被设置为 true 时在 CMSCollector::refProcessingWork() 中与 Class Unload、String Table 一起被处理。
+```cpp
+if (should_unload_classes()) {
+    {
+      GCTraceTime(Debug, gc, phases) t("Class Unloading", _gc_timer_cm);
+
+      // Unload classes and purge the SystemDictionary.
+      bool purged_class = SystemDictionary::do_unloading(_gc_timer_cm);
+
+      // Unload nmethods.
+      CodeCache::do_unloading(&_is_alive_closure, purged_class);
+
+      // Prune dead klasses from subklass/sibling/implementor lists.
+      Klass::clean_weak_klass_links(purged_class);
+    }
+
+    {
+      GCTraceTime(Debug, gc, phases) t("Scrub Symbol Table", _gc_timer_cm);
+      // Clean up unreferenced symbols in symbol table.
+      SymbolTable::unlink();
+    }
+
+    {
+      GCTraceTime(Debug, gc, phases) t("Scrub String Table", _gc_timer_cm);
+      // Delete entries for dead interned strings.
+      StringTable::unlink(&_is_alive_closure);
+    }
+  }
+```
++ **【策略】** 知道 GC 耗时的根因就比较好处理了，这种问题不会大面积同时爆发，不过有很多时候单台 STW 的时间会比较长，如果业务影响比较大，及时摘掉流量，具体后续优化策略如下：
+- `FinalReference`：找到内存来源后通过优化代码的方式来解决，如果短时间无法定位可以增加 -XX:+ParallelRefProcEnabled 对 Reference 进行并行处理。
+- `symbol table`：观察 MetaSpace 区的历史使用峰值，以及每次 GC 前后的回收情况，一般没有使用动态类加载或者 DSL 处理等，MetaSpace 的使用率上不会有什么变化，这种情况可以通过 -XX:-CMSClassUnloadingEnabled 来避免 MetaSpace 的处理，JDK8 会默认开启 CMSClassUnloadingEnabled，这会使得 CMS 在 CMS-Remark 阶段尝试进行类的卸载。
+#### 12.4.6.4 小结
+正常情况进行的 Background CMS GC，出现问题基本都集中在 Reference 和 Class 等元数据处理上，在 Reference 类的问题处理方面，不管是 FinalReference，还是 SoftReference、WeakReference 核心的手段就是找准时机 dump 快照，然后用内存分析工具来分析。Class 处理方面目前除了关闭类卸载开关，没有太好的方法。
+
+在 G1 中同样有 Reference 的问题，可以观察日志中的 Ref Proc，处理方法与 CMS 类似。
+### 12.4.7 场景七：内存碎片&收集器退化
+#### 12.4.7.1 现象
+并发的 CMS GC 算法，退化为 Foreground 单线程串行 GC 模式，STW 时间超长，有时会长达十几秒。其中 CMS 收集器退化后单线程串行 GC 算法有两种：
+- 带压缩动作的算法，称为 MSC，上面我们介绍过，使用标记-清理-压缩，单线程全暂停的方式，对整个堆进行垃圾收集，也就是真正意义上的 Full GC，暂停时间要长于普通 CMS。
+- 不带压缩动作的算法，收集 Old 区，和普通的 CMS 算法比较相似，暂停时间相对 MSC 算法短一些。
+#### 12.4.7.2 原因
+CMS 发生收集器退化主要有以下几种情况：
+##### 12.4.7.2.1 晋升失败（Promotion Failed）
+
+顾名思义，晋升失败就是指在进行 Young GC 时，Survivor 放不下，对象只能放入 Old，但此时 Old 也放不下。直觉上乍一看这种情况可能会经常发生，但其实因为有 concurrentMarkSweepThread 和担保机制的存在，发生的条件是很苛刻的，除非是短时间将 Old 区的剩余空间迅速填满，例如上文中说的动态年龄判断导致的过早晋升（见下文的增量收集担保失败）。另外还有一种情况就是内存碎片导致的 Promotion Failed，Young GC 以为 Old 有足够的空间，结果到分配时，晋级的大对象找不到连续的空间存放。
+
+使用 CMS 作为 GC 收集器时，运行过一段时间的 Old 区如下图所示，清除算法导致内存出现多段的不连续，出现大量的内存碎片。
+使用 CMS 作为 GC 收集器时，运行过一段时间的 Old 区如下图所示，清除算法导致内存出现多段的不连续，出现大量的内存碎片。
+![CMS老年代碎片化](../assets/images/03-JVM/101.CMS老年代碎片化.jpg)
+
+碎片带来了两个问题：
+
+- `空间分配效率较低`：上文已经提到过，如果是连续的空间 JVM 可以通过使用 pointer bumping 的方式来分配，而对于这种有大量碎片的空闲链表则需要逐个访问 freelist 中的项来访问，查找可以存放新建对象的地址。
+- `空间利用效率变低`：Young 区晋升的对象大小大于了连续空间的大小，那么将会触发 Promotion Failed ，即使整个 Old 区的容量是足够的，但由于其不连续，也无法存放新对象，也就是本文所说的问题。 增量收集担保失败
+
+分配内存失败后，会判断统计得到的 Young GC 晋升到 Old 的平均大小，以及当前 Young 区已使用的大小也就是最大可能晋升的对象大小，是否大于 Old 区的剩余空间。只要 CMS 的剩余空间比前两者的任意一者大，CMS 就认为晋升还是安全的，反之，则代表不安全，不进行Young GC，直接触发Full GC。
+
+##### 12.4.7.2.2 显式 GC
+
+这种情况参见场景二。
+
+##### 12.4.7.2.3 并发模式失败（Concurrent Mode Failure）
+
+最后一种情况，也是发生概率较高的一种，在 GC 日志中经常能看到 Concurrent Mode Failure 关键字。这种是由于并发 Background CMS GC 正在执行，同时又有 Young GC 晋升的对象要放入到了 Old 区中，而此时 Old 区空间不足造成的。为什么 CMS GC 正在执行还会导致收集器退化呢？主要是由于 CMS 无法处理浮动垃圾（Floating Garbage）引起的。CMS 的并发清理阶段，Mutator 还在运行，因此不断有新的垃圾产生，而这些垃圾不在这次清理标记的范畴里，无法在本次 GC 被清除掉，这些就是浮动垃圾，除此之外在 Remark 之前那些断开引用脱离了读写屏障控制的对象也算浮动垃圾。所以 Old 区回收的阈值不能太高，否则预留的内存空间很可能不够，从而导致 Concurrent Mode Failure 发生。
+```
+**CMS收集器退化**指的是：CMS在设计上是**并发**的低停顿收集器，旨在避免长时间的Full GC。但在某些特定条件下，CMS无法继续其并发收集过程，不得不**暂停所有应用线程（Stop-The-World）**，转而使用一种更简单、但停顿时间长得多的单线程垃圾收集方式（通常是Serial Old收集器）来清理老年代。这个“从并发模式切换到完全暂停模式”的过程，就称为“退化”。
+
+可以把CMS想象成一个边打扫客厅（垃圾回收）边招待客人（处理用户请求）的管家。退化就是突然来了太多客人，客厅马上要满了，管家不得不把所有客人请出门外暂停接待，自己快速地把客厅彻底打扫一遍。
+
+CMS退化通常发生在以下四种情况：
+
+#### 1. 并发模式失败（Concurrent Mode Failure）
+- **这是最常见、最典型的退化原因。**
+- **发生过程**：
+    1.  在CMS**并发收集周期**进行的同时，应用程序（Mutator）仍在运行并持续创建新对象。
+    2.  新对象可能直接进入老年代（如大对象），或年轻代的对象在CMS完成前就晋升到老年代。
+    3.  如果老年代剩余空间无法容纳这些新来的对象，JVM会立即中止并发收集，触发一次 **“Stop-The-World”的Full GC**。
+- **原因**：老年代分配速度太快，超过了CMS并发回收的速度。通常是因为`-XX:CMSInitiatingOccupancyFraction`（触发CMS回收的老年代使用率阈值）设置得太高，或者年轻代晋升速率过快。
+
+#### 2. 晋升失败（Promotion Failed）
+- **发生过程**：
+    1.  当发生 **Young GC** 时，需要将年轻代的存活对象晋升到老年代。
+    2.  但此时老年代**虽然有足够的剩余空间**（没有并发模式失败），但这些空间是**碎片化的**，无法找到一块连续的内存来存放这个晋升的对象。
+    3.  此时，Young GC 会被迫触发一次 Full GC 来整理老年代碎片，以便腾出连续空间。
+- **原因**：老年代内存碎片化严重。CMS是“标记-清除”算法，不进行压缩，长期运行后会产生大量内存碎片。
+
+#### 3. 担保失败（Handle Promotion Failure）
+- 这是晋升失败的一种特殊情况，与虚拟机内部的担保机制有关，现象和后果类似。
+
+#### 4. 系统执行周期性的Full GC
+- 即使没有上述失败，JVM也可能（取决于配置）定期执行Full GC来避免碎片化。例如，使用 `-XX:+UseCMSCompactAtFullCollection`（默认开启）和 `-XX:CMSFullGCsBeforeCompaction`（默认为0，即每次Full GC都压缩）时，会进行压缩整理。
+
+```
+#### 12.4.7.3 策略
+分析到具体原因后，我们就可以针对性解决了，具体思路还是从根因出发，具体解决策略：
+- `内存碎片`： 通过配置 -XX:UseCMSCompactAtFullCollection=true 来控制 Full GC的过程中是否进行空间的整理（默认开启，注意是Full GC，不是普通CMS GC），以及 -XX: CMSFullGCsBeforeCompaction=n 来控制多少次 Full GC 后进行一次压缩。
+- `增量收集`： 降低触发 CMS GC 的阈值，即参数 -XX:CMSInitiatingOccupancyFraction 的值，让 CMS GC 尽早执行，以保证有足够的连续空间，也减少 Old 区空间的使用大小，另外需要使用 -XX:+UseCMSInitiatingOccupancyOnly 来配合使用，不然 JVM 仅在第一次使用设定值，后续则自动调整。
+- `浮动垃圾`： 视情况控制每次晋升对象的大小，或者缩短每次 CMS GC 的时间，必要时可调节 NewRatio 的值。另外就是使用 -XX:+CMSScavengeBeforeRemark 在过程中提前触发一次 Young GC，防止后续晋升过多对象。
+#### 12.4.7.4 小结
+正常情况下触发并发模式的 CMS GC，停顿非常短，对业务影响很小，但 CMS GC 退化后，影响会非常大，建议发现一次后就彻底根治。只要能定位到内存碎片、浮动垃圾、增量收集相关等具体产生原因，还是比较好解决的，关于内存碎片这块，如果 -XX:CMSFullGCsBeforeCompaction 的值不好选取的话，可以使用 -XX:PrintFLSStatistics 来观察内存碎片率情况，然后再设置具体的值。
+
+最后就是在编码的时候也要避免需要连续地址空间的大对象的产生，如过长的字符串，用于存放附件、序列化或反序列化的 byte 数组等，还有就是过早晋升问题尽量在爆发问题前就避免掉。
+### 12.4.8 场景八：堆外内存 OOM
+#### 12.4.8.1 现象
+内存使用率不断上升，甚至开始使用 SWAP 内存，同时可能出现 GC 时间飙升，线程被 Block 等现象，通过 top 命令发现 Java 进程的 RES 甚至超过了 -Xmx 的大小。出现这些现象时，基本可以确定是出现了堆外内存泄漏。
+#### 12.4.8.2 原因
+JVM 的堆外内存泄漏，主要有两种的原因：
+- 通过 UnSafe#allocateMemory，ByteBuffer#allocateDirect 主动申请了堆外内存而没有释放，常见于 NIO、Netty 等相关组件。
+- 代码中有通过 JNI 调用 Native Code 申请的内存没有释放。
+#### 12.4.8.3 策略
+哪种原因造成的堆外内存泄漏？
+
+首先，我们需要确定是哪种原因导致的堆外内存泄漏。这里可以使用 <a href = 'https://docs.oracle.com/javase/8/docs/technotes/guides/troubleshoot/tooldescr007.html'>NMT</a>（NativeMemoryTracking） 进行分析。在项目中添加 -XX:NativeMemoryTracking=detail JVM参数后重启项目（需要注意的是，打开 NMT 会带来 5%~10% 的性能损耗）。使用命令 jcmd pid VM.native_memory detail 查看内存分布。重点观察 total 中的 committed，因为 jcmd 命令显示的内存包含堆内内存、Code 区域、通过 Unsafe.allocateMemory 和 DirectByteBuffer 申请的内存，但是不包含其他 Native Code（C 代码）申请的堆外内存。
+
+如果 total 中的 committed 和 top 中的 RES 相差不大，则应为主动申请的堆外内存未释放造成的，如果相差较大，则基本可以确定是 JNI 调用造成的。
+- 原因一：主动申请未释放
+
+JVM 使用 -XX:MaxDirectMemorySize=size 参数来控制可申请的堆外内存的最大值。在 Java8 中，如果未配置该参数，默认和 -Xmx 相等。
+
+NIO 和 Netty 都会取 -XX:MaxDirectMemorySize 配置的值，来限制申请的堆外内存的大小。NIO 和 Netty 中还有一个计数器字段，用来计算当前已申请的堆外内存大小，NIO 中是 java.nio.Bits#totalCapacity、Netty 中 io.netty.util.internal.PlatformDependent#DIRECT_MEMORY_COUNTER。
+
+当申请堆外内存时，NIO 和 Netty 会比较计数器字段和最大值的大小，如果计数器的值超过了最大值的限制，会抛出 OOM 的异常。
+
+NIO 中是：OutOfMemoryError: Direct buffer memory。
+
+Netty 中是：OutOfDirectMemoryError: failed to allocate capacity byte(s) of direct memory (used: usedMemory , max: DIRECT_MEMORY_LIMIT )。
+
+我们可以检查代码中是如何使用堆外内存的，NIO 或者是 Netty，通过反射，获取到对应组件中的计数器字段，并在项目中对该字段的数值进行打点，即可准确地监控到这部分堆外内存的使用情况。
+
+此时，可以通过 Debug 的方式确定使用堆外内存的地方是否正确执行了释放内存的代码。另外，需要检查 JVM 的参数是否有 -XX:+DisableExplicitGC 选项，如果有就去掉，因为该参数会使 System.gc 失效。（场景二：显式 GC 的去与留）
+- 原因二：通过 JNI 调用的 Native Code 申请的内存未释放
+
+这种情况排查起来比较困难，我们可以通过 Google perftools + Btrace 等工具，帮助我们分析出问题的代码在哪里。
+
+gperftools 是 Google 开发的一款非常实用的工具集，它的原理是在 Java 应用程序运行时，当调用 malloc 时换用它的 libtcmalloc.so，这样就能对内存分配情况做一些统计。我们使用 gperftools 来追踪分配内存的命令。如下图所示，通过 gperftools 发现 Java_java_util_zip_Inflater_init 比较可疑。
+![JNI未释放内存](../assets/images/03-JVM/102.JNI未释放内存.jpg)
+
+接下来可以使用 Btrace，尝试定位具体的调用栈。Btrace 是 Sun 推出的一款 Java 追踪、监控工具，可以在不停机的情况下对线上的 Java 程序进行监控。如下图所示，通过 Btrace 定位出项目中的 ZipHelper 在频繁调用 GZIPInputStream ，在堆外内存分配对象。
+![JNI未释放内存2](../assets/images/03-JVM/103.JNI未释放内存2.jpg)
+
+最终定位到是，项目中对 GIPInputStream 的使用错误，没有正确的 close()。
+![JNI未释放内存3](../assets/images/03-JVM/104.JNI未释放内存3.jpg)
+
+除了项目本身的原因，还可能有外部依赖导致的泄漏，如 Netty 和 Spring Boot，详细情况可以学习下这两篇文章，Spring Boot引起的“堆外内存泄漏”排查及经验总结、Netty堆外内存泄露排查盛宴。
+#### 12.4.8.4 小结
+首先可以使用 NMT + jcmd 分析泄漏的堆外内存是哪里申请，确定原因后，使用不同的手段，进行原因定位。
+![排查工具](../assets/images/03-JVM/105.排查工具.jpg)
+### 12.4.9 场景九：JNI 引发的 GC 问题
+#### 12.4.9.1 现象
+在 GC 日志中，出现 GC Cause 为 GCLocker Initiated GC。
+```sh
+2020-09-23T16:49:09.727+0800: 504426.742: [GC (GCLocker Initiated GC) 504426.742: [ParNew (promotion failed): 209716K->6042K(1887488K), 0.0843330 secs] 1449487K->1347626K(3984640K), 0.0848963 secs] [Times: user=0.19 sys=0.00, real=0.09 secs]
+2020-09-23T16:49:09.812+0800: 504426.827: [Full GC (GCLocker Initiated GC) 504426.827: [CMS: 1341583K->419699K(2097152K), 1.8482275 secs] 1347626K->419699K(3984640K), [Metaspace: 297780K->297780K(1329152K)], 1.8490564 secs] [Times: user=1.62 sys=0.20, real=1.85 secs]
+```
+#### 12.4.9.2 原因
+JNI（Java Native Interface）意为 Java 本地调用，它允许 Java 代码和其他语言写的 Native 代码进行交互。
+
+JNI 如果需要获取 JVM 中的 String 或者数组，有两种方式：
+
+- 拷贝传递。
+- 共享引用（指针），性能更高。
+
+由于 Native 代码直接使用了 JVM 堆区的指针，如果这时发生 GC，就会导致数据错误。因此，在发生此类 JNI 调用时，禁止 GC 的发生，同时阻止其他线程进入 JNI 临界区，直到最后一个线程退出临界区时触发一次 GC。
+
+GC Locker 实验：
+```java
+public class GCLockerTest {
+
+  static final int ITERS = 100;
+  static final int ARR_SIZE =  10000;
+  static final int WINDOW = 10000000;
+
+  static native void acquire(int[] arr);
+  static native void release(int[] arr);
+
+  static final Object[] window = new Object[WINDOW];
+
+  public static void main(String... args) throws Throwable {
+    System.loadLibrary("GCLockerTest");
+    int[] arr = new int[ARR_SIZE];
+
+    for (int i = 0; i < ITERS; i++) {
+      acquire(arr);
+      System.out.println("Acquired");
+      try {
+        for (int c = 0; c < WINDOW; c++) {
+          window[c] = new Object();
+        }
+      } catch (Throwable t) {
+        // omit
+      } finally {
+        System.out.println("Releasing");
+        release(arr);
+      }
+    }
+  }
+}
+```
+```cpp
+#include <jni.h>
+#include "GCLockerTest.h"
+
+static jbyte* sink;
+
+JNIEXPORT void JNICALL Java_GCLockerTest_acquire(JNIEnv* env, jclass klass, jintArray arr) {
+sink = (*env)->GetPrimitiveArrayCritical(env, arr, 0);
+}
+
+JNIEXPORT void JNICALL Java_GCLockerTest_release(JNIEnv* env, jclass klass, jintArray arr) {
+(*env)->ReleasePrimitiveArrayCritical(env, arr, sink, 0);
+}
+```
+运行该 JNI 程序，可以看到发生的 GC 都是 GCLocker Initiated GC，并且注意在 “Acquired” 和 “Released” 时不可能发生 GC。
+```sh
+Acquired
+Releasing
+Acquired
+Releasing
+Acquired
+Releasing
+[GC (GCLocker Initiated GC) 1801127K->1269053K(4126208K), 0.1635153 secs]
+Acquired
+Releasing
+Acquired
+Releasing
+Acquired
+Releasing
+Acquired
+Releasing
+[GC (GCLocker Initiated GC) 1942063K->1401284K(4126208K), 0.1379408 secs]
+```
+GC Locker 可能导致的不良后果有：
+- 如果此时是 Young 区不够 Allocation Failure 导致的 GC，由于无法进行 Young GC，会将对象直接分配至 Old 区。
+- 如果 Old 区也没有空间了，则会等待锁释放，导致线程阻塞。
+- 可能触发额外不必要的 Young GC，JDK 有一个 Bug，有一定的几率，本来只该触发一次 GCLocker Initiated GC 的 Young GC，实际发生了一次 Allocation Failure GC 又紧接着一次 GCLocker Initiated GC。是因为 GCLocker Initiated GC 的属性被设为 full，导致两次 GC 不能收敛。
+
+##### 12.4.9.2.1 什么是 GCLocker？
+
+**GCLocker（垃圾收集器锁）** 是 JVM 中的一种机制，其主要目的是为了支持 **JNI 临界区（JNI Critical Region）**。
+
+*   **JNI 临界区**：当 Java 代码通过 JNI 调用本地方法（如用 C/C++ 编写的库），并且该本地方法使用了像 `GetPrimitiveArrayCritical` 或 `GetStringCritical` 这样的函数时，它就进入了一个“临界区”。这些函数会尝试直接返回一个指向 Java 堆内数组数据的指针，以避免昂贵的复制操作。
+*   **GCLocker 的作用**：为了保证本地代码在操作这个指针时数据不会因垃圾收集（GC）导致对象移动而失效，JVM 会激活 GCLocker。**只要有一个线程持有 GCLocker，JVM 就不能进行 Stop-The-World 的垃圾收集**（比如 Young GC 或 Full GC）。
+
+可以把 GCLocker 想象成一个 **“GC 暂停开关”**。当有重要客人（JNI 临界区）在使用客厅（Java 堆）时，管家（GC）不能进来打扫，必须等待。
+##### 12.4.9.2.2  GCLocker Initiated GC 
+可以把它理解为一个 **“被延迟执行后，终于获得许可而触发的垃圾回收”**。
+
+它是垃圾回收发生的一种 **原因** 或 **触发条件**，就好比“因为Eden区满了”是触发Young GC的常见条件一样。“GCLocker Initiated” 就是一个特殊的触发条件。
+
+
+想象一个场景：JVM 需要按时进行垃圾回收来维持秩序，但有一个拥有“特权”的线程可以临时叫停GC。
+
+1.  **该GC了，但被“亮红灯”**：在某一时刻，JVM 满足了一次垃圾回收的触发条件（比如，Young Gen 的 Eden 区快要满了）。正常情况下，JVM 会立即发起一次 **Stop-The-World (STW)** 的 GC。
+2.  **GCLocker 激活**：然而，就在此刻，有一个或多个线程正处在 **JNI 临界区**（例如，正在执行一个通过 `GetPrimitiveArrayCritical` 获取了堆内存直接指针的本地方法）。为了保护这些关键操作，GCLocker 被激活了。
+3.  **GC 被推迟**：由于 GCLocker 处于“锁定”状态，JVM **不能** 进行那种需要停止所有应用线程的 GC。于是，这次本该发生的 GC 被强行延迟了。JVM 会在内部记录下：“有一次 GC 请求因为 GCLocker 被挂起了”。
+4.  **“绿灯”亮起，立即行动**：当所有持有 GCLocker 的线程都退出临界区后，GCLocker 被释放。JVM 检测到锁已释放，并且之前有一个被挂起的 GC 请求，于是 **立即发起** 这次垃圾回收。
+5.  **记录在案**：这次最终得以执行的 GC，在日志中就会被标记为 **`GCLocker Initiated GC`**。它明确地告诉我们：“这次GC本来早该发生，是因为等了GCLocker才拖到现在的。”
+##### 12.4.9.2.3 GC日志记录
+*   **在 JDK 8 及之前**，使用 `-XX:+PrintGCDetails`。
+*   **在 JDK 9 及之后**，使用统一日志，如 `-Xlog:gc*`。
+#### 12.4.9.3 策略
+- 添加 -XX+PrintJNIGCStalls 参数，可以打印出发生 JNI 调用时的线程，进一步分析，找到引发问题的 JNI 调用。
+- JNI 调用需要谨慎，不一定可以提升性能，反而可能造成 GC 问题。
+- 升级 JDK 版本到 14，避免<a href = 'https://bugs.openjdk.org/browse/JDK-8048556'>JDK-8048556</a>导致的重复 GC。
+#### 12.4.9.4 小结
+JNI 产生的 GC 问题较难排查，需要谨慎使用。
+
+## 12.5 总结
+在这里，我们把整个文章内容总结一下，方便大家整体地理解回顾。
+### 12.5.1 处理流程（SOP）
+下图为整体 GC 问题普适的处理流程，重点的地方下面会单独标注，其他的基本都是标准处理流程，此处不再赘述，最后在整个问题都处理完之后有条件的话建议做一下复盘。
+![GC处理流程](../assets/images/03-JVM/106.GC处理流程.jpg)
+
+- `制定标准`： 这块内容其实非常重要，但大部分系统都是缺失的，笔者过往面试的同学中只有不到一成的同学能给出自己的系统 GC 标准到底什么样，其他的都是用的统一指标模板，缺少预见性，具体指标制定可以参考 3.1 中的内容，需要结合应用系统的 TP9999 时间和延迟、吞吐量等设定具体的指标，而不是被问题驱动。
+- `保留现场`： 目前线上服务基本都是分布式服务，某个节点发生问题后，如果条件允许一定不要直接操作重启、回滚等动作恢复，优先通过**摘掉流量**的方式来恢复，这样我们可以将堆、栈、GC 日志等关键信息保留下来，不然错过了定位根因的时机，后续解决难度将大大增加。当然除了这些，应用日志、中间件日志、内核日志、各种 Metrics 指标等对问题分析也有很大帮助。(“摘掉流量”是分布式系统运维中一个非常重要的概念，它指的是**在不关闭或重启服务进程的情况下，将该服务节点从承接外部用户请求的列表中移除**的操作。这是一种“无损”的服务下线方式，核心目标是**隔离问题节点，同时保留其“案发现场”**)
+- `因果分析`： 判断 GC 异常与其他系统指标异常的因果关系，可以参考笔者在 3.2 中介绍的时序分析、概率分析、实验分析、反证分析等 4 种因果分析法，避免在排查过程中走入误区。
+- `根因分析`： 确实是 GC 的问题后，可以借助上文提到的工具并通过 5 why 根因分析法以及跟第三节中的九种常见的场景进行逐一匹配，或者直接参考下文的根因鱼骨图，找出问题发生根因，最后再选择优化手段。
+### 12.5.2 根因鱼骨图
+送上一张问题根因鱼骨图，一般情况下我们在处理一个 GC 问题时，只要能定位到问题的“病灶”，有的放矢，其实就相当于解决了 80%，如果在某些场景下不太好定位，大家可以借助这种根因分析图通过排除法去定位。
+![GC根因鱼骨图](../assets/images/03-JVM/107.GC根因鱼骨图.jpg)
+### 12.5.3 调优建议
+- `Trade Off`： 与 CAP 注定要缺一角一样，GC 优化要在延迟（Latency）、吞吐量（Throughput）、容量（Capacity）三者之间进行权衡。
+- `最终手段`： GC 发生问题不是一定要对 JVM 的 GC 参数进行调优，大部分情况下是通过 GC 的情况找出一些业务问题，切忌上来就对 GC 参数进行调整，当然有明确配置错误的场景除外。
+- `控制变量`： 控制变量法是在蒙特卡洛（Monte Carlo）方法中用于减少方差的一种技术方法，我们调优的时候尽量也要使用，每次调优过程尽可能只调整一个变量。
+- `善用搜索`： 理论上 99.99% 的 GC 问题基本都被遇到了，我们要学会使用搜索引擎的高级技巧，重点关注 StackOverFlow、Github 上的 Issue、以及各种论坛博客，先看看其他人是怎么解决的，会让解决问题事半功倍。能看到这篇文章，你的搜索能力基本过关了~
+- `调优重点`： 总体上来讲，我们开发的过程中遇到的问题类型也基本都符合正态分布，太简单或太复杂的基本遇到的概率很低，笔者这里将中间最重要的三个场景添加了“*”标识，希望阅读完本文之后可以观察下自己负责的系统，是否存在上述问题。
+- `GC 参数`： 如果堆、栈确实无法第一时间保留，一定要保留 GC 日志，这样我们最起码可以看到 GC Cause，有一个大概的排查方向。关于 GC 日志相关参数，最基本的 -XX:+HeapDumpOnOutOfMemoryError 等一些参数就不再提了，笔者建议添加以下参数，可以提高我们分析问题的效率。
+![常用的GCJVM参数](../assets/images/03-JVM/108.常用的GCJVM参数.jpg)
+
+- `其他建议`： 上文场景中没有提到，但是对 GC 性能也有提升的一些建议。
+  - `主动式 GC`： 也有另开生面的做法，通过监控手段监控观测 Old 区的使用情况，即将到达阈值时将应用服务摘掉流量，手动触发一次 Major GC，减少 CMS GC 带来的停顿，但随之系统的健壮性也会减少，如非必要不建议引入。
+  - `禁用偏向锁`： 偏向锁在只有一个线程使用到该锁的时候效率很高，但是在竞争激烈情况会升级成轻量级锁，此时就需要先消除偏向锁，这个过程是 STW 的。如果每个同步资源都走这个升级过程，开销会非常大，**所以在已知并发激烈的前提下，一般会禁用偏向锁 -XX:-UseBiasedLocking 来提高性能。**
+  - `虚拟内存`： 启动初期有些操作系统（例如 Linux）并没有真正分配物理内存给 JVM ，而是在虚拟内存中分配，使用的时候才会在物理内存中分配内存页，这样也会导致 GC 时间较长。这种情况可以添加 -XX:+AlwaysPreTouch 参数，让 VM 在 commit 内存时跑个循环来强制保证申请的内存真的 commit，避免运行时触发缺页异常。在一些大内存的场景下，有时候能将前几次的 GC 时间降一个数量级，但是添加这个参数后，启动的过程可能会变慢。
+## 12.6 写在最后
+最后，再说笔者个人的一些小建议，遇到一些 GC 问题，如果有精力，一定要探本穷源，找出最深层次的原因。另外，在这个信息泛滥的时代，有一些被“奉为圭臬”的经验可能都是错误的，尽量养成看源码的习惯，有一句话说到“源码面前，了无秘密”，也就意味着遇到搞不懂的问题，我们可以从源码中一窥究竟，某些场景下确有奇效。但也不是只靠读源码来学习，如果硬啃源码但不理会其背后可能蕴含的理论基础，那很容易“捡芝麻丢西瓜”，“只见树木，不见森林”，让“了无秘密”变成了一句空话，我们还是要结合一些实际的业务场景去针对性地学习。
+
+**你的时间在哪里，你的成就就会在哪里**。笔者也是在前两年才开始逐步地在 GC 方向上不断深入，查问题、看源码、做总结，每个 Case 形成一个小的闭环，目前初步摸到了 GC 问题处理的一些门道，同时将经验总结应用于生产环境实践，慢慢地形成一个良性循环。
+
+本篇文章主要是介绍了 CMS GC 的一些常见场景分析，另外一些，如 CodeCache 问题导致 JIT 失效、SafePoint 就绪时间长、Card Table 扫描耗时等问题不太常见就没有花太多篇幅去讲解。Java GC 是在“分代”的思想下内卷了很多年才突破到了“分区”，目前在美团也已经开始使用 G1 来替换使用了多年的 CMS，虽然在小的堆方面 G1 还略逊色于 CMS，但这是一个趋势，短时间无法升级到 ZGC，所以未来遇到的 G1 的问题可能会逐渐增多。目前已经收集到 Remember Set 粗化、Humongous 分配、Ergonomics 异常、Mixed GC 中 Evacuation Failure 等问题，除此之外也会给出 CMS 升级到 G1 的一些建议，接下来笔者将继续完成这部分文章整理，敬请期待。
+
+“防火”永远要胜于“救火”，不放过任何一个异常的小指标（一般来说，任何不平滑的曲线都是值得怀疑的） ，就有可能避免一次故障的发生。作为 Java 程序员基本都会遇到一些 GC 的问题，独立解决 GC 问题是我们必须迈过的一道坎。开篇中也提到过 GC 作为经典的技术，非常值得我们学习，一些 GC 的学习材料，如《The Garbage Collection Handbook》《深入理解Java虚拟机》等也是常读常新，赶紧动起来，苦练 GC 基本功吧。
+
+最后的最后，再多啰嗦一句，目前所有 GC 调优相关的文章，第一句讲的就是“不要过早优化”，使得很多同学对 GC 优化望而却步。在这里笔者提出不一样的观点，熵增定律（在一个孤立系统里，如果没有外力做功，其总混乱度（即熵）会不断增大）在计算机系统同样适用，如果不主动做功使熵减，系统终究会脱离你的掌控，在我们对业务系统和 GC 原理掌握得足够深的时候，可以放心大胆地做优化，因为我们基本可以预测到每一个操作的结果，放手一搏吧，少年！
+# 十三、调试排错 - JVM 调优参数
+## 13.1 jvm参数
+### 13.1.1 -Xms
+堆最小值
+### 13.1.2 -Xmx
+堆最大堆值。-Xms与-Xmx 的单位默认字节都是以k、m做单位的。
+
+通常这两个配置参数相等，避免每次空间不足，动态扩容带来的影响。
+### 13.1.3 -Xmn
+新生代大小
+### 13.1.4 -Xss
+每个线程池的堆栈大小，为 JVM 中创建的每一个线程预先分配一块私有的内存空间，这块空间就叫做“栈”（虚拟机内存结构中虚拟机栈的内存）。在jdk5以上的版本，每个线程堆栈大小为1m，jdk5以前的版本是每个线程池大小为256k。一般在相同物理内存下，如果减少－xss值会产生更大的线程数，但不同的操作系统对进程内线程数是有限制的，是不能无限生成。
+### 13.1.5 -XX:NewRatio
+设置新生代与老年代比值，-XX:NewRatio=4 表示新生代与老年代所占比例为1:4 ，新生代占比整个堆的五分之一。如果设置了-Xmn的情况下，该参数是不需要在设置的。
+### 13.1.6 -XX:PermSize
+设置持久代初始值，默认是物理内存的六十四分之一
+### 13.1.7 -XX:MaxPermSize
+设置持久代最大值，默认是物理内存的四分之一
+### 13.1.8 -XX:MaxTenuringThreshold
+新生代中对象存活次数，默认15。(若对象在eden区，经历一次MinorGC后还活着，则被移动到Survior区，年龄加1。以后，对象每次经历MinorGC，年龄都加1。达到阀值，则移入老年代)
+### 13.1.9 -XX:SurvivorRatio
+Eden区与Subrvivor区大小的比值，如果设置为8，两个Subrvivor区与一个Eden区的比值为2:8，一个Survivor区占整个新生代的十分之一
+### 13.1.10 -XX:+UseFastAccessorMethods
+原始类型快速优化
+### 13.1.11 -XX:+AggressiveOpts
+编译速度加快
+### 13.1.12 -XX:PretenureSizeThreshold
+对象超过多大值时直接在老年代中分配
+```text
+说明: 
+整个堆大小的计算公式: JVM 堆大小 ＝ 年轻代大小＋年老代大小＋持久代大小。
+增大新生代大小就会减少对应的年老代大小，设置-Xmn值对系统性能影响较大，所以如果设置新生代大小的调整，则需要严格的测试调整。而新生代是用来存放新创建的对象，大小是随着堆大小增大和减少而有相应的变化，默认值是保持堆大小的十五分之一，-Xmn参数就是设置新生代的大小，也可以通过-XX:NewRatio来设置新生代与年老代的比例，java 官方推荐配置为3:8。
+
+新生代的特点就是内存中的对象更新速度快，在短时间内容易产生大量的无用对象，如果在这个参数时就需要考虑垃圾回收器设置参数也需要调整。推荐使用: 复制清除算法和并行收集器进行垃圾回收，而新生代的垃圾回收叫做初级回收。
+```
+```text
+StackOverflowError和OutOfMemoryException。当线程中的请求的栈的深度大于最大可用深度，就会抛出前者；若内存空间不够，无法创建新的线程，则会抛出后者。栈的大小直接决定了函数的调用最大深度，栈越大，函数嵌套可调用次数就越多。
+```
+- 经验 :
+  - Xmn用于设置新生代的大小。过小会增加Minor GC频率，过大会减小老年代的大小。一般设为整个堆空间的1/4或1/3.
+  - XX:SurvivorRatio用于设置新生代中survivor空间(from/to)和eden空间的大小比例； XX:TargetSurvivorRatio表示，当经历Minor GC后，survivor空间占有量(百分比)超过它的时候，就会压缩进入老年代(当然，如果survivor空间不够，则直接进入老年代)。默认值为50%。
+  - 为了性能考虑，一开始尽量将新生代对象留在新生代，避免新生的大对象直接进入老年代。因为新生对象大部分都是短期的，这就造成了老年代的内存浪费，并且回收代价也高(Full GC发生在老年代和方法区Perm).
+  - 当Xms=Xmx，可以使得堆相对稳定，避免不停震荡
+  - 一般来说，MaxPermSize设为64MB可以满足绝大多数的应用了。若依然出现方法区溢出，则可以设为128MB。若128MB还不能满足需求，那么就应该考虑程序优化了，减少动态类的产生。
+## 13.2 垃圾回收
+### 13.2.1 垃圾回收算法
+- 引用计数法: 会有循环引用的问题，古老的方法；
+- Mark-Sweep: 标记清除。根可达判断，最大的问题是空间碎片(清除垃圾之后剩下不连续的内存空间)；
+- Copying: 复制算法。对于短命对象来说有用，否则需要复制大量的对象，效率低。如Java的新生代堆空间中就是使用了它(survivor空间的from和to区)；
+- Mark-Compact: 标记整理。对于老年对象来说有用，无需复制，不会产生内存碎片
+### 13.2.2 GC考虑的指标
+- 吞吐量: 应用耗时和实际耗时的比值；
+- 停顿时间: 垃圾回收的时候，由于Stop the World，应用程序的所有线程会挂起，造成应用停顿。
+```text
+吞吐量和停顿时间是互斥的。
+对于后端服务(比如后台计算任务)，吞吐量优先考虑(并行垃圾回收)；
+对于前端应用，RT响应时间优先考虑，减少垃圾收集时的停顿时间，适用场景是Web系统(并发垃圾回收)
+```
+### 13.2.3 回收器的JVM参数
+- -XX:+UseSerialGC
+  - 串行垃圾回收，现在基本很少使用。
+- -XX:+UseParNewGC
+  - 新生代使用并行，老年代使用串行；
+- -XX:+UseConcMarkSweepGC
+  - 新生代使用并行，老年代使用CMS(一般都是使用这种方式)，CMS是Concurrent Mark Sweep的缩写，并发标记清除，一看就是老年代的算法，所以，它可以作为老年代的垃圾回收器。CMS不是独占式的，它关注停顿时间
+- -XX:ParallelGCThreads
+  - 指定并行的垃圾回收线程的数量，最好等于CPU数量
+- -XX:+DisableExplicitGC
+  - 禁用System.gc()，因为它会触发Full GC，这是很浪费性能的，JVM会在需要GC的时候自己触发GC。**但是在引入NIO由于 DirectByteBuffer零拷贝必须依赖gc()来回收，如果禁用会出现内存泄漏**
+- -XX:CMSFullGCsBeforeCompaction
+  - 在多少次GC后进行内存压缩，这个是因为并行收集器不对内存空间进行压缩的，所以运行一段时间后会产生很多碎片，使得运行效率降低。
+- -XX:+CMSParallelRemarkEnabled
+  - 降低标记停顿
+- -XX:+UseCMSCompactAtFullCollection
+  - 在每一次Full GC时对老年代区域碎片整理，因为CMS是不会移动内存的，因此会非常容易出现碎片导致内存不够用的
+- -XX:+UseCmsInitiatingOccupancyOnly
+  - 使用手动触发或者自定义触发cms 收集，同时也会禁止hostspot 自行触发CMS GC
+- -XX:CMSInitiatingOccupancyFraction
+  - 使用CMS作为垃圾回收，使用70%后开始CMS收集
+- -XX:CMSInitiatingPermOccupancyFraction
+  - 设置perm gen使用达到多少％比时触发垃圾回收，默认是92%
+- -XX:+CMSIncrementalMode
+  - 设置为增量模式
+- -XX:+CmsClassUnloadingEnabled
+  - CMS是不会默认对永久代进行垃圾回收的，设置此参数则是开启
+- -XX:+PrintGCDetails
+  - 开启详细GC日志模式，日志的格式是和所使用的算法有关
+- -XX:+PrintGCDateStamps
+  - 将时间和日期也加入到GC日志中
+# 十四、调试排错 - Java 内存分析之堆内存和MetaSpace内存
+## 14.1 常见的内存溢出问题(内存和MetaSpace内存)
+### 14.1.1 Java 堆内存溢出
+Java 堆内存（Heap Memory）主要有两种形式的错误：
+- OutOfMemoryError: Java heap space
+- OutOfMemoryError: GC overhead limit exceeded
+#### 14.1.1.1 OutOfMemoryError: Java heap space
+在 Java 堆中只要不断的创建对象，并且 GC-Roots 到对象之间存在引用链，这样 JVM 就不会回收对象。
+
+只要将-Xms(最小堆),-Xmx(最大堆) 设置为一样禁止自动扩展堆内存。
+
+当使用一个 while(true) 循环来不断创建对象就会发生 OutOfMemory，还可以使用 -XX:+HeapDumpOutofMemoryErorr 当发生 OOM 时会自动 dump 堆栈到文件中。
+
+伪代码:
+```java
+public static void main(String[] args) {
+	List<String> list = new ArrayList<>(10) ;
+	while (true){
+		list.add("1") ;
+	}
+}
+```
+当出现 OOM 时可以通过工具来分析 GC-Roots 引用链，查看对象和 GC-Roots 是如何进行关联的，是否存在对象的生命周期过长，或者是这些对象确实改存在的，那就要考虑将堆内存调大了。
+```java
+Exception in thread "main" java.lang.OutOfMemoryError: Java heap space
+	at java.util.Arrays.copyOf(Arrays.java:3210)
+	at java.util.Arrays.copyOf(Arrays.java:3181)
+	at java.util.ArrayList.grow(ArrayList.java:261)
+	at java.util.ArrayList.ensureExplicitCapacity(ArrayList.java:235)
+	at java.util.ArrayList.ensureCapacityInternal(ArrayList.java:227)
+	at java.util.ArrayList.add(ArrayList.java:458)
+	at com.crossoverjie.oom.HeapOOM.main(HeapOOM.java:18)
+	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at com.intellij.rt.execution.application.AppMain.main(AppMain.java:147)
+
+Process finished with exit code 1
+```
+java.lang.OutOfMemoryError: Java heap space表示堆内存溢出。
+
+#### 14.1.1.2 OutOfMemoryError: GC overhead limit exceeded
+GC overhead limt exceed检查是Hotspot VM 1.6定义的一个策略，通过统计GC时间来预测是否要OOM了，提前抛出异常，防止OOM发生。Sun 官方对此的定义是：“并行/并发回收器在GC回收时间过长时会抛出OutOfMemroyError。过长的定义是，超过98%的时间用来做GC并且回收了不到2%的堆内存。用来避免内存过小造成应用不能正常工作。“
+
+PS：-Xmx最大内存配置2GB
+```java
+public void testOom1() {
+	List<Map<String, Object>> mapList = new ArrayList<>();
+	for (int i = 0; i < 1000000; i++) {
+		Map<String, Object> map = new HashMap<>();
+		for (int j = 0; j < i; j++) {
+				map.put(String.valueOf(j), j);
+		}
+		mapList.add(map);
+	}
+}
+```
+上述的代码执行会：old区占用过多导致频繁Full GC，最终导致GC overhead limit exceed。
+```java
+java.lang.OutOfMemoryError: GC overhead limit exceeded
+	at java.util.HashMap.newNode(HashMap.java:1747) ~[na:1.8.0_181]
+	at java.util.HashMap.putVal(HashMap.java:642) ~[na:1.8.0_181]
+	at java.util.HashMap.put(HashMap.java:612) ~[na:1.8.0_181]
+	at tech.pdai.test.oom.controller.TestOomController.testOom1(TestOomController.java:33) ~[classes/:na]
+	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method) ~[na:1.8.0_181]
+	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62) ~[na:1.8.0_181]
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43) ~[na:1.8.0_181]
+	at java.lang.reflect.Method.invoke(Method.java:498) ~[na:1.8.0_181]
+	at org.springframework.web.method.support.InvocableHandlerMethod.doInvoke(InvocableHandlerMethod.java:197) ~[spring-web-5.3.9.jar:5.3.9]
+	at org.springframework.web.method.support.InvocableHandlerMethod.invokeForRequest(InvocableHandlerMethod.java:141) ~[spring-web-5.3.9.jar:5.3.9]
+	at org.springframework.web.servlet.mvc.method.annotation.ServletInvocableHandlerMethod.invokeAndHandle(ServletInvocableHandlerMethod.java:106) ~[spring-webmvc-5.3.9.jar:5.3.9]
+	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.invokeHandlerMethod(RequestMappingHandlerAdapter.java:895) ~[spring-webmvc-5.3.9.jar:5.3.9]
+	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.handleInternal(RequestMappingHandlerAdapter.java:808) ~[spring-webmvc-5.3.9.jar:5.3.9]
+	at org.springframework.web.servlet.mvc.method.AbstractHandlerMethodAdapter.handle(AbstractHandlerMethodAdapter.java:87) ~[spring-webmvc-5.3.9.jar:5.3.9]
+	at org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1064) ~[spring-webmvc-5.3.9.jar:5.3.9]
+	at org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:963) ~[spring-webmvc-5.3.9.jar:5.3.9]
+	at org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1006) ~[spring-webmvc-5.3.9.jar:5.3.9]
+	at org.springframework.web.servlet.FrameworkServlet.doGet(FrameworkServlet.java:898) ~[spring-webmvc-5.3.9.jar:5.3.9]
+	at javax.servlet.http.HttpServlet.service(HttpServlet.java:655) ~[tomcat-embed-core-9.0.50.jar:4.0.FR]
+	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:883) ~[spring-webmvc-5.3.9.jar:5.3.9]
+	at javax.servlet.http.HttpServlet.service(HttpServlet.java:764) ~[tomcat-embed-core-9.0.50.jar:4.0.FR]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:228) ~[tomcat-embed-core-9.0.50.jar:9.0.50]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:163) ~[tomcat-embed-core-9.0.50.jar:9.0.50]
+	at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:53) ~[tomcat-embed-websocket-9.0.50.jar:9.0.50]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:190) ~[tomcat-embed-core-9.0.50.jar:9.0.50]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:163) ~[tomcat-embed-core-9.0.50.jar:9.0.50]
+	at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100) ~[spring-web-5.3.9.jar:5.3.9]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:119) ~[spring-web-5.3.9.jar:5.3.9]
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:190) ~[tomcat-embed-core-9.0.50.jar:9.0.50]
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:163) ~[tomcat-embed-core-9.0.50.jar:9.0.50]
+	at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93) ~[spring-web-5.3.9.jar:5.3.9]
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:119) ~[spring-web-5.3.9.jar:5.3.9]
+```
+还可以使用 -XX:+HeapDumpOutofMemoryErorr 当发生 OOM 时会自动 dump 堆栈到文件中。
+
+JVM还有这样一个参数：-XX:-UseGCOverheadLimit 设置为false可以禁用这个检查。其实这个参数解决不了内存问题，只是把错误的信息延后，替换成 java.lang.OutOfMemoryError: Java heap space。
+### 14.1.2 MetaSpace (元数据) 内存溢出
+> JDK8 中将永久代移除，使用 MetaSpace 来保存类加载之后的类信息，字符串常量池也被移动到 Java 堆。
+
+JDK 8 中将类信息移到到了本地堆内存(Native Heap)中，将原有的永久代移动到了本地堆中成为 MetaSpace ,如果不指定该区域的大小，JVM 将会动态的调整。
+
+可以使用 -XX:MaxMetaspaceSize=10M 来限制最大元数据。这样当不停的创建类时将会占满该区域并出现 OOM。
+```java
+public static void main(String[] args) {
+	while (true){
+		Enhancer  enhancer = new Enhancer() ;
+		enhancer.setSuperclass(HeapOOM.class);
+		enhancer.setUseCache(false) ;
+		enhancer.setCallback(new MethodInterceptor() {
+			@Override
+			public Object intercept(Object o, Method method, Object[] objects, MethodProxy methodProxy) throws Throwable {
+				return methodProxy.invoke(o,objects) ;
+			}
+		});
+		enhancer.create() ;
+
+	}
+}
+```
+使用 cglib 不停的创建新类，最终会抛出:
+```java
+Caused by: java.lang.reflect.InvocationTargetException
+	at sun.reflect.GeneratedMethodAccessor1.invoke(Unknown Source)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at net.sf.cglib.core.ReflectUtils.defineClass(ReflectUtils.java:459)
+	at net.sf.cglib.core.AbstractClassGenerator.generate(AbstractClassGenerator.java:336)
+	... 11 more
+Caused by: java.lang.OutOfMemoryError: Metaspace
+	at java.lang.ClassLoader.defineClass1(Native Method)
+	at java.lang.ClassLoader.defineClass(ClassLoader.java:763)
+	... 16 more
+```
+注意: 这里的 OOM 伴随的是 java.lang.OutOfMemoryError: Metaspace 也就是元数据溢出。
+## 14.2 分析案例
+### 14.2.1 堆内存dump
+- 通过OOM获取
+
+即在OutOfMemoryError后获取一份HPROF二进制Heap Dump文件，在jvm中添加参数：
+```sh
+-XX:+HeapDumpOnOutOfMemoryError
+```
+- 主动获取
+
+在虚拟机添加参数如下，然后在Ctrl+Break组合键即可获取一份Heap Dump
+```sh
+-XX:+HeapDumpOnCtrlBreak
+```
+- 使用HPROF agent
+
+使用Agent可以在程序执行结束时或受到SIGOUT信号时生成Dump文件
+
+配置在虚拟机的参数如下:
+```sh
+-agentlib:hprof=heap=dump,format=b
+```
+- jmap获取 (常用)
+
+jmap可以在cmd里执行，命令如下：
+```sh
+jmap -dump:format=b file=<文件名XX.hprof> <pid>
+```
+- 使用JConsole
+- 使用JProfile
+### 14.2.2 使用MAT分析内存
+参考 Java 问题排查之JVM可视化工具 - MAT
+# 十五、调试排错 - Java 内存分析之堆外内存
+## 15.1 背景
+为了更好地实现对项目的管理，我们将组内一个项目迁移到MDP框架（基于Spring Boot），随后我们就发现系统会频繁报出Swap区域使用量过高的异常。笔者被叫去帮忙查看原因，发现配置了4G堆内内存，但是实际使用的物理内存竟然高达7G，确实不正常。JVM参数配置是“-XX:MetaspaceSize=256M -XX:MaxMetaspaceSize=256M -XX:+AlwaysPreTouch -XX:ReservedCodeCacheSize=128m -XX:InitialCodeCacheSize=128m, -Xss512k -Xmx4g -Xms4g,-XX:+UseG1GC -XX:G1HeapRegionSize=4M”，实际使用的物理内存如下图所示：
+![109.jvm-gc-offheap-1.png](../assets/images/03-JVM/109.jvm-gc-offheap-1.png)
+## 15.2 排查过程
+### 15.2.1 使用Java层面的工具定位内存区域
+> 使用Java层面的工具可以定位出堆内内存、Code区域或者使用unsafe.allocateMemory和DirectByteBuffer申请的堆外内存
+
+笔者在项目中添加`-XX:NativeMemoryTracking=detailJVM`参数重启项目，使用命令`jcmd pid VM.native_memory detail`查看到的内存分布如下：
+![110.jvm-gc-offheap-2.png](../assets/images/03-JVM/110.jvm-gc-offheap-2.png)
+
+发现命令显示的committed的内存小于物理内存，**因为jcmd命令显示的内存包含堆内内存、Code区域、通过unsafe.allocateMemory和DirectByteBuffer申请的内存，但是不包含其他Native Code（C代码）申请的堆外内存。**所以猜测是使用Native Code申请内存所导致的问题。
+
+为了防止误判，笔者使用了pmap查看内存分布，发现大量的64M的地址；而这些地址空间不在jcmd命令所给出的地址空间里面，基本上就断定就是这些64M的内存所导致。
+![111.jvm-gc-offheap-3.png](../assets/images/03-JVM/111.jvm-gc-offheap-3.png)
+### 15.2.2 使用系统层面的工具定位堆外内存
+因为笔者已经基本上确定是Native Code所引起，而Java层面的工具不便于排查此类问题，只能使用系统层面的工具去定位问题。
+
+- 首先，使用了gperftools去定位问题
+
+gperftools的使用方法可以参考gperftools，gperftools的监控如下：
+![112.jvm-gc-offheap-4.png](../assets/images/03-JVM/112.jvm-gc-offheap-4.png)
+
+从上图可以看出：使用malloc申请的的内存最高到3G之后就释放了，之后始终维持在700M-800M。笔者第一反应是：难道Native Code中没有使用malloc申请，直接使用mmap/brk申请的？（gperftools原理就使用动态链接的方式替换了操作系统默认的内存分配器（glibc）。）
+- 然后，使用strace去追踪系统调用
+
+因为使用gperftools没有追踪到这些内存，于是直接使用命令“strace -f -e”brk,mmap,munmap” -p pid”追踪向OS申请内存请求，但是并没有发现有可疑内存申请。strace监控如下图所示:
+![113.jvm-gc-offheap-5.jpg](../assets/images/03-JVM/113.jvm-gc-offheap-5.jpg)
+- 接着，使用GDB去dump可疑内存
+因为使用strace没有追踪到可疑内存申请；于是想着看看内存中的情况。就是直接使用命令gdp -pid pid进入GDB之后，然后使用命令dump memory mem.bin startAddress endAddressdump内存，其中startAddress和endAddress可以从/proc/pid/smaps中查找。然后使用strings mem.bin查看dump的内容，如下：
+![114.jvm-gc-offheap-6.jpg](../assets/images/03-JVM/114.jvm-gc-offheap-6.jpg)
+
+从内容上来看，像是解压后的JAR包信息。读取JAR包信息应该是在项目启动的时候，那么在项目启动之后使用strace作用就不是很大了。所以应该在项目启动的时候使用strace，而不是启动完成之后。
+- 再次，项目启动时使用strace去追踪系统调用
+
+项目启动使用strace追踪系统调用，发现确实申请了很多64M的内存空间，截图如下：
+![115.jvm-gc-offheap-7.png](../assets/images/03-JVM/115.jvm-gc-offheap-7.png)
+
+使用该mmap申请的地址空间在pmap对应如下：
+![116.jvm-gc-offheap-8.png](../assets/images/03-JVM/116.jvm-gc-offheap-8.png)
+- 最后，使用jstack去查看对应的线程
+
+因为strace命令中已经显示申请内存的线程ID。直接使用命令jstack pid去查看线程栈，找到对应的线程栈（注意10进制和16进制转换）如下：
+![117.jvm-gc-offheap-9.png](../assets/images/03-JVM/117.jvm-gc-offheap-9.png)
+
+这里基本上就可以看出问题来了：MCC（美团统一配置中心）使用了Reflections进行扫包，底层使用了Spring Boot去加载JAR。因为解压JAR使用Inflater类，需要用到堆外内存，然后使用Btrace去追踪这个类，栈如下：
+![118.jvm-gc-offheap-10.png](../assets/images/03-JVM/118.jvm-gc-offheap-10.png)
+
+然后查看使用MCC的地方，发现没有配置扫包路径，默认是扫描所有的包。于是修改代码，配置扫包路径，发布上线后内存问题解决。
+
+## 15.3 为什么堆外内存没有释放掉呢？
+
+虽然问题已经解决了，但是有几个疑问：
+
+- 为什么使用旧的框架没有问题？
+- 为什么堆外内存没有释放？
+- 为什么内存大小都是64M，JAR大小不可能这么大，而且都是一样大？
+- 为什么gperftools最终显示使用的的内存大小是700M左右，解压包真的没有使用malloc申请内存吗？
+
+带着疑问，笔者直接看了一下Spring Boot Loader那一块的源码。发现Spring Boot对Java JDK的InflaterInputStream进行了包装并且使用了Inflater，而Inflater本身用于解压JAR包的需要用到堆外内存。而包装之后的类ZipInflaterInputStream没有释放Inflater持有的堆外内存。于是笔者以为找到了原因，立马向Spring Boot社区反馈了这个bug。但是反馈之后，笔者就发现Inflater这个对象本身实现了<a href = '#finalize() 方法的工作原理和问题'>finalize方法</a>，在这个方法中有调用释放堆外内存的逻辑。也就是说Spring Boot依赖于GC释放堆外内存。
+
+笔者使用jmap查看堆内对象时，发现已经基本上没有Inflater这个对象了。于是就怀疑GC的时候，没有调用finalize。带着这样的怀疑，笔者把Inflater进行包装在Spring Boot Loader里面替换成自己包装的Inflater，在finalize进行打点监控，结果finalize方法确实被调用了。于是笔者又去看了Inflater对应的C代码，发现初始化的使用了malloc申请内存，end的时候也调用了free去释放内存。
+
+此刻，笔者只能怀疑free的时候没有真正释放内存，便把Spring Boot包装的InflaterInputStream替换成Java JDK自带的，发现替换之后，内存问题也得以解决了。
+
+这时，再返过来看gperftools的内存分布情况，发现使用Spring Boot时，内存使用一直在增加，突然某个点内存使用下降了好多（使用量直接由3G降为700M左右）。这个点应该就是GC引起的，内存应该释放了，但是在操作系统层面并没有看到内存变化，那是不是没有释放到操作系统，被内存分配器持有了呢？
+
+继续探究，发现系统默认的内存分配器（glibc 2.12版本）和使用gperftools内存地址分布差别很明显，2.5G地址使用smaps发现它是属于Native Stack。内存地址分布如下：
+![119.jvm-gc-offheap-11.png](../assets/images/03-JVM/119.jvm-gc-offheap-11.png)
+
+到此，基本上可以确定是内存分配器在捣鬼；搜索了一下glibc 64M，发现glibc从2.11开始对每个线程引入内存池（64位机器大小就是64M内存），原文如下：
+![120.jvm-gc-offheap-12.jpg](../assets/images/03-JVM/120.jvm-gc-offheap-12.jpg)
+
+按照文中所说去修改MALLOC_ARENA_MAX环境变量，发现没什么效果。查看tcmalloc（gperftools使用的内存分配器）也使用了内存池方式。
+
+为了验证是内存池搞的鬼，笔者就简单写个不带内存池的内存分配器。使用命令gcc zjbmalloc.c -fPIC -shared -o zjbmalloc.so生成动态库，然后使用export LD_PRELOAD=zjbmalloc.so替换掉glibc的内存分配器。其中代码Demo如下：
+```cpp
+#include<sys/mman.h>
+#include<stdlib.h>
+#include<string.h>
+#include<stdio.h>
+//作者使用的64位机器，sizeof(size_t)也就是sizeof(long) 
+void* malloc ( size_t size )
+{
+   long* ptr = mmap( 0, size + sizeof(long), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0 );
+   if (ptr == MAP_FAILED) {
+  	return NULL;
+   }
+   *ptr = size;                     // First 8 bytes contain length.
+   return (void*)(&ptr[1]);        // Memory that is after length variable
+}
+
+void *calloc(size_t n, size_t size) {
+ void* ptr = malloc(n * size);
+ if (ptr == NULL) {
+	return NULL;
+ }
+ memset(ptr, 0, n * size);
+ return ptr;
+}
+void *realloc(void *ptr, size_t size)
+{
+ if (size == 0) {
+	free(ptr);
+	return NULL;
+ }
+ if (ptr == NULL) {
+	return malloc(size);
+ }
+ long *plen = (long*)ptr;
+ plen--;                          // Reach top of memory
+ long len = *plen;
+ if (size <= len) {
+	return ptr;
+ }
+ void* rptr = malloc(size);
+ if (rptr == NULL) {
+	free(ptr);
+	return NULL;
+ }
+ rptr = memcpy(rptr, ptr, len);
+ free(ptr);
+ return rptr;
+}
+
+void free (void* ptr )
+{
+   if (ptr == NULL) {
+	 return;
+   }
+   long *plen = (long*)ptr;
+   plen--;                          // Reach top of memory
+   long len = *plen;               // Read length
+   munmap((void*)plen, len + sizeof(long));
+}
+```
+通过在自定义分配器当中埋点可以发现其实程序启动之后应用实际申请的堆外内存始终在700M-800M之间，gperftools监控显示内存使用量也是在700M-800M左右。但是从操作系统角度来看进程占用的内存差别很大（这里只是监控堆外内存）。
+
+笔者做了一下测试，使用不同分配器进行不同程度的扫包，占用的内存如下：
+![121.jvm-gc-offheap-13.jpg](../assets/images/03-JVM/121.jvm-gc-offheap-13.jpg)
+
+因为自定义内存分配器采用的是mmap分配内存，mmap分配内存按需向上取整到整数个页，所以存在着巨大的空间浪费。通过监控发现最终申请的页面数目在536k个左右，那实际上向系统申请的内存等于512k * 4k（pagesize） = 2G。
+
+**为什么这个数据大于1.7G呢？**
+
+因为操作系统采取的是延迟分配的方式，通过mmap向系统申请内存的时候，系统仅仅返回内存地址并没有分配真实的物理内存。只有在真正使用的时候，系统产生一个缺页中断，然后再分配实际的物理Page。
+
+## 15.4 总结
+![122.jvm-gc-offheap-14.jpg](../assets/images/03-JVM/122.jvm-gc-offheap-14.jpg)
+
+整个内存分配的流程如上图所示。MCC扫包的默认配置是扫描所有的JAR包。在扫描包的时候，Spring Boot不会主动去释放堆外内存，导致在扫描阶段，堆外内存占用量一直持续飙升。当发生GC的时候，Spring Boot依赖于finalize机制去释放了堆外内存；但是glibc为了性能考虑，并没有真正把内存归返到操作系统，而是留下来放入内存池了，导致应用层以为发生了“内存泄漏”。所以修改MCC的配置路径为特定的JAR包，问题解决。笔者在发表这篇文章时，发现**Spring Boot的最新版本（2.0.5.RELEASE）已经做了修改，在ZipInflaterInputStream主动释放了堆外内存不再依赖GC**；所以Spring Boot升级到最新版本，这个问题也可以得到解决。
+## 15.5 <a id = 'finalize() 方法的工作原理和问题'>补充： `finalize()` 方法的工作原理和问题</a>
+
+当GC发现一个对象已经“死亡”（没有GC Roots可达）时，如果这个对象的类重写了`finalize()`方法，那么：
+
+1.  **第一次标记**：JVM会把这个对象放入一个叫`F-Queue`的队列中。
+2.  **低优先级执行**：由一个名为`Finalizer`的低优先级守护线程去执行这个队列中各个对象的`finalize()`方法。
+3.  **第二次标记与回收**：执行完`finalize()`方法后，JVM会在**下一次**GC时，才能真正回收这个对象的内存。
+
+这个过程导致了几个严重的问题，正是你遇到的情况的根源：
+
+### 15.5.1. 执行时机的不确定性（致命的延迟）
+- **这是最核心的问题。** 你无法知道`finalize()`方法什么时候会被调用。它依赖于GC的发生，而GC的发生是不确定的。
+- 在你的案例中，如果系统负载很高，堆内内存压力不大，那么Full GC可能很久都不发生。这意味着，大量的`Inflater`对象虽然已经不再使用，但它们占用的堆外内存会一直无法释放，直到下一次（可能是很久以后的）GC被触发。
+- 这就造成了**堆外内存的“延迟释放”**，从而引发内存泄漏的假象（实际上是释放不及时）。
+
+### 15.5.2. 不保证执行
+- 如果JVM在垃圾回收周期之间退出，那么`finalize()`方法可能根本没有机会被执行。
+- 因此，绝对不能把释放关键资源的代码放在`finalize()`里。
+
+### 15.5.3. 性能开销
+- 带有`finalize()`方法的对象会拖慢垃圾回收过程。因为它们不能立即被回收，需要经过两次GC周期，并且`Finalizer`线程的运行本身也有开销。
+# 十六、调试排错 - Java 线程分析之线程Dump分析
+## 16.1 Thread Dump介绍
+### 16.1.1 什么是Thread Dump
+Thread Dump是非常有用的诊断Java应用问题的工具。每一个Java虚拟机都有及时生成所有线程在某一点状态的thread-dump的能力，虽然各个 Java虚拟机打印的thread dump略有不同，但是 大多都提供了当前活动线程的快照，及JVM中所有Java线程的堆栈跟踪信息，堆栈信息一般包含完整的类名及所执行的方法，如果可能的话还有源代码的行数。
+### 16.1.2 Thread Dump特点
+- 能在各种操作系统下使用；
+- 能在各种Java应用服务器下使用；
+- 能在生产环境下使用而不影响系统的性能；
+- 能将问题直接定位到应用程序的代码行上；
+### 16.1.3 Thread Dump抓取
+一般当服务器挂起，崩溃或者性能低下时，就需要抓取服务器的线程堆栈（Thread Dump）用于后续的分析。在实际运行中，往往一次 dump的信息，还不足以确认问题。为了反映线程状态的动态变化，需要接连多次做thread dump，每次间隔10-20s，建议至少产生三次 dump信息，如果每次 dump都指向同一个问题，我们才确定问题的典型性。
+- 操作系统命令获取ThreadDump
+```sh
+ps –ef | grep java
+kill -3 <pid>
+```
+> 一定要谨慎, 一步不慎就可能让服务器进程被杀死。kill -9 命令会杀死进程。
+
+| 特性 | `kill -3`（SIGQUIT） | `kill -9`（SIGKILL） |
+| :--- | :--- | :--- |
+| **信号性质** | 可被应用程序捕获和处理 | **不可**被应用程序捕获和处理 |
+| **主要目的** | **诊断**：让 JVM 输出线程转储 | **强制终止**：立即结束进程 |
+| **对进程的影响** | 进程**继续运行**，只是执行了一个诊断任务 | 进程**被强制终止** |
+| **资源清理** | 不影响进程的正常运行和资源管理 | **不进行任何清理**，可能导致资源泄漏和数据损坏 |
+| **使用场景** | 分析程序卡顿、死锁、高CPU等问题 | 进程无响应，使用普通 `kill`（即 `kill -15`）无效时 |
+
+- JVM 自带的工具获取线程堆栈
+```sh
+jps 或 ps –ef | grep java （获取PID）
+jstack [-l ] <pid> | tee -a jstack.log（获取ThreadDump）
+```
+## 16.2 Thread Dump分析
+### 16.2.1 Thread Dump信息
+- 头部信息：时间，JVM信息
+```sh
+2011-11-02 19:05:06  
+Full thread dump Java HotSpot(TM) Server VM (16.3-b01 mixed mode): 
+```
+- 线程INFO信息块：
+```sh
+1. "Timer-0" daemon prio=10 tid=0xac190c00 nid=0xaef in Object.wait() [0xae77d000] 
+# 线程名称：Timer-0；线程类型：daemon；优先级: 10，默认是5；
+# JVM线程id：tid=0xac190c00，JVM内部线程的唯一标识（通过java.lang.Thread.getId()获取，通常用自增方式实现）。
+# 对应系统线程id（NativeThread ID）：nid=0xaef，和top命令查看的线程pid对应，不过一个是10进制，一个是16进制。（通过命令：top -H -p pid，可以查看该进程的所有线程信息）
+# 线程状态：in Object.wait()；
+# 起始栈地址：[0xae77d000]，对象的内存地址，通过JVM内存查看工具，能够看出线程是在哪儿个对象上等待；
+2.  java.lang.Thread.State: TIMED_WAITING (on object monitor)
+3.  at java.lang.Object.wait(Native Method)
+4.  -waiting on <0xb3885f60> (a java.util.TaskQueue)     # 继续wait 
+5.  at java.util.TimerThread.mainLoop(Timer.java:509)
+6.  -locked <0xb3885f60> (a java.util.TaskQueue)         # 已经locked
+7.  at java.util.TimerThread.run(Timer.java:462)
+Java thread statck trace：是上面2-7行的信息。到目前为止这是最重要的数据，Java stack trace提供了大部分信息来精确定位问题根源。
+```
+- Java thread statck trace详解：
+
+**堆栈信息应该逆向解读**：程序先执行的是第7行，然后是第6行，依次类推。
+```sh
+- locked <0xb3885f60> (a java.util.ArrayList)
+- waiting on <0xb3885f60> (a java.util.ArrayList) 
+```
+**也就是说对象先上锁，锁住对象0xb3885f60，然后释放该对象锁，进入waiting状态。**为啥会出现这样的情况呢？看看下面的java代码示例，就会明白：
+```java
+synchronized(obj) {  
+   .........  
+   obj.wait();  
+   .........  
+}
+```
+如上，线程的执行过程，先用 synchronized 获得了这个对象的 Monitor（对应于 locked <0xb3885f60> ）。当执行到 obj.wait()，线程即放弃了 Monitor的所有权，进入 “wait set”队列（对应于 waiting on <0xb3885f60> ）。
+
+**在堆栈的第一行信息中，进一步标明了线程在代码级的状态，**例如：
+```sh
+java.lang.Thread.State: TIMED_WAITING (parking)
+```
+解释如下：
+```sh
+|blocked|
+
+> This thread tried to enter asynchronized block, but the lock was taken by another thread. This thread isblocked until the lock gets released.
+
+|blocked (on thin lock)|
+
+> This is the same state asblocked, but the lock in question is a thin lock.
+
+|waiting|
+
+> This thread calledObject.wait() on an object. The thread will remain there until some otherthread sends a notification to that object.
+
+|sleeping|
+
+> This thread calledjava.lang.Thread.sleep().
+
+|parked|
+
+> This thread calledjava.util.concurrent.locks.LockSupport.park().
+
+|suspended|
+
+> The thread's execution wassuspended by java.lang.Thread.suspend() or a JVMTI agent call.
+```
+### 16.2.2 Thread状态分析
+线程的状态是一个很重要的东西，因此thread dump中会显示这些状态，通过对这些状态的分析，能够得出线程的运行状况，进而发现可能存在的问题。**线程的状态在Thread.State这个枚举类型中定义：**
+```java
+public enum State   
+{  
+       /** 
+        * Thread state for a thread which has not yet started. 
+        */  
+       NEW,  
+         
+       /** 
+        * Thread state for a runnable thread.  A thread in the runnable 
+        * state is executing in the Java virtual machine but it may 
+        * be waiting for other resources from the operating system 
+        * such as processor. 
+        */  
+       RUNNABLE,  
+         
+       /** 
+        * Thread state for a thread blocked waiting for a monitor lock. 
+        * A thread in the blocked state is waiting for a monitor lock 
+        * to enter a synchronized block/method or  
+        * reenter a synchronized block/method after calling 
+        * {@link Object#wait() Object.wait}. 
+        */  
+       BLOCKED,  
+     
+       /** 
+        * Thread state for a waiting thread. 
+        * A thread is in the waiting state due to calling one of the  
+        * following methods: 
+        * <ul> 
+        *   <li>{@link Object#wait() Object.wait} with no timeout</li> 
+        *   <li>{@link #join() Thread.join} with no timeout</li> 
+        *   <li>{@link LockSupport#park() LockSupport.park}</li> 
+        * </ul> 
+        *  
+        * <p>A thread in the waiting state is waiting for another thread to 
+        * perform a particular action.   
+        * 
+        * For example, a thread that has called <tt>Object.wait()</tt> 
+        * on an object is waiting for another thread to call  
+        * <tt>Object.notify()</tt> or <tt>Object.notifyAll()</tt> on  
+        * that object. A thread that has called <tt>Thread.join()</tt>  
+        * is waiting for a specified thread to terminate. 
+        */  
+       WAITING,  
+         
+       /** 
+        * Thread state for a waiting thread with a specified waiting time. 
+        * A thread is in the timed waiting state due to calling one of  
+        * the following methods with a specified positive waiting time: 
+        * <ul> 
+        *   <li>{@link #sleep Thread.sleep}</li> 
+        *   <li>{@link Object#wait(long) Object.wait} with timeout</li> 
+        *   <li>{@link #join(long) Thread.join} with timeout</li> 
+        *   <li>{@link LockSupport#parkNanos LockSupport.parkNanos}</li>  
+        *   <li>{@link LockSupport#parkUntil LockSupport.parkUntil}</li> 
+        * </ul> 
+        */  
+       TIMED_WAITING,  
+  
+       /** 
+        * Thread state for a terminated thread. 
+        * The thread has completed execution. 
+        */  
+       TERMINATED;  
+}
+```
+- `NEW`：
+
+每一个线程，在堆内存中都有一个对应的Thread对象。Thread t = new Thread();当刚刚在堆内存中创建Thread对象，还没有调用t.start()方法之前，线程就处在NEW状态。在这个状态上，线程与普通的java对象没有什么区别，就仅仅是一个堆内存中的对象。
+- `RUNNABLE`：
+
+该状态表示线程具备所有运行条件，在运行队列中准备操作系统的调度，或者正在运行。 这个状态的线程比较正常，但如果线程长时间停留在在这个状态就不正常了，这说明线程运行的时间很长（存在性能问题），或者是线程一直得不得执行的机会（存在线程饥饿的问题）。
+- `BLOCKED`：
+
+线程正在等待获取java对象的监视器(也叫内置锁)，即线程正在等待进入由synchronized保护的方法或者代码块。synchronized用来保证原子性，任意时刻最多只能由一个线程进入该临界区域，其他线程只能排队等待。
+- `WAITING`：
+
+处在该线程的状态，正在等待某个事件的发生，只有特定的条件满足，才能获得执行机会。而产生这个特定的事件，通常都是另一个线程。也就是说，如果不发生特定的事件，那么处在该状态的线程一直等待，不能获取执行的机会。比如：
+
+A线程调用了obj对象的obj.wait()方法，如果没有线程调用obj.notify或obj.notifyAll，那么A线程就没有办法恢复运行； 
+
+如果A线程调用了LockSupport.park()，没有别的线程调用LockSupport.unpark(A)，那么A没有办法恢复运行。
+- `TIMED_WAITING`：
+
+J.U.C中很多与线程相关类，都提供了限时版本和不限时版本的API。TIMED_WAITING意味着线程调用了限时版本的API，正在等待时间流逝。当等待时间过去后，线程一样可以恢复运行。如果线程进入了WAITING状态，一定要特定的事件发生才能恢复运行；而处在TIMED_WAITING的线程，如果特定的事件发生或者是时间流逝完毕，都会恢复运行。
+- `TERMINATED`：
+
+线程执行完毕，执行完run方法正常返回，或者抛出了运行时异常而结束，线程都会停留在这个状态。这个时候线程只剩下Thread对象了，没有什么用了。
+### 16.2.3 关键状态分析
+- `Wait on condition`：The thread is either sleeping or waiting to be notified by another thread.
+
+该状态说明它在等待另一个条件的发生，来把自己唤醒，或者干脆它是调用了 sleep(n)。
+
+时线程状态大致为以下几种：
+```sh
+java.lang.Thread.State: WAITING (parking)：一直等那个条件发生；
+java.lang.Thread.State: TIMED_WAITING (parking或sleeping)：定时的，那个条件不到来，也将定时唤醒自己。
+```
+- `Waiting for Monitor Entry 和 in Object.wait()`：The thread is waiting to get the lock for an object (some other thread may be holding the lock). This happens if two or more threads try to execute synchronized code. Note that the lock is always for an object and not for individual methods.
+
+在多线程的JAVA程序中，实现线程之间的同步，就要说说 Monitor。Monitor是Java中用以实现线程之间的互斥与协作的主要手段，它可以看成是对象或者Class的锁。`每一个对象都有，也仅有一个 Monitor` 。下面这个图，描述了线程和 Monitor之间关系，以及线程的状态转换图：
+![123.java-jvm-debug-1.png](../assets/images/03-JVM/123.java-jvm-debug-1.png)
+
+如上图，每个Monitor在某个时刻，只能被一个线程拥有，**该线程就是 “ActiveThread”，而其它线程都是 “Waiting Thread”，分别在两个队列“Entry Set”和“Wait Set”里等候**。在“Entry Set”中等待的线程状态是“Waiting for monitor entry”，而在“Wait Set”中等待的线程状态是“in Object.wait()”。
+
+先看“Entry Set”里面的线程。我们称被 synchronized保护起来的代码段为临界区。**当一个线程申请进入临界区时，它就进入了“Entry Set”队列**。对应的 code就像：
+```java
+synchronized(obj) {
+   .........
+}
+```
+这时有两种可能性
+
+- 该 monitor不被其它线程拥有， Entry Set里面也没有其它等待线程。本线程即成为相应类或者对象的 Monitor的 Owner，执行临界区的代码。
+- 该 monitor被其它线程拥有，本线程在 Entry Set队列中等待。
+
+第一种情况下，线程将处于 “Runnable”的状态，而第二种情况下，线程 DUMP会显示处于 “waiting for monitor entry”。如下：
+```sh
+"Thread-0" prio=10 tid=0x08222eb0 nid=0x9 waiting for monitor entry [0xf927b000..0xf927bdb8] 
+at testthread.WaitThread.run(WaitThread.java:39) 
+- waiting to lock <0xef63bf08> (a java.lang.Object) 
+- locked <0xef63beb8> (a java.util.ArrayList) 
+at java.lang.Thread.run(Thread.java:595) 
+```
+临界区的设置，是为了保证其内部的代码执行的原子性和完整性。但是因为临界区在任何时间只允许线程串行通过，这和我们多线程的程序的初衷是相反的。如果在多线程的程序中，大量使用 synchronized，或者不适当的使用了它，会造成大量线程在临界区的入口等待，造成系统的性能大幅下降。如果在线程 DUMP中发现了这个情况，应该审查源码，改进程序。
+
+再看“Wait Set”里面的线程。当线程获得了 Monitor，进入了临界区之后，如果发现线程继续运行的条件没有满足，它则调用对象（一般就是被 synchronized 的对象）的 wait() 方法，放弃 Monitor，进入 “Wait Set”队列。只有当别的线程在该对象上调用了 notify() 或者 notifyAll()，“Wait Set”队列中线程才得到机会去竞争，但是只有一个线程获得对象的Monitor，恢复到运行态。在 “Wait Set”中的线程， DUMP中表现为： in Object.wait()。如下：
+```sh
+"Thread-1" prio=10 tid=0x08223250 nid=0xa in Object.wait() [0xef47a000..0xef47aa38] 
+ at java.lang.Object.wait(Native Method) 
+ - waiting on <0xef63beb8> (a java.util.ArrayList) 
+ at java.lang.Object.wait(Object.java:474) 
+ at testthread.MyWaitThread.run(MyWaitThread.java:40) 
+ - locked <0xef63beb8> (a java.util.ArrayList) 
+ at java.lang.Thread.run(Thread.java:595) 
+综上，一般CPU很忙时，则关注runnable的线程，CPU很闲时，则关注waiting for monitor entry的线程。
+```
+- JDK 5.0 的 Lock
+
+上面提到如果 synchronized和 monitor机制运用不当，可能会造成多线程程序的性能问题。在 JDK 5.0中，引入了 Lock机制，从而使开发者能更灵活的开发高性能的并发多线程程序，可以替代以往 JDK中的 synchronized和 Monitor的 机制。但是，要注意的是，因为 Lock类只是一个普通类，JVM无从得知 Lock对象的占用情况，所以在线程 DUMP中，也不会包含关于 Lock的信息， 关于死锁等问题，就不如用 synchronized的编程方式容易识别。
+
+## 16.3 关键状态示例
+- 显示BLOCKED状态
+```java
+package jstack;  
+
+public class BlockedState  
+{  
+    private static Object object = new Object();  
+    
+    public static void main(String[] args)  
+    {  
+        Runnable task = new Runnable() {  
+
+            @Override  
+            public void run()  
+            {  
+                synchronized (object)  
+                {  
+                    long begin = System.currentTimeMillis();  
+  
+                    long end = System.currentTimeMillis();  
+
+                    // 让线程运行5分钟,会一直持有object的监视器  
+                    while ((end - begin) <= 5 * 60 * 1000)  
+                    {  
+  
+                    }  
+                }  
+            }  
+        };  
+
+        new Thread(task, "t1").start();  
+        new Thread(task, "t2").start();  
+    }  
+} 
+```
+先获取object的线程会执行5分钟，这5分钟内会一直持有object的监视器，另一个线程无法执行处在BLOCKED状态：
+```sh
+Full thread dump Java HotSpot(TM) Server VM (20.12-b01 mixed mode):  
+  
+"DestroyJavaVM" prio=6 tid=0x00856c00 nid=0x1314 waiting on condition [0x00000000]  
+java.lang.Thread.State: RUNNABLE  
+
+"t2" prio=6 tid=0x27d7a800 nid=0x1350 waiting for monitor entry [0x2833f000]  
+java.lang.Thread.State: BLOCKED (on object monitor)  
+     at jstack.BlockedState$1.run(BlockedState.java:17)  
+     - waiting to lock <0x1cfcdc00> (a java.lang.Object)  
+     at java.lang.Thread.run(Thread.java:662)  
+
+"t1" prio=6 tid=0x27d79400 nid=0x1338 runnable [0x282ef000]  
+ java.lang.Thread.State: RUNNABLE  
+     at jstack.BlockedState$1.run(BlockedState.java:22)  
+     - locked <0x1cfcdc00> (a java.lang.Object)  
+     at java.lang.Thread.run(Thread.java:662)
+```
+通过thread dump可以看到：t2线程确实处在BLOCKED (on object monitor)。waiting for monitor entry 等待进入synchronized保护的区域。
+- 显示WAITING状态
+```java
+package jstack;  
+  
+public class WaitingState  
+{  
+    private static Object object = new Object();  
+
+    public static void main(String[] args)  
+    {  
+        Runnable task = new Runnable() {  
+
+            @Override  
+            public void run()  
+            {  
+                synchronized (object)  
+                {  
+                    long begin = System.currentTimeMillis();  
+                    long end = System.currentTimeMillis();  
+
+                    // 让线程运行5分钟,会一直持有object的监视器  
+                    while ((end - begin) <= 5 * 60 * 1000)  
+                    {  
+                        try  
+                        {  
+                            // 进入等待的同时,会进入释放监视器  
+                            object.wait();  
+                        } catch (InterruptedException e)  
+                        {  
+                            e.printStackTrace();  
+                        }  
+                    }  
+                }  
+            }  
+        };  
+
+        new Thread(task, "t1").start();  
+        new Thread(task, "t2").start();  
+    }  
+}  
+```
+```sh
+Full thread dump Java HotSpot(TM) Server VM (20.12-b01 mixed mode):  
+
+"DestroyJavaVM" prio=6 tid=0x00856c00 nid=0x1734 waiting on condition [0x00000000]  
+java.lang.Thread.State: RUNNABLE  
+
+"t2" prio=6 tid=0x27d7e000 nid=0x17f4 in Object.wait() [0x2833f000]  
+java.lang.Thread.State: WAITING (on object monitor)  
+     at java.lang.Object.wait(Native Method)  
+     - waiting on <0x1cfcdc00> (a java.lang.Object)  
+     at java.lang.Object.wait(Object.java:485)  
+     at jstack.WaitingState$1.run(WaitingState.java:26)  
+     - locked <0x1cfcdc00> (a java.lang.Object)  
+     at java.lang.Thread.run(Thread.java:662)  
+
+"t1" prio=6 tid=0x27d7d400 nid=0x17f0 in Object.wait() [0x282ef000]  
+java.lang.Thread.State: WAITING (on object monitor)  
+     at java.lang.Object.wait(Native Method)  
+     - waiting on <0x1cfcdc00> (a java.lang.Object)  
+     at java.lang.Object.wait(Object.java:485)  
+     at jstack.WaitingState$1.run(WaitingState.java:26)  
+     - locked <0x1cfcdc00> (a java.lang.Object)  
+     at java.lang.Thread.run(Thread.java:662)  
+```
+可以发现t1和t2都处在WAITING (on object monitor)，进入等待状态的原因是调用了in Object.wait()。通过J.U.C包下的锁和条件队列，也是这个效果，大家可以自己实践下。
+
+- 显示TIMED_WAITING状态
+```java
+package jstack;  
+
+import java.util.concurrent.TimeUnit;  
+import java.util.concurrent.locks.Condition;  
+import java.util.concurrent.locks.Lock;  
+import java.util.concurrent.locks.ReentrantLock;  
+  
+public class TimedWaitingState  
+{  
+    // java的显示锁,类似java对象内置的监视器  
+    private static Lock lock = new ReentrantLock();  
+  
+    // 锁关联的条件队列(类似于object.wait)  
+    private static Condition condition = lock.newCondition();  
+
+    public static void main(String[] args)  
+    {  
+        Runnable task = new Runnable() {  
+
+            @Override  
+            public void run()  
+            {  
+                // 加锁,进入临界区  
+                lock.lock();  
+  
+                try  
+                {  
+                    condition.await(5, TimeUnit.MINUTES);  
+                } catch (InterruptedException e)  
+                {  
+                    e.printStackTrace();  
+                }  
+  
+                // 解锁,退出临界区  
+                lock.unlock();  
+            }  
+        };  
+  
+        new Thread(task, "t1").start();  
+        new Thread(task, "t2").start();  
+    }  
+} 
+```
+```sh
+Full thread dump Java HotSpot(TM) Server VM (20.12-b01 mixed mode):  
+
+"DestroyJavaVM" prio=6 tid=0x00856c00 nid=0x169c waiting on condition [0x00000000]  
+java.lang.Thread.State: RUNNABLE  
+
+"t2" prio=6 tid=0x27d7d800 nid=0xc30 waiting on condition [0x2833f000]  
+java.lang.Thread.State: TIMED_WAITING (parking)  
+     at sun.misc.Unsafe.park(Native Method)  
+     - parking to wait for  <0x1cfce5b8> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)  
+     at java.util.concurrent.locks.LockSupport.parkNanos(LockSupport.java:196)  
+     at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2116)  
+     at jstack.TimedWaitingState$1.run(TimedWaitingState.java:28)  
+     at java.lang.Thread.run(Thread.java:662)  
+
+"t1" prio=6 tid=0x280d0c00 nid=0x16e0 waiting on condition [0x282ef000]  
+java.lang.Thread.State: TIMED_WAITING (parking)  
+     at sun.misc.Unsafe.park(Native Method)  
+     - parking to wait for  <0x1cfce5b8> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)  
+     at java.util.concurrent.locks.LockSupport.parkNanos(LockSupport.java:196)  
+     at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2116)  
+     at jstack.TimedWaitingState$1.run(TimedWaitingState.java:28)  
+     at java.lang.Thread.run(Thread.java:662)  
+```
+可以看到t1和t2线程都处在java.lang.Thread.State: TIMED_WAITING (parking)，这个parking代表是调用的JUC下的工具类，而不是java默认的监视器。
+## 16.4 案例分析
+### 16.4.1 问题场景
+- CPU飙高，load高，响应很慢
+  - 一个请求过程中多次dump；
+  - 对比多次dump文件的runnable线程，如果执行的方法有比较大变化，说明比较正常。如果在执行同一个方法，就有一些问题了；
+- 查找占用CPU最多的线程
+  - 使用命令：top -H -p pid（pid为被测系统的进程号），找到导致CPU高的线程ID，对应thread dump信息中线程的nid，只不过一个是十进制，一个是十六进制；在thread dump中，
+  - 根据top命令查找的线程id，查找对应的线程堆栈信息；
+- CPU使用率不高但是响应很慢
+  - 进行dump，查看是否有很多thread struck在了i/o、数据库等地方，定位瓶颈原因；
+- 请求无法响应
+  - 多次dump，对比是否所有的runnable线程都一直在执行相同的方法，如果是的，恭喜你，锁住了！
+### 16.4.2 死锁
+死锁经常表现为程序的停顿，或者不再响应用户的请求。从操作系统上观察，对应进程的CPU占用率为零，很快会从top或prstat的输出中消失。
+
+比如在下面这个示例中，是个较为典型的死锁情况：
+```sh
+"Thread-1" prio=5 tid=0x00acc490 nid=0xe50 waiting for monitor entry [0x02d3f000 
+..0x02d3fd68] 
+at deadlockthreads.TestThread.run(TestThread.java:31) 
+- waiting to lock <0x22c19f18> (a java.lang.Object) 
+- locked <0x22c19f20> (a java.lang.Object) 
+
+"Thread-0" prio=5 tid=0x00accdb0 nid=0xdec waiting for monitor entry [0x02cff000 
+..0x02cff9e8] 
+at deadlockthreads.TestThread.run(TestThread.java:31) 
+- waiting to lock <0x22c19f20> (a java.lang.Object) 
+- locked <0x22c19f18> (a java.lang.Object) 
+```
+在 JAVA 5中加强了对死锁的检测。线程 Dump中可以直接报告出 Java级别的死锁，如下所示：
+```sh
+Found one Java-level deadlock: 
+============================= 
+"Thread-1": 
+waiting to lock monitor 0x0003f334 (object 0x22c19f18, a java.lang.Object), 
+which is held by "Thread-0" 
+
+"Thread-0": 
+waiting to lock monitor 0x0003f314 (object 0x22c19f20, a java.lang.Object), 
+which is held by "Thread-1"
+```
+### 16.4.3 热锁
+热锁，也往往是导致系统性能瓶颈的主要因素。其表现特征为：**由于多个线程对临界区，或者锁的竞争，**可能出现：
+- `频繁的线程的上下文切换`：从操作系统对线程的调度来看，当线程在等待资源而阻塞的时候，操作系统会将之切换出来，放到等待的队列，当线程获得资源之后，调度算法会将这个线程切换进去，放到执行队列中。
+- `大量的系统调用`：因为线程的上下文切换，以及热锁的竞争，或者临界区的频繁的进出，都可能导致大量的系统调用。
+- `大部分CPU开销用在“系统态”`：线程上下文切换，和系统调用，都会导致 CPU在 “系统态 ”运行，换而言之，虽然系统很忙碌，但是CPU用在 “用户态 ”的比例较小，应用程序得不到充分的 CPU资源。
+- `随着CPU数目的增多，系统的性能反而下降`。因为CPU数目多，同时运行的线程就越多，可能就会造成更频繁的线程上下文切换和系统态的CPU开销，从而导致更糟糕的性能。
+
+上面的描述，都是一个 scalability（可扩展性）很差的系统的表现。从整体的性能指标看，由于线程热锁的存在，程序的响应时间会变长，吞吐量会降低。
+
+**那么，怎么去了解 “热锁 ”出现在什么地方呢？**
+
+一个重要的方法是 结合操作系统的各种工具观察系统资源使用状况，以及收集Java线程的DUMP信息，看线程都阻塞在什么方法上，了解原因，才能找到对应的解决方法。
+
+## 16.5 JVM重要线程
+JVM运行过程中产生的一些比较重要的线程罗列如下：
+
+<think>首先，用户要求将提供的线程名称解释整理为一个表格，并且不要修改内容。提供的线程名称和解释如下：
+
+1. **Attach Listener**: 负责接收外部命令，执行并返回结果。在JVM启动时未初始化时，会在第一次执行JVM命令时启动。
+
+2. **Signal Dispatcher**: 接收Attach Listener传来的命令，分发到不同模块处理并返回结果。在第一次接收外部JVM命令时初始化。
+
+3. **CompilerThread0**: 调用JIT实时编译装卸class。JVM会启动多个此类线程，数字累加，如CompilerThread1。
+
+4. **Concurrent Mark-Sweep GC Thread**: 并发标记清除垃圾回收器线程，针对老年代垃圾回收。启用需JVM参数-XX:+UseConcMarkSweepGC。
+
+5. **DestroyJavaVM**: 执行main()的线程，在main结束后调用jni_DestroyJavaVM()，等待其他线程退出后卸载JVM。
+
+6. **Finalizer Thread**: 在main线程后创建，优先级10，用于在垃圾收集前调用对象的finalize()方法。是daemon线程，处理ReferenceQueue中的Finalizer对象。
+
+7. **Low Memory Detector**: 负责检测可用内存，如果低则分配新内存空间。
+
+8. **Reference Handler**: JVM创建main线程后创建，优先级10，处理引用对象（软、弱、虚引用）的垃圾回收。
+
+9. **VM Thread**: JVM中的线程母体，产生或触发所有其他线程，用于VM操作如清扫垃圾。
+
+我需要将这些信息整理成一个表格。表格应该清晰列出线程名称和对应的解释。用户指定“整理为表格不要修改内容”，所以我必须使用原始文本，不能添加或删除信息。
+
+表格结构：我可以使用两列，一列是“线程名称”，另一列是“解释说明”。
+
+由于解释文本较长，我需要确保表格可读。可能需要在表格中换行或调整格式，但内容必须原样保留。
+
+用户消息是中文的，所以我应该用中文回复。系统规则说“除非用户要求，否则用简体中文”，用户没有特别要求，所以用简体中文。
+
+最终输出应该是一个Markdown表格，因为这是常见的格式。
+
+列出所有线程名称和解释：
+
+- Attach Listener: 解释文本
+
+- Signal Dispatcher: 解释文本
+
+- 等等。
+
+在用户消息中，解释文本有换行和分点，但在表格中，我需要将其放入一个单元格中。我可以保留换行或使用段落格式。
+
+为了保持原样，我可以将解释文本直接复制到表格单元格中，用换行符分隔。
+
+现在，设计表格：
+
+| 线程名称 | 解释说明 |
+
+|----------|----------|
+
+然后逐行填充。
+
+用户消息中，有些解释有多个段落或列表，如Finalizer Thread有几点。在表格中，我应该保持这些结构。
+
+或许使用HTML表格或Markdown表格。Markdown表格可能不支持复杂格式，但可以用简单的文本。
+
+在Markdown中，表格单元格可以包含多行文本，但需要小心处理。通常，用`<br>`或直接换行。
+
+为了简单，我可以将每个解释作为一个段落放在单元格中。
+
+但用户说“不要修改内容”，所以我应该尽量保留原格式。
+
+回顾用户消息：解释文本是连续的，但有一些分点。例如，Finalizer Thread有“1) ... 2) ...”。在表格中，我可以保留这些数字和点。
+
+在Markdown表格中，我可以直接插入文本。
+
+让我尝试构建表格。
+
+首先，列出所有条目：
+
+1. Attach Listener: 解释
+
+2. Signal Dispatcher: 解释
+
+3. CompilerThread0: 解释
+
+4. Concurrent Mark-Sweep GC Thread: 解释
+
+5. DestroyJavaVM: 解释
+
+6. Finalizer Thread: 解释
+
+7. Low Memory Detector: 解释
+
+8. Reference Handler: 解释
+
+9. VM Thread: 解释
+
+在用户消息中，顺序是给定的，我应该保持这个顺序。
+
+现在，编写Markdown表格。
+
+表格头：| 线程名称 | 解释说明 |
+
+对齐：通常左对齐，使用`:---`和`---:`或`---`。
+
+对于内容，每个单元格包含多行文本。在Markdown中，可以在单元格内使用HTML换行或直接换行，但有些渲染器可能不识别。为了保险，我可以使用`<br>`来换行。
+
+但用户消息中的解释文本已经有换行，我可以直接复制。
+
+例如，对于Attach Listener: "Attach Listener 线程是负责接收到外部的命令，而对该命令进行执行的并把结果返回给发送者。通常我们会用一些命令去要求JVM给我们一些反馈信息，如：java -version、jmap、jstack等等。 如果该线程在JVM启动的时候没有初始化，那么，则会在用户第一次执行JVM命令时，得到启动。"
+
+在表格中，我可以这样写：
+
+| Attach Listener | Attach Listener 线程是负责接收到外部的命令，而对该命令进行执行的并把结果返回给发送者。通常我们会用一些命令去要求JVM给我们一些反馈信息，如：java -version、jmap、jstack等等。 如果该线程在JVM启动的时候没有初始化，那么，则会在用户第一次执行JVM命令时，得到启动。 |
+
+但文本很长，可能影响可读性。我可以保持原样。
+
+类似地处理其他。
+
+对于有列表的，如Finalizer Thread，解释有几点。我可以保留数字和点。
+
+在Markdown表格中，单元格内容可以包含Markdown语法，但列表可能不渲染好。为了简单，作为纯文本插入。
+
+最终，输出一个完整的表格。
+
+确保使用简体中文。
+
+现在，编写回复。</think>以下是您提供的线程名称解释说明整理成的表格。内容完全基于您提供的文本，未作任何修改。
+
+| 线程名称 | 解释说明 |
+|----------|----------|
+| Attach Listener | Attach Listener 线程是负责接收到外部的命令，而对该命令进行执行的并把结果返回给发送者。通常我们会用一些命令去要求JVM给我们一些反馈信息，如：java -version、jmap、jstack等等。 如果该线程在JVM启动的时候没有初始化，那么，则会在用户第一次执行JVM命令时，得到启动。 |
+| Signal Dispatcher | 前面提到Attach Listener线程的职责是接收外部JVM命令，当命令接收成功后，会交给signal dispather线程去进行分发到各个不同的模块处理命令，并且返回处理结果。signal dispather线程也是在第一次接收外部JVM命令时，进行初始化工作。 |
+| CompilerThread0 | 用来调用JITing，实时编译装卸class 。 通常，JVM会启动多个线程来处理这部分工作，线程名称后面的数字也会累加，例如：CompilerThread1。 |
+| Concurrent Mark-Sweep GC Thread | 并发标记清除垃圾回收器（就是通常所说的CMS GC）线程， 该线程主要针对于老年代垃圾回收。ps：启用该垃圾回收器，需要在JVM启动参数中加上：-XX:+UseConcMarkSweepGC。 |
+| DestroyJavaVM | 执行main()的线程，在main执行完后调用JNI中的 jni_DestroyJavaVM() 方法唤起DestroyJavaVM 线程，处于等待状态，等待其它线程（Java线程和Native线程）退出时通知它卸载JVM。每个线程退出时，都会判断自己当前是否是整个JVM中最后一个非deamon线程，如果是，则通知DestroyJavaVM 线程卸载JVM。 |
+| Finalizer Thread | 这个线程也是在main线程之后创建的，其优先级为10，主要用于在垃圾收集前，调用对象的finalize()方法；关于Finalizer线程的几点：1) 只有当开始一轮垃圾收集时，才会开始调用finalize()方法；因此并不是所有对象的finalize()方法都会被执行；2) 该线程也是daemon线程，因此如果虚拟机中没有其他非daemon线程，不管该线程有没有执行完finalize()方法，JVM也会退出；3) JVM在垃圾收集时会将失去引用的对象包装成Finalizer对象（Reference的实现），并放入ReferenceQueue，由Finalizer线程来处理；最后将该Finalizer对象的引用置为null，由垃圾收集器来回收；4) JVM为什么要单独用一个线程来执行finalize()方法呢？如果JVM的垃圾收集线程自己来做，很有可能由于在finalize()方法中误操作导致GC线程停止或不可控，这对GC线程来说是一种灾难； |
+| Low Memory Detector | 这个线程是负责对可使用内存进行检测，如果发现可用内存低，分配新的内存空间。 |
+| Reference Handler | JVM在创建main线程后就创建Reference Handler线程，其优先级最高，为10，它主要用于处理引用对象本身（软引用、弱引用、虚引用）的垃圾回收问题 。 |
+| VM Thread | 这个线程就比较牛b了，是JVM里面的线程母体，根据hotspot源码（vmThread.hpp）里面的注释，它是一个单个的对象（最原始的线程）会产生或触发所有其他的线程，这个单个的VM线程是会被其他线程所使用来做一些VM操作（如：清扫垃圾等）。 |
 
 
 
