@@ -2461,7 +2461,7 @@ JVM 必须保存所有方法的
 - HotSpot中字符串常量池保存哪里？永久代？方法区还是堆区？
   - 运行时常量池（Runtime Constant Pool）是虚拟机规范中是方法区的一部分，在加载类和结构到虚拟机后，就会创建对应的运行时常量池；而字符串常量池是这个过程中常量字符串的存放位置。所以从这个角度，字符串常量池属于虚拟机规范中的方法区，它是一个逻辑上的概念；而堆区，永久代以及元空间是实际的存放位置。
   - 不同的虚拟机对虚拟机的规范（比如方法区）是不一样的，只有 HotSpot 才有永久代的概念。
-  - HotSpot也是发展的，由于一些问题在新窗口打开的存在，HotSpot考虑逐渐去永久代，对于不同版本的JDK，实际的存储位置是有差异的，具体看如下表格：
+  - HotSpot也是发展的，由于一些问题的存在，HotSpot考虑逐渐去永久代，对于不同版本的JDK，实际的存储位置是有差异的，具体看如下表格：
 - 为永久代设置空间大小是很难确定的。
 
 在某些场景下，如果动态加载类过多，容易产生 Perm 区的 OOM。如果某个实际 Web 工程中，因为功能点比较多，在运行过程中，要不断动态加载很多类，经常出现 OOM。而元空间和永久代最大的区别在于，元空间不在虚拟机中，而是使用本地内存，所以默认情况下，元空间的大小仅受本地内存限制
@@ -5886,6 +5886,28 @@ kill -3 <pid>
 jps 或 ps –ef | grep java （获取PID）
 jstack [-l ] <pid> | tee -a jstack.log（获取ThreadDump）
 ```
+
+#### 堆dump和线程dump的区别
+
+| 类型       | 应用场景                                                                 |
+|------------|--------------------------------------------------------------------------|
+| **线程dump** | 诊断死锁、线程阻塞、CPU占用过高、响应缓慢等与线程并发相关的问题。          |
+| **堆dump**   | 分析内存泄漏、对象占用过高、频繁Full GC等内存相关问题。                   |
+
+1. **线程dump（Thread Dump）**  
+   - 记录某一时刻JVM中所有线程的运行状态和调用栈信息。  
+   - 包含内容：  
+     - 线程名称、状态（如RUNNABLE、BLOCKED）  
+     - 线程ID、优先级  
+     - 锁信息（持有或等待的锁）  
+     - 方法调用栈（Stack Trace）  
+
+2. **堆dump（Heap Dump）**  
+   - 记录某一时刻JVM堆内存中所有对象的快照。  
+   - 包含内容：  
+     - 对象类型、数量  
+     - 对象大小、引用关系  
+     - 内存泄漏可疑点  
 ## 16.2 Thread Dump分析
 ### 16.2.1 Thread Dump信息
 - 头部信息：时间，JVM信息
@@ -6350,124 +6372,6 @@ which is held by "Thread-1"
 ## 16.5 JVM重要线程
 JVM运行过程中产生的一些比较重要的线程罗列如下：
 
-<think>首先，用户要求将提供的线程名称解释整理为一个表格，并且不要修改内容。提供的线程名称和解释如下：
-
-1. **Attach Listener**: 负责接收外部命令，执行并返回结果。在JVM启动时未初始化时，会在第一次执行JVM命令时启动。
-
-2. **Signal Dispatcher**: 接收Attach Listener传来的命令，分发到不同模块处理并返回结果。在第一次接收外部JVM命令时初始化。
-
-3. **CompilerThread0**: 调用JIT实时编译装卸class。JVM会启动多个此类线程，数字累加，如CompilerThread1。
-
-4. **Concurrent Mark-Sweep GC Thread**: 并发标记清除垃圾回收器线程，针对老年代垃圾回收。启用需JVM参数-XX:+UseConcMarkSweepGC。
-
-5. **DestroyJavaVM**: 执行main()的线程，在main结束后调用jni_DestroyJavaVM()，等待其他线程退出后卸载JVM。
-
-6. **Finalizer Thread**: 在main线程后创建，优先级10，用于在垃圾收集前调用对象的finalize()方法。是daemon线程，处理ReferenceQueue中的Finalizer对象。
-
-7. **Low Memory Detector**: 负责检测可用内存，如果低则分配新内存空间。
-
-8. **Reference Handler**: JVM创建main线程后创建，优先级10，处理引用对象（软、弱、虚引用）的垃圾回收。
-
-9. **VM Thread**: JVM中的线程母体，产生或触发所有其他线程，用于VM操作如清扫垃圾。
-
-我需要将这些信息整理成一个表格。表格应该清晰列出线程名称和对应的解释。用户指定“整理为表格不要修改内容”，所以我必须使用原始文本，不能添加或删除信息。
-
-表格结构：我可以使用两列，一列是“线程名称”，另一列是“解释说明”。
-
-由于解释文本较长，我需要确保表格可读。可能需要在表格中换行或调整格式，但内容必须原样保留。
-
-用户消息是中文的，所以我应该用中文回复。系统规则说“除非用户要求，否则用简体中文”，用户没有特别要求，所以用简体中文。
-
-最终输出应该是一个Markdown表格，因为这是常见的格式。
-
-列出所有线程名称和解释：
-
-- Attach Listener: 解释文本
-
-- Signal Dispatcher: 解释文本
-
-- 等等。
-
-在用户消息中，解释文本有换行和分点，但在表格中，我需要将其放入一个单元格中。我可以保留换行或使用段落格式。
-
-为了保持原样，我可以将解释文本直接复制到表格单元格中，用换行符分隔。
-
-现在，设计表格：
-
-| 线程名称 | 解释说明 |
-
-|----------|----------|
-
-然后逐行填充。
-
-用户消息中，有些解释有多个段落或列表，如Finalizer Thread有几点。在表格中，我应该保持这些结构。
-
-或许使用HTML表格或Markdown表格。Markdown表格可能不支持复杂格式，但可以用简单的文本。
-
-在Markdown中，表格单元格可以包含多行文本，但需要小心处理。通常，用`<br>`或直接换行。
-
-为了简单，我可以将每个解释作为一个段落放在单元格中。
-
-但用户说“不要修改内容”，所以我应该尽量保留原格式。
-
-回顾用户消息：解释文本是连续的，但有一些分点。例如，Finalizer Thread有“1) ... 2) ...”。在表格中，我可以保留这些数字和点。
-
-在Markdown表格中，我可以直接插入文本。
-
-让我尝试构建表格。
-
-首先，列出所有条目：
-
-1. Attach Listener: 解释
-
-2. Signal Dispatcher: 解释
-
-3. CompilerThread0: 解释
-
-4. Concurrent Mark-Sweep GC Thread: 解释
-
-5. DestroyJavaVM: 解释
-
-6. Finalizer Thread: 解释
-
-7. Low Memory Detector: 解释
-
-8. Reference Handler: 解释
-
-9. VM Thread: 解释
-
-在用户消息中，顺序是给定的，我应该保持这个顺序。
-
-现在，编写Markdown表格。
-
-表格头：| 线程名称 | 解释说明 |
-
-对齐：通常左对齐，使用`:---`和`---:`或`---`。
-
-对于内容，每个单元格包含多行文本。在Markdown中，可以在单元格内使用HTML换行或直接换行，但有些渲染器可能不识别。为了保险，我可以使用`<br>`来换行。
-
-但用户消息中的解释文本已经有换行，我可以直接复制。
-
-例如，对于Attach Listener: "Attach Listener 线程是负责接收到外部的命令，而对该命令进行执行的并把结果返回给发送者。通常我们会用一些命令去要求JVM给我们一些反馈信息，如：java -version、jmap、jstack等等。 如果该线程在JVM启动的时候没有初始化，那么，则会在用户第一次执行JVM命令时，得到启动。"
-
-在表格中，我可以这样写：
-
-| Attach Listener | Attach Listener 线程是负责接收到外部的命令，而对该命令进行执行的并把结果返回给发送者。通常我们会用一些命令去要求JVM给我们一些反馈信息，如：java -version、jmap、jstack等等。 如果该线程在JVM启动的时候没有初始化，那么，则会在用户第一次执行JVM命令时，得到启动。 |
-
-但文本很长，可能影响可读性。我可以保持原样。
-
-类似地处理其他。
-
-对于有列表的，如Finalizer Thread，解释有几点。我可以保留数字和点。
-
-在Markdown表格中，单元格内容可以包含Markdown语法，但列表可能不渲染好。为了简单，作为纯文本插入。
-
-最终，输出一个完整的表格。
-
-确保使用简体中文。
-
-现在，编写回复。</think>以下是您提供的线程名称解释说明整理成的表格。内容完全基于您提供的文本，未作任何修改。
-
 | 线程名称 | 解释说明 |
 |----------|----------|
 | Attach Listener | Attach Listener 线程是负责接收到外部的命令，而对该命令进行执行的并把结果返回给发送者。通常我们会用一些命令去要求JVM给我们一些反馈信息，如：java -version、jmap、jstack等等。 如果该线程在JVM启动的时候没有初始化，那么，则会在用户第一次执行JVM命令时，得到启动。 |
@@ -6479,446 +6383,2274 @@ JVM运行过程中产生的一些比较重要的线程罗列如下：
 | Low Memory Detector | 这个线程是负责对可使用内存进行检测，如果发现可用内存低，分配新的内存空间。 |
 | Reference Handler | JVM在创建main线程后就创建Reference Handler线程，其优先级最高，为10，它主要用于处理引用对象本身（软引用、弱引用、虚引用）的垃圾回收问题 。 |
 | VM Thread | 这个线程就比较牛b了，是JVM里面的线程母体，根据hotspot源码（vmThread.hpp）里面的注释，它是一个单个的对象（最原始的线程）会产生或触发所有其他的线程，这个单个的VM线程是会被其他线程所使用来做一些VM操作（如：清扫垃圾等）。 |
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# 十七、调试排错 - Java 问题排查之Linux命令
+## 17.1 文本操作
+### 17.1.1 文本查找 - grep
+grep常用命令：
+```sh
+# 基本使用
+grep yoursearchkeyword f.txt     #文件查找
+grep 'KeyWord otherKeyWord' f.txt cpf.txt #多文件查找, 含空格加引号
+grep 'KeyWord' /home/admin -r -n #目录下查找所有符合关键字的文件
+grep 'keyword' /home/admin -r -n -i # -i 忽略大小写
+grep 'KeyWord' /home/admin -r -n --include *.{vm,java} #指定文件后缀
+grep 'KeyWord' /home/admin -r -n --exclude *.{vm,java} #反匹配
+
+# cat + grep
+cat f.txt | grep -i keyword # 查找所有keyword且不分大小写  
+cat f.txt | grep -c 'KeyWord' # 统计Keyword次数
+
+# seq + grep
+seq 10 | grep 5 -A 3    #上匹配
+seq 10 | grep 5 -B 3    #下匹配
+seq 10 | grep 5 -C 3    #上下匹配，平时用这个就妥了
+```
+grep的参数：
+```sh
+--color=auto：显示颜色;
+-i, --ignore-case：忽略字符大小写;
+-o, --only-matching：只显示匹配到的部分;
+-n, --line-number：显示行号;
+-v, --invert-match：反向显示,显示未匹配到的行;
+-E, --extended-regexp：支持使用扩展的正则表达式;
+-q, --quiet, --silent：静默模式,即不输出任何信息;
+-w, --word-regexp：整行匹配整个单词;
+-c, --count：统计匹配到的行数; print a count of matching lines;
+
+-B, --before-context=NUM：print NUM lines of leading context   后#行 
+-A, --after-context=NUM：print NUM lines of trailing context   前#行 
+-C, --context=NUM：print NUM lines of output context           前后各#行 
+```
+### 17.1.2 文本分析 - awk
+awk基本命令：
+
+awk 是一个强大的文本处理工具，用于逐行扫描文件或输入流，根据模式匹配和动作处理数据。默认情况下，awk 以空格或制表符作为字段分隔符，每行被分割成多个字段（$1 表示第一个字段，$2 表示第二个，以此类推；$0 表示整行）。
+```sh
+# 基本使用
+awk '{print $4,$6}' f.txt #从文件 f.txt 中读取每一行，打印第 4 个字段和第 6 个字段（字段之间用空格分隔）。例如，如果一行是 "a b c d e f"，则输出 "d f"。
+awk '{print NR,$0}' f.txt cpf.txt #处理两个文件 f.txt 和 cpf.txt。NR 是累计行号（从第一个文件开始计数，跨文件递增），$0 是整行内容。输出格式为：行号 整行。例如，如果 f.txt 有 3 行，cpf.txt 有 2 行，则 NR 会从 1 到 5。    
+awk '{print FNR,$0}' f.txt cpf.txt # 处理多个文件，但 FNR 是每个文件内的行号（每个文件单独从 1 开始计数）。输出格式为：文件内行号 整行。例如，f.txt 的 FNR 从 1 开始，cpf.txt 的 FNR 也重新从 1 开始。
+awk '{print FNR,FILENAME,$0}' f.txt cpf.txt # 打印每个文件的 FNR（文件内行号）、FILENAME（当前文件名）和整行 \$0。这有助于区分行来自哪个文件。例如，输出可能为："1 f.txt 内容"。
+awk '{print FILENAME,"NR="NR,"FNR="FNR,"$"NF"="$NF}' f.txt cpf.txt # 打印 FILENAME（当前文件名）、字符串 "NR=" 后跟累计行号 NR、"FNR=" 后跟文件内行号 FNR、以及 "NF="后跟最后一个字段的值（‘NF‘是字段数量，‘NF="后跟最后一个字段的值（‘NF‘是字段数量，‘NF` 是最后一个字段）。例如，输出可能为："f.txt NR=1 FNR=1 $3=c"（如果一行有 3 个字段，最后一个字段是 "c"）。
+echo 1:2:3:4 | awk -F: '{print $1,$2,$3,$4}' # 首先 echo 输出字符串 "1:2:3:4"，然后通过管道传递给 awk。-F: 设置字段分隔符为冒号 :。awk 打印第 1、2、3、4 个字段，输出为 "1 2 3 4"。
+
+# 匹配
+awk '/ldb/ {print}' f.txt   #匹配ldb,从 f.txt 中匹配包含正则表达式 "ldb" 的行，并打印整行。{print} 是默认动作，可省略，等价于 awk '/ldb/' f.txt。
+awk '!/ldb/ {print}' f.txt  #不匹配ldb,匹配不包含 "ldb" 的行（! 表示否定），并打印这些行。相当于过滤掉含 "ldb" 的行。
+awk '/ldb/ && /LISTEN/ {print}' f.txt   #匹配ldb和LISTEN,使用逻辑与 && 匹配同时包含 "ldb" 和 "LISTEN" 的行，并打印整行。用于复杂条件过滤。
+awk '$5 ~ /ldb/ {print}' f.txt #第五列匹配ldb,匹配第 5 个字段（\$5）包含正则表达式 "ldb" 的行（~ 表示匹配），并打印整行。这比整行匹配更精确，只检查特定字段。
+```
+注： **斜杠 / / 是用来界定正则表达式的分隔符，这是 awk 的语法要求。**
+
+内建变量
+```sh
+`NR`: NR表示从awk开始执行后，按照记录分隔符读取的数据次数，默认的记录分隔符为换行符，因此默认的就是读取的数据行数，NR可以理解为Number of Record的缩写。
+
+`FNR`: 在awk处理多个输入文件的时候，在处理完第一个文件后，NR并不会从1开始，而是继续累加，因此就出现了FNR，每当处理一个新文件的时候，FNR就从1开始计数，FNR可以理解为File Number of Record。
+
+`NF`: NF表示目前的记录被分割的字段的数目，NF可以理解为Number of Field。
+```
+更多请参考：<a href = 'https://www.runoob.com/linux/linux-comm-awk.html' >Linux awk 命令</a>
+### 17.1.3 文本处理 - sed
+sed常用：
+```sh
+# 文本打印
+sed -n '3p' xxx.log #只打印第三行
+sed -n '$p' xxx.log #只打印最后一行
+sed -n '3,9p' xxx.log #只查看文件的第3行到第9行
+sed -n -e '3,9p' -e '=' xxx.log #打印3-9行，并显示行号
+sed -n '/root/p' xxx.log #显示包含root的行
+sed -n '/hhh/,/omc/p' xxx.log # 显示包含"hhh"的行到包含"omc"的行之间的行
+
+# 文本替换
+sed -i 's/root/world/g' xxx.log # 用world 替换xxx.log文件中的root; s==search  查找并替换, g==global  全部替换, -i: implace
+
+# 文本插入
+sed '1,4i hahaha' xxx.log # 在文件第一行和第四行的每行下面添加hahaha
+sed -e '1i happy' -e '$a new year' xxx.log  #【界面显示】在文件第一行添加happy,文件结尾添加new year
+sed -i -e '1i happy' -e '$a new year' xxx.log #【真实写入文件】在文件第一行添加happy,文件结尾添加new year
+
+# 文本删除
+sed  '3,9d' xxx.log # 删除第3到第9行,只是不显示而已
+sed '/hhh/,/omc/d' xxx.log # 删除包含"hhh"的行到包含"omc"的行之间的行
+sed '/omc/,10d' xxx.log # 删除包含"omc"的行到第十行的内容
+
+# 与find结合
+find . -name  "*.txt" |xargs   sed -i 's/hhhh/\hHHh/g'
+find . -name  "*.txt" |xargs   sed -i 's#hhhh#hHHh#g'
+find . -name  "*.txt" -exec sed -i 's/hhhh/\hHHh/g' {} \;
+find . -name  "*.txt" |xargs cat
+```
+更多请参考：<a href ='https://www.runoob.com/linux/linux-comm-sed.html'>Linux sed 命令</a> 或者 <a href = 'https://www.cnblogs.com/ftl1012/p/sed.html'>Linux sed命令详解</a>
+## 17.2 文件操作
+### 17.2.1 文件监听 - tail
+最常用的tail -f filename
+```sh
+# 基本使用
+tail -f xxx.log # 循环监听文件
+tail -300f xxx.log #倒数300行并追踪文件
+tail -n +20 xxx.log #从第 20 行至文件末尾显示文件内容
+
+# tailf使用
+tailf xxx.log #等同于tail -f -n 10 打印最后10行，然后追踪文件
+```
+tail -f 与tail F 与tailf三者区别
+```sh
+`tail  -f `  等于--follow=descriptor，根据文件描述进行追踪，当文件改名或删除后，停止追踪。
+
+`tail -F` 等于 --follow=name ==retry，根据文件名字进行追踪，当文件改名或删除后，保持重试，当有新的文件和他同名时，继续追踪
+
+`tailf` 等于tail -f -n 10（tail -f或-F默认也是打印最后10行，然后追踪文件），与tail -f不同的是，如果文件不增长，它不会去访问磁盘文件，所以tailf特别适合那些便携机上跟踪日志文件，因为它减少了磁盘访问，可以省电。
+```
+tail的参数
+```sh
+-f 循环读取
+-q 不显示处理信息
+-v 显示详细的处理信息
+-c<数目> 显示的字节数
+-n<行数> 显示文件的尾部 n 行内容
+--pid=PID 与-f合用,表示在进程ID,PID死掉之后结束
+-q, --quiet, --silent 从不输出给出文件名的首部
+-s, --sleep-interval=S 与-f合用,表示在每次反复的间隔休眠S秒
+```
+### 17.2.2 文件查找 - find
+```sh
+sudo -u admin find /home/admin /tmp /usr -name \*.log(多个目录去找)
+find . -iname \*.txt(大小写都匹配)
+find . -type d(当前目录下的所有子目录)
+find /usr -type l(当前目录下所有的符号链接)
+find /usr -type l -name "z*" -ls(符号链接的详细信息 eg:inode,目录)
+find /home/admin -size +250000k(超过250000k的文件，当然+改成-就是小于了)
+find /home/admin f -perm 777 -exec ls -l {} \; (按照权限查询文件)
+find /home/admin -atime -1  1天内访问过的文件
+find /home/admin -ctime -1  1天内状态改变过的文件    
+find /home/admin -mtime -1  1天内修改过的文件
+find /home/admin -amin -1  1分钟内访问过的文件
+find /home/admin -cmin -1  1分钟内状态改变过的文件    
+find /home/admin -mmin -1  1分钟内修改过的文件
+```
+## 17.3 查看网络和进程
+### 17.3.1 查看所有网络接口的属性(ifconfig)
+```sh
+[root@pdai.tech ~]# ifconfig
+eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 172.31.165.194  netmask 255.255.240.0  broadcast 172.31.175.255
+        ether 00:16:3e:08:c1:ea  txqueuelen 1000  (Ethernet)
+        RX packets 21213152  bytes 2812084823 (2.6 GiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 25264438  bytes 46566724676 (43.3 GiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        loop  txqueuelen 1000  (Local Loopback)
+        RX packets 502  bytes 86350 (84.3 KiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 502  bytes 86350 (84.3 KiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+```
+### 17.3.2 查看防火墙设置(iptables -L)
+```sh
+[root@pdai.tech ~]# iptables -L
+Chain INPUT (policy ACCEPT)
+target     prot opt source               destination
+
+Chain FORWARD (policy ACCEPT)
+target     prot opt source               destination
+
+Chain OUTPUT (policy ACCEPT)
+target     prot opt source               destination
+```
+### 17.3.3 查看路由表(route -n)
+```sh
+[root@pdai.tech ~]# route -n
+Kernel IP routing table
+Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
+0.0.0.0         172.31.175.253  0.0.0.0         UG    0      0        0 eth0
+169.254.0.0     0.0.0.0         255.255.0.0     U     1002   0        0 eth0
+172.31.160.0    0.0.0.0         255.255.240.0   U     0      0        0 eth0
+```
+### 17.3.4 netstat
+查看所有监听端口
+```sh
+[root@pdai.tech ~]# netstat -lntp
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name  
+tcp        0      0 0.0.0.0:443             0.0.0.0:*               LISTEN      970/nginx: master p
+tcp        0      0 0.0.0.0:9999            0.0.0.0:*               LISTEN      1249/java         
+tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN      970/nginx: master p
+tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      1547/sshd         
+tcp6       0      0 :::3306                 :::*                    LISTEN      1894/mysqld       
+```
+查看所有已经建立的连接
+```sh
+[root@pdai.tech ~]# netstat -antp
+Active Internet connections (servers and established)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name
+tcp        0      0 0.0.0.0:443             0.0.0.0:*               LISTEN      970/nginx: master p
+tcp        0      0 0.0.0.0:9999            0.0.0.0:*               LISTEN      1249/java
+tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN      970/nginx: master p
+tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      1547/sshd
+tcp        0      0 172.31.165.194:53874    100.100.30.25:80        ESTABLISHED 18041/AliYunDun
+tcp        0     64 172.31.165.194:22       xxx.194.1.200:2649      ESTABLISHED 32516/sshd: root@pt
+tcp6       0      0 :::3306                 :::*                    LISTEN      1894/m
+```
+查看当前连接
+```sh
+[root@pdai.tech ~]# netstat -nat|awk  '{print $6}'|sort|uniq -c|sort -rn
+      5 LISTEN
+      2 ESTABLISHED
+      1 Foreign
+      1 established)
+```
+查看网络统计信息进程
+```sh
+[root@pdai.tech ~]# netstat -s
+Ip:
+    21017132 total packets received
+    0 forwarded
+    0 incoming packets discarded
+    21017131 incoming packets delivered
+    25114367 requests sent out
+    324 dropped because of missing route
+Icmp:
+    18088 ICMP messages received
+    692 input ICMP message failed.
+    ICMP input histogram:
+        destination unreachable: 4241
+        timeout in transit: 19
+        echo requests: 13791
+        echo replies: 4
+        timestamp request: 33
+    13825 ICMP messages sent
+    0 ICMP messages failed
+    ICMP output histogram:
+        destination unreachable: 1
+        echo replies: 13791
+        timestamp replies: 33
+IcmpMsg:
+        InType0: 4
+        InType3: 4241
+        InType8: 13791
+        InType11: 19
+        InType13: 33
+        OutType0: 13791
+        OutType3: 1
+        OutType14: 33
+Tcp:
+    12210 active connections openings
+    208820 passive connection openings
+    54198 failed connection attempts
+    9805 connection resets received
+...
+```
+netstat 请参考这篇文章: <a href = 'https://www.cnblogs.com/ftl1012/p/netstat.html'>Linux netstat命令详解</a>
+
+### 17.3.5 查看所有进程(ps -ef)
+```sh
+[root@pdai.tech ~]# ps -ef | grep java
+root      1249     1  0 Nov04 ?        00:58:05 java -jar /opt/tech_doc/bin/tech_arch-0.0.1-RELEASE.jar --server.port=9999
+root     32718 32518  0 08:36 pts/0    00:00:00 grep --color=auto java
+```
+### 17.3.6 top
+top除了看一些基本信息之外，剩下的就是配合来查询vm的各种问题了
+```sh
+# top -H -p <进程PID>  (查看指定进程内各个线程的CPU使用情况。)
+top - 08:37:51 up 45 days, 18:45,  1 user,  load average: 0.01, 0.03, 0.05
+Threads:  28 total,   0 running,  28 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.7 us,  0.7 sy,  0.0 ni, 98.6 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+KiB Mem :  1882088 total,    74608 free,   202228 used,  1605252 buff/cache
+KiB Swap:  2097148 total,  1835392 free,   261756 used.  1502036 avail Mem
+
+  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND
+ 1347 root      20   0 2553808 113752   1024 S  0.3  6.0  48:46.74 VM Periodic Tas
+ 1249 root      20   0 2553808 113752   1024 S  0.0  6.0   0:00.00 java
+ 1289 root      20   0 2553808 113752   1024 S  0.0  6.0   0:03.74 java
+...
+```
+- 实际应用场景
+
+    - 1. 查找高CPU占用的线程
+    ```bash
+    top -H -p <进程PID>
+    ```
+    这样可以查看指定进程内各个线程的CPU使用情况。
+    ```bash
+    top -H -p <进程PID>
+    ```
+    这样可以查看指定进程内各个线程的CPU使用情况。
+    - 2. 结合线程ID定位问题
+    ```bash
+    # 1. 先用 top 找到高CPU的进程
+    top
+
+    # 2. 再用 top -H 查看该进程的线程详情
+    top -H -p 1234
+
+    # 3. 将线程ID转换为16进制（用于jstack等工具）
+    printf "%x\n" 5678
+    ```
+- 输出列的含义
+
+```
+PID    USER    PR  NI   VIRT   RES   SHR  S  %CPU %MEM   TIME+  COMMAND
+
+
+1. **PID** - 线程ID（不是进程ID）
+2. **USER** - 运行该线程的用户
+3. **PR** - 优先级
+4. **NI** - 友好值（nice value）
+5. **VIRT** - 虚拟内存使用量
+6. **RES** - 驻留内存大小（实际物理内存）
+7. **SHR** - 共享内存大小
+8. **S** - 状态（S=睡眠, R=运行, Z=僵尸等）
+9. **%CPU** - CPU使用百分比
+10. **%MEM** - 内存使用百分比
+11. **TIME+** - 累计CPU时间
+12. **COMMAND** - 线程名称（通常会显示线程名）
+```
+## 17.4 查看磁盘和内存相关
+### 17.4.1 查看内存使用 - free -m
+```sh
+[root@pdai.tech ~]# free -m
+              total        used        free      shared  buff/cache   available
+Mem:           1837         196         824           0         816        1469
+Swap:          2047         255        1792
+```
+- Mem（物理内存）部分
+  - total: 1837MB - 系统总物理内存
+  - used: 196MB - 已使用的内存（包括应用程序使用的和缓存）
+  - free: 824MB - 完全未被使用的内存
+  - shared: 0MB - 多个进程共享的内存
+  - buff/cache: 816MB - 缓冲区和缓存使用的内存
+  - available: 1469MB - 估算的可用内存（包括free+buff/cache可回收部分）
+- Swap（交换分区）部分
+  - total: 0MB - 交换分区总大小
+  - used: 0MB - 已使用的交换空间
+  - free: 0MB - 空闲的交换空间
+
+
+#### Swap（交换空间）详细解释
+
+##### **什么是Swap？**
+
+**Swap（交换空间）** 是硬盘上的一块特殊区域，用作**虚拟内存扩展**。当物理内存（RAM）不足时，系统会将部分不常用的内存数据暂时转移到Swap空间中。
+
+##### **Swap的工作原理**
+
+```
+物理内存 (RAM)  ⇄  Swap空间 (硬盘)
+    快速访问         较慢访问
+```
+
+- **当物理内存不足时**：系统将暂时不使用的内存页面"换出"到Swap
+- **当需要这些数据时**：再从Swap"换入"到物理内存
+
+#### **Swap的主要作用**
+
+##### 1. **内存扩展**
+```bash
+# 实际可用内存 = 物理内存 + Swap空间
+总内存 = 8GB RAM + 4GB Swap = 12GB 有效内存
+```
+
+##### 2. **防止内存耗尽导致的系统崩溃**
+没有Swap时：内存耗尽 → 系统杀死进程或崩溃
+有Swap时：内存耗尽 → 使用Swap作为缓冲
+
+##### 3. **休眠支持**
+系统休眠时需要将内存内容保存到Swap
+
+#### **Swap的优缺点**
+
+##### 优点：
+- ✅ 提供额外的"虚拟内存"
+- ✅ 提高系统稳定性
+- ✅ 支持休眠功能
+- ✅ 处理内存使用峰值
+
+##### 缺点：
+- ❌ **速度慢**（硬盘 vs 内存）
+- ❌ **频繁使用会降低性能**
+
+#### **实际应用场景**
+
+##### 场景1：内存不足时
+```bash
+# 当物理内存使用接近100%时
+[root@server ~]# free -m
+              total        used        free
+Mem:           2048        2000          48
+Swap:          2048         500        1548
+# 此时系统正在使用Swap来维持运行
+```
+
+##### 场景2：处理大内存应用
+```bash
+# 运行需要大量内存的程序时
+# 即使物理内存不足，程序也能运行（但会变慢）
+```
+
+#### **Swap配置建议**
+
+##### 不同内存大小的Swap配置：
+| 物理内存 | 推荐Swap大小 | 说明 |
+|---------|-------------|------|
+| ≤ 2GB | 2倍内存 | 保证足够扩展空间 |
+| 2GB-8GB | 等于内存 | 平衡性能和扩展 |
+| > 8GB | 4GB-8GB | 主要用于休眠 |
+
+##### 查看当前Swap配置：
+```bash
+# 查看Swap分区
+swapon -s
+
+# 查看Swap使用详情
+cat /proc/swaps
+
+# 实时监控Swap使用
+vmstat 1
+```
+
+
+#### **是否需要配置Swap？**
+
+##### 需要配置的情况：
+- 物理内存较小（< 4GB）
+- 运行内存密集型应用
+- 需要系统休眠功能
+- 追求系统稳定性
+
+##### 可以不配置的情况：
+- 内存充足（如您的1837MB对于轻负载足够）
+- SSD硬盘（避免频繁写入影响寿命）
+- 容器环境（通常不推荐使用Swap）
+
+#### **创建Swap文件（如果需要）**
+```bash
+# 1. 创建2GB的Swap文件
+sudo fallocate -l 2G /swapfile
+
+# 2. 设置权限
+sudo chmod 600 /swapfile
+
+# 3. 格式化为Swap
+sudo mkswap /swapfile
+
+# 4. 启用Swap
+sudo swapon /swapfile
+
+# 5. 永久生效（添加到/etc/fstab）
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+#### **性能监控命令**
+```bash
+# 查看内存和Swap使用趋势
+sar -r 1 5
+
+# 查看Swap换入换出情况
+vmstat 1
+
+# 监控Swap使用率
+watch -n 1 'free -m | grep Swap'
+```
+### 17.4.2 查看各分区使用情况(df -h)
+```sh
+[root@pdai.tech ~]# df -h
+Filesystem      Size  Used Avail Use% Mounted on
+devtmpfs        909M     0  909M   0% /dev
+tmpfs           919M     0  919M   0% /dev/shm
+tmpfs           919M  452K  919M   1% /run
+tmpfs           919M     0  919M   0% /sys/fs/cgroup
+/dev/vda1        40G   15G   23G  40% /
+tmpfs           184M     0  184M   0% /run/user/0
+```
+### 17.4.3 查看指定目录的大小(du -sh)
+```sh
+[root@pdai.tech ~]# du -sh
+803M
+```
+### 17.4.4 查看内存总量(grep MemTotal /proc/meminfo)
+```sh
+[root@pdai.tech ~]# grep MemTotal /proc/meminfo
+MemTotal:        1882088 kB
+```
+### 17.4.5 查看空闲内存量(grep MemFree /proc/meminfo)
+```sh
+[root@pdai.tech ~]# grep MemFree /proc/meminfo
+MemFree:           74120 kB
+```
+### 17.4.6 查看系统负载磁盘和分区(cat /proc/loadavg)
+```sh
+[root@pdai.tech ~]# cat /proc/loadavg
+0.01 0.04 0.05 2/174 32751
+```
+### 17.4.7 查看挂接的分区状态( mount | column -t)
+```sh
+[root@pdai.tech ~]# mount | column -t
+sysfs       on  /sys                             type  sysfs       (rw,nosuid,nodev,noexec,relatime)
+proc        on  /proc                            type  proc        (rw,nosuid,nodev,noexec,relatime)
+devtmpfs    on  /dev                             type  devtmpfs    (rw,nosuid,size=930732k,nr_inodes=232683,mode=755)
+securityfs  on  /sys/kernel/security             type  securityfs  (rw,nosuid,nodev,noexec,relatime)
+...
+```
+### 17.4.8  查看所有分区(fdisk -l)
+```sh
+[root@pdai.tech ~]# fdisk -l
+
+Disk /dev/vda: 42.9 GB, 42949672960 bytes, 83886080 sectors
+Units = sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disk label type: dos
+Disk identifier: 0x0008d73a
+
+   Device Boot      Start         End      Blocks   Id  System
+/dev/vda1   *        2048    83884031    41940992   83  Linux
+```
+### 17.4.9 查看所有交换分区(swapon -s)
+```sh
+[root@pdai.tech ~]# swapon -s
+Filename                                Type            Size    Used    Priority
+/etc/swap                               file    2097148 261756  -2
+```
+### 17.4.10 查看硬盘大小(fdisk -l |grep Disk)
+
+```sh
+[root@pdai.tech ~]# fdisk -l |grep Disk
+Disk /dev/vda: 42.9 GB, 42949672960 bytes, 83886080 sectors
+Disk label type: dos
+Disk identifier: 0x0008d73a
+```
+## 17.5 查看用户和组相关
+### 17.5.1 查看活动用户(w)
+```sh
+[root@pdai.tech ~]# w
+ 08:47:20 up 45 days, 18:54,  1 user,  load average: 0.01, 0.03, 0.05
+USER     TTY      FROM             LOGIN@   IDLE   JCPU   PCPU WHAT
+root     pts/0    xxx.194.1.200    08:32    0.00s  0.32s  0.32s -bash
+```
+### 17.5.2 查看指定用户信息(id)
+```sh
+[root@pdai.tech ~]# id
+uid=0(root) gid=0(root) groups=0(root)
+```
+### 17.5.3 查看用户登录日志(last)
+```sh
+[root@pdai.tech ~]# last
+root     pts/0        xxx.194.1.200    Fri Dec 20 08:32   still logged in
+root     pts/0        xxx.73.164.60     Thu Dec 19 21:47 - 00:28  (02:41)
+root     pts/0        xxx.106.236.255  Thu Dec 19 16:00 - 18:24  (02:23)
+root     pts/1        xxx.194.3.173    Tue Dec 17 13:35 - 17:37  (04:01)
+root     pts/0        xxx.194.3.173    Tue Dec 17 13:35 - 17:37  (04:02)
+...
+
+```
+### 17.5.4 查看系统所有用户(cut -d: -f1 /etc/passwd)
+```sh
+[root@pdai.tech ~]# cut -d: -f1 /etc/passwd
+root
+bin
+daemon
+adm
+...
+```
+### 17.5.5 查看系统所有组(cut -d: -f1 /etc/group)
+## 17.6 查看服务，模块和包相关
+```sh
+# 查看当前用户的计划任务服务
+crontab -l 
+
+# 列出所有系统服务
+chkconfig –list 
+
+# 列出所有启动的系统服务程序
+chkconfig –list | grep on 
+
+# 查看所有安装的软件包
+rpm -qa 
+
+# 列出加载的内核模块
+lsmod 
+```
+## 17.7 查看系统，设备，环境信息
+```sh
+# 常用
+env # 查看环境变量资源
+uptime # 查看系统运行时间、用户数、负载
+lsusb -tv # 列出所有USB设备的linux系统信息命令
+lspci -tv # 列出所有PCI设备
+head -n 1 /etc/issue # 查看操作系统版本，是数字1不是字母L
+uname -a # 查看内核/操作系统/CPU信息的linux系统信息命令
+
+# /proc/
+cat /proc/cpuinfo ：查看CPU相关参数的linux系统命令
+cat /proc/partitions ：查看linux硬盘和分区信息的系统信息命令
+cat /proc/meminfo ：查看linux系统内存信息的linux系统命令
+cat /proc/version ：查看版本，类似uname -r
+cat /proc/ioports ：查看设备io端口
+cat /proc/interrupts ：查看中断
+cat /proc/pci ：查看pci设备的信息
+cat /proc/swaps ：查看所有swap分区的信息
+cat /proc/cpuinfo |grep "model name" && cat /proc/cpuinfo |grep "physical id"
+```
+## 17.8 tsar
+tsar是淘宝开源的的采集工具。很好用, 将历史收集到的数据持久化在磁盘上，所以我们快速来查询历史的系统数据。当然实时的应用情况也是可以查询的啦。大部分机器上都有安装。
+```sh
+tsar  ##可以查看最近一天的各项指标
+tsar --live ##可以查看实时指标，默认五秒一刷
+tsar -d 20161218 ##指定查看某天的数据，貌似最多只能看四个月的数据
+tsar --mem
+tsar --load
+tsar --cpu ##当然这个也可以和-d参数配合来查询某天的单个指标的情况 
+```
+具体可以看这篇文章：<a href ='https://www.jianshu.com/p/5562854ed901'>linux 淘宝开源监控工具tsar</a>
+# 十八、调试排错 - Java 问题排查之工具单
+## 18.1 Java 调试入门工具
+### 18.1.1 jps
+>jps是jdk提供的一个查看当前java进程的小工具， 可以看做是JavaVirtual Machine Process Status Tool的缩写。
+
+jps常用命令
+```sh
+jps # 显示进程的ID 和 类的名称
+jps –l # 输出输出完全的包名，应用主类名，jar的完全路径名 
+jps –v # 输出jvm参数
+jps –q # 显示java进程号
+jps -m # main 方法
+jps -l xxx.xxx.xx.xx # 远程查看 
+```
+jps参数
+```sh
+-q：仅输出VM标识符，不包括classname,jar name,arguments in main method 
+-m：输出main method的参数 
+-l：输出完全的包名，应用主类名，jar的完全路径名 
+-v：输出jvm参数 
+-V：输出通过flag文件传递到JVM中的参数(.hotspotrc文件或-XX:Flags=所指定的文件 
+-Joption：传递参数到vm,例如:-J-Xms512m
+```
+jps原理
+> java程序在启动以后，会在java.io.tmpdir指定的目录下，就是临时文件夹里，生成一个类似于hsperfdata_User的文件夹，这个文件夹里（在Linux中为/tmp/hsperfdata_{userName}/），有几个文件，名字就是java进程的pid，因此列出当前运行的java进程，只是把这个目录里的文件名列一下而已。 至于系统的参数什么，就可以解析这几个文件获得。
+
+更多请参考 <a href = 'https://docs.oracle.com/javase/1.5.0/docs/tooldocs/share/jps.html'>jps - Java Virtual Machine Process Status Tool</a>
+
+### 18.1.2 jstack
+>jstack是jdk自带的线程堆栈分析工具，使用该命令可以查看或导出 Java 应用程序中线程堆栈信息。
+
+jstack常用命令:
+```sh
+# 基本
+jstack 2815
+
+# java和native c/c++框架的所有栈信息
+jstack -m 2815
+
+# 额外的锁信息列表，查看是否死锁
+jstack -l 2815
+```
+jstack参数：
+```sh
+-l 长列表. 打印关于锁的附加信息,例如属于java.util.concurrent 的 ownable synchronizers列表.
+
+-F 当’jstack [-l] pid’没有相应的时候强制打印栈信息
+
+-m 打印java和native c/c++框架的所有栈信息.
+
+-h | -help 打印帮助信息
+```
+### 18.1.3 jinfo
+>jinfo 是 JDK 自带的命令，可以用来查看正在运行的 java 应用程序的扩展参数，包括Java System属性和JVM命令行参数；也可以动态的修改正在运行的 JVM 一些参数。当系统崩溃时，jinfo可以从core文件里面知道崩溃的Java应用程序的配置信息
+
+jinfo常用命令:
+```sh
+# 输出当前 jvm 进程的全部参数和系统属性
+jinfo 2815
+
+# 输出所有的参数
+jinfo -flags 2815
+
+# 查看指定的 jvm 参数的值
+jinfo -flag PrintGC 2815
+
+# 开启/关闭指定的JVM参数
+jinfo -flag +PrintGC 2815
+
+# 设置flag的参数
+jinfo -flag name=value 2815
+
+# 输出当前 jvm 进行的全部的系统属性
+jinfo -sysprops 2815
+```
+jinfo参数：
+```sh
+no option 输出全部的参数和系统属性
+-flag name 输出对应名称的参数
+-flag [+|-]name 开启或者关闭对应名称的参数
+-flag name=value 设定对应名称的参数
+-flags 输出全部的参数
+-sysprops 输出系统属性
+```
+### 18.1.4 jmap
+> 命令jmap是一个多功能的命令。它可以生成 java 程序的 dump 文件， 也可以查看堆内对象示例的统计信息、查看 ClassLoader 的信息以及 finalizer 队列。
+
+两个用途
+```sh
+# 查看堆的情况
+jmap -heap 2815
+
+# dump
+jmap -dump:live,format=b,file=/tmp/heap2.bin 2815
+jmap -dump:format=b,file=/tmp/heap3.bin 2815
+
+# 查看堆的占用
+jmap -histo 2815 | head -10
+```
+jmap参数
+```sh
+no option： 查看进程的内存映像信息,类似 Solaris pmap 命令。
+heap： 显示Java堆详细信息
+histo[:live]： 显示堆中对象的统计信息
+clstats：打印类加载器信息
+finalizerinfo： 显示在F-Queue队列等待Finalizer线程执行finalizer方法的对象
+dump:<dump-options>：生成堆转储快照
+F： 当-dump没有响应时，使用-dump或者-histo参数. 在这个模式下,live子参数无效.
+help：打印帮助信息
+J<flag>：指定传递给运行jmap的JVM的参数
+```
+### 18.1.5 jstat
+>jstat 是 Java Virtual Machine Statistics Monitoring Tool（JVM统计监控工具），用于监控JVM的各种运行状态信息。
+
+jstat参数众多，但是使用一个就够了
+```sh
+jstat -gcutil 2815 1000 
+jstat -gcutil <pid> <采样间隔>
+```
+输出参数：
+```
+S0     S1     E      O      M     CCS    YGC     YGCT    FGC    FGCT     GCT
+0.00  50.00  25.50  75.20  95.80  90.30     10     0.250     3     0.450    0.700
+```
+
+- **S0, S1**: Survivor区使用率
+- **E**: Eden区使用率  
+- **O**: 老年代使用率
+- **M**: 元空间使用率
+- **YGC**: Young GC次数
+- **YGCT**: Young GC总时间
+- **FGC**: Full GC次数
+- **FGCT**: Full GC总时间
+- **GCT**: GC总时间
+### 18.1.6 jdb
+> jdb可以用来预发debug,假设你预发的java_home是/opt/java/，远程调试端口是8000.那么
+```sh
+jdb -attach 8000
+```
+#### jdb 命令详解
+
+`jdb` 是 **Java Debugger**（Java调试器），是JDK自带的命令行调试工具，用于对Java应用程序进行调试。
+
+##### **jdb 的主要功能**
+
+###### 1. **源代码级调试**
+- 设置断点
+- 单步执行
+- 查看变量值
+- 检查调用栈
+
+###### 2. **运行时分析**
+- 监控对象状态
+- 跟踪方法调用
+- 诊断运行时异常
+
+##### **基本语法**
+```bash
+jdb [options] [class] [arguments]
+```
+
+##### **启动调试的几种方式**
+
+###### 1. **直接启动调试**
+```bash
+# 调试HelloWorld程序
+jdb HelloWorld
+
+# 带参数调试
+jdb MyApp arg1 arg2
+```
+
+###### 2. **附加到已运行的JVM**
+```bash
+# 先以调试模式启动Java程序
+java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005 MyApp
+
+# 然后使用jdb连接
+jdb -attach localhost:5005
+```
+
+###### 3. **调试远程应用**
+```bash
+jdb -attach 192.168.1.100:5005
+```
+
+##### **常用调试命令**
+
+###### 1. **基本控制命令**
+```bash
+# 运行程序
+run
+
+# 继续执行到下一个断点
+cont
+
+# 退出调试器
+exit 或 quit
+```
+
+###### 2. **断点管理**
+```bash
+# 在指定行设置断点
+stop at MyClass:20
+
+# 在方法入口设置断点
+stop in MyClass.myMethod
+
+# 查看所有断点
+clear
+
+# 删除断点
+clear MyClass:20
+```
+
+###### 3. **单步执行**
+```bash
+# 单步进入（进入方法内部）
+step
+
+# 单步跳过（执行完当前行）
+next
+
+# 执行到方法返回
+step up
+
+# 执行到下一个断点
+cont
+```
+
+###### 4. **查看变量和表达式**
+```bash
+# 查看变量值
+print variableName
+
+# 查看对象字段
+print obj.fieldName
+
+# 计算表达式
+print x + y * 2
+
+# 查看所有局部变量
+locals
+```
+
+###### 5. **堆栈和线程**
+```bash
+# 查看调用栈
+where
+
+# 查看所有线程
+threads
+
+# 切换到指定线程
+thread 1
+
+# 查看线程详细信息
+threadgroup list
+```
+
+##### **实际调试示例**
+
+###### 示例程序：`DebugExample.java`
+```java
+public class DebugExample {
+    public static void main(String[] args) {
+        int a = 10;
+        int b = 20;
+        int result = add(a, b);
+        System.out.println("Result: " + result);
+    }
+    
+    public static int add(int x, int y) {
+        int sum = x + y;
+        return sum;
+    }
+}
+```
+
+###### 调试会话示例：
+```bash
+# 启动jdb
+jdb DebugExample
+
+# 设置断点
+> stop at DebugExample:3
+> stop in DebugExample.add
+
+# 运行程序
+> run
+
+# 程序停在main方法第3行
+> print a          # 查看变量a
+a = 10
+
+> next            # 执行下一行
+
+# 程序进入add方法
+> print x         # 查看参数x
+x = 10
+
+> print y         # 查看参数y  
+y = 20
+
+> step            # 单步进入
+> print sum       # 查看局部变量
+sum = 30
+
+> cont            # 继续执行
+```
+
+##### **高级调试技巧**
+
+###### 1. **条件断点**
+```bash
+# 只有当条件满足时才中断
+stop at MyClass:30 if i > 100
+```
+
+###### 2. **监视点（watchpoint）**
+```bash
+# 当字段被修改时中断
+watch MyClass.myField
+```
+
+###### 3. **异常断点**
+```bash
+# 当抛出指定异常时中断
+catch java.lang.NullPointerException
+```
+
+###### 4. **方法进入/退出断点**
+```bash
+# 方法进入时中断
+stop in MyClass.myMethod
+
+# 方法退出时中断
+stop in MyClass.myMethod when return
+```
+
+##### **jdb 配置选项**
+
+###### 常用启动选项：
+```bash
+# 指定类路径
+jdb -classpath /path/to/classes MyApp
+
+# 指定源文件路径
+jdb -sourcepath /path/to/src MyApp
+
+# 启动时挂起，等待调试器连接
+jdb -launch MyApp
+```
+
+###### 远程调试配置：
+```bash
+# 目标JVM启动参数
+java -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005 MyApp
+
+# 调试器连接
+jdb -attach localhost:5005
+```
+
+##### **调试会话示例：排查空指针异常**
+
+```bash
+# 1. 设置异常断点
+catch java.lang.NullPointerException
+
+# 2. 运行程序
+run
+
+# 3. 当异常发生时，查看调用栈
+where
+
+# 4. 查看变量状态
+locals
+
+# 5. 检查可疑对象
+print obj
+```
+
+##### **jdb 与其他工具对比**
+
+| 工具 | 优点 | 缺点 |
+|------|------|------|
+| **jdb** | 轻量、无需GUI、服务器环境可用 | 命令行操作较复杂 |
+| **IDE调试器** | 图形界面、操作直观 | 需要GUI环境 |
+| **JVisualVM** | 功能丰富、性能监控 | 内存占用较大 |
+
+##### **实用技巧**
+
+###### 1. **调试脚本**
+```bash
+# 创建调试命令脚本
+echo "stop at MyClass:20" > debug_script.txt
+echo "run" >> debug_script.txt
+echo "print variable" >> debug_script.txt
+
+# 执行脚本
+jdb -source debug_script.txt MyApp
+```
+
+###### 2. **调试死锁**
+```bash
+# 查看所有线程
+threads
+
+# 检查每个线程的堆栈
+thread 1
+where
+
+thread 2  
+where
+```
+
+###### 3. **内存问题调试**
+```bash
+# 监控对象创建
+watch MyClass.myField
+
+# 检查对象状态
+print obj
+dump obj
+```
+
+##### **注意事项**
+
+1. **编译时包含调试信息**：
+```bash
+javac -g DebugExample.java  # -g 包含调试信息
+```
+
+2. **权限要求**：调试需要相应权限，特别是远程调试
+
+3. **性能影响**：调试模式会降低程序运行速度
+
+**总结：** `jdb` 是一个强大的命令行调试工具，虽然学习曲线较陡，但在服务器环境或无GUI环境下非常有用。掌握jdb可以帮助您深入理解Java程序的运行时行为。
+### 18.1.7 CHLSDB
+CHLSDB感觉很多情况下可以看到更好玩的东西，不详细叙述了。 查询资料听说jstack和jmap等工具就是基于它的。
+```sh
+java -classpath /opt/taobao/java/lib/sa-jdi.jar sun.jvm.hotspot.CLHSDB
+```
+更详细的可见R大此贴 http://rednaxelafx.iteye.com/blog/1847971
+## 18.2 Java 调试进阶工具
+### 18.2.1 btrace
+首当其冲的要说的是btrace。真是生产环境&预发的排查问题大杀器。 简介什么的就不说了。直接上代码干
+- 查看当前谁调用了ArrayList的add方法，同时只打印当前ArrayList的size大于500的线程调用栈
+```java
+@OnMethod(clazz = "java.util.ArrayList", method="add", location = @Location(value = Kind.CALL, clazz = "/./", method = "/./"))
+public static void m(@ProbeClassName String probeClass, @ProbeMethodName String probeMethod, @TargetInstance Object instance, @TargetMethodOrField String method) {
+
+    if(getInt(field("java.util.ArrayList", "size"), instance) > 479){
+        println("check who ArrayList.add method:" + probeClass + "#" + probeMethod  + ", method:" + method + ", size:" + getInt(field("java.util.ArrayList", "size"), instance));
+        jstack();
+        println();
+        println("===========================");
+        println();
+    }
+}
+```
+- 监控当前服务方法被调用时返回的值以及请求的参数
+```java
+@OnMethod(clazz = "com.taobao.sellerhome.transfer.biz.impl.C2CApplyerServiceImpl", method="nav", location = @Location(value = Kind.RETURN))
+public static void mt(long userId, int current, int relation, String check, String redirectUrl, @Return AnyType result) {
+
+    println("parameter# userId:" + userId + ", current:" + current + ", relation:" + relation + ", check:" + check + ", redirectUrl:" + redirectUrl + ", result:" + result);
+}
+```
+btrace 具体可以参考这里：https://github.com/btraceio/btrace
+
+注意:经过观察，
+- 1.3.9的release输出不稳定，要多触发几次才能看到正确的结果
+- 正则表达式匹配trace类时范围一定要控制，否则极有可能出现跑满CPU导致应用卡死的情况
+- 由于是字节码注入的原理，想要应用恢复到正常情况，需要重启应用。
+
+
+### 18.2.2 Greys
+Greys是@杜琨的大作吧。说几个挺棒的功能(部分功能和btrace重合):
+- sc -df xxx: 输出当前类的详情,包括源码位置和classloader结构
+
+- trace class method: 打印出当前方法调用的耗时情况，细分到每个方法, 对排查方法性能时很有帮助。
+### 18.2.3 Arthas
+> Arthas是基于Greys。具体请参考：调试排错 - Java应用在线调试Arthas
+
+### 18.2.4 javOSize
+就说一个功能:
+- classes：通过修改了字节码，改变了类的内容，即时生效。 所以可以做到快速的在某个地方打个日志看看输出，缺点是对代码的侵入性太大。但是如果自己知道自己在干嘛，的确是不错的玩意儿。
+
+其他功能Greys和btrace都能很轻易做的到，不说了。
+### 18.2.5 JProfiler
+之前判断许多问题要通过JProfiler，但是现在Greys和btrace基本都能搞定了。再加上出问题的基本上都是生产环境(网络隔离)，所以基本不怎么使用了，但是还是要标记一下。
+更多请参考：<a href = 'https://www.ej-technologies.com/jprofiler'>官网</a>
+
+| 特性 | JProfiler | MAT (Memory Analyzer Tool) |
+| :--- | :--- | :--- |
+| **主要定位** | **实时性能剖析和监控** | **离线内存快照分析** |
+| **工作模式** | **主动式**：连接到运行中的JVM进行实时采样/注入 | **被动式**：分析已生成的堆转储文件（HPROF文件） |
+| **核心优势** | **全面、实时、易用** | **深度、精准、免费开源** |
+| **内存分析** | ✅ 实时查看对象数量、大小、引用关系<br>✅ 内存分配热点追踪（Allocation Hot Spots） | ✅ **极其强大的堆转储分析**<br>✅ **精准定位内存泄漏（Leak Suspects报告）**<br>✅ 分析对象支配树（Dominator Tree） |
+| **CPU分析** | ✅ **非常强大**：方法级执行时间、调用树、热点分析<br>✅ 支持多种采样方式 | ❌ 基本不具备CPU分析能力 |
+| **线程分析** | ✅ 监控线程状态、死锁检测、监控阻塞情况 | ❌ 不专注于线程分析 |
+| **数据库分析** | ✅ 监控JDBC调用、SQL执行性能、慢查询 | ❌ 无此功能 |
+| **VM遥测** | ✅ 实时监控堆、CPU、线程数等指标随时间的变化 | ❌ 无此功能 |
+| **易用性** | **极高**：图形化界面非常直观，向导式操作，几乎无需学习成本 | **中等**：需要理解内存分析概念（如支配树、GC Root），界面相对专业 |
+| **成本** | **商业软件**，需要购买许可证 | **完全免费开源** |
+
+---
+
+
+- **什么时候用 JProfiler？**
+
+1.  **性能调优**：发现系统的CPU热点方法，优化代码性能。
+2.  **综合问题排查**：应用响应慢，但不确定是CPU、内存、线程还是数据库的问题。
+3.  **实时监控**：在性能测试或压测过程中，实时观察JVM的各项指标。
+4.  **内存分配分析**：想了解哪些方法创建了最多的对象。
+
+**命令行示例（连接远程JVM）：**
+```bash
+# 目标JVM启动参数
+java -agentpath:/path/to/jprofiler/bin/linux-x64/libjprofilerti.so=port=8849 -jar yourapp.jar
+
+# 然后使用JProfiler GUI连接到 localhost:8849
+```
+
+- **什么时候用 MAT？**
+
+1.  **内存泄漏诊断**：应用出现 `OutOfMemoryError` 后，**这是MAT的主场**。
+2.  **深度内存分析**：想知道堆里到底有哪些对象，谁在引用它们，为什么GC无法回收。
+3.  **分析生产环境问题**：从生产环境导出一个堆转储文件，在开发机上用MAT进行离线分析，对线上影响最小。
+
+**命令行示例（生成堆转储并分析）：**
+```bash
+# 1. 生成堆转储文件（有多种方式，这是一种）
+jmap -dump:live,format=b,file=heapdump.hprof <pid>
+
+# 2. 使用MAT打开 heapdump.hprof 文件进行分析
+```
+
+## 18.3 其它工具
+### 18.3.1 dmesg
+如果发现自己的java进程悄无声息的消失了，几乎没有留下任何线索，那么dmesg一发，很有可能有你想要的。
+
+sudo dmesg|grep -i kill|less 去找关键字oom_killer。找到的结果类似如下:
+```sh
+[6710782.021013] java invoked oom-killer: gfp_mask=0xd0, order=0, oom_adj=0, oom_scoe_adj=0
+[6710782.070639] [<ffffffff81118898>] ? oom_kill_process+0x68/0x140 
+[6710782.257588] Task in /LXC011175068174 killed as a result of limit of /LXC011175068174 
+[6710784.698347] Memory cgroup out of memory: Kill process 215701 (java) score 854 or sacrifice child 
+[6710784.707978] Killed process 215701, UID 679, (java) total-vm:11017300kB, anon-rss:7152432kB, file-rss:1232kB
+```
+以上表明，对应的java进程被系统的OOM Killer给干掉了，得分为854. 解释一下OOM killer（Out-Of-Memory killer），该机制会监控机器的内存资源消耗。当机器内存耗尽前，该机制会扫描所有的进程（按照一定规则计算，内存占用，时间等），挑选出得分最高的进程，然后杀死，从而保护机器。
+
+dmesg日志时间转换公式: log实际时间=格林威治1970-01-01+(当前时间秒数-系统启动至今的秒数+dmesg打印的log时间)秒数：
+
+date -d "1970-01-01 UTC echo "$(date +%s)-$(cat /proc/uptime|cut -f 1 -d' ')+12288812.926194"|bc  seconds" 
+
+剩下的，就是看看为什么内存这么大，触发了OOM-Killer了。
+# 十九、调试排错 - Java 问题排查之JVM可视化工具
+## 19.1 JConsole
+> Jconsole （Java Monitoring and Management Console），JDK自带的基于JMX的可视化监视、管理工具。 官方文档可以参考<a href ='https://docs.oracle.com/javase/8/docs/technotes/guides/management/jconsole.html'>这里</a>
+- 找到jconsole工具
+- 打开jconsole
+
+- 选择
+![124.java-jvm-tool-0.png](../assets/images/03-JVM/124.java-jvm-tool-0.png)
+![125.java-jvm-tool-2.png](../assets/images/03-JVM/125.java-jvm-tool-2.png)
+- 查看概述、内存、线程、类、VM概要、MBean
+![126.java-jvm-tool-1.png](../assets/images/03-JVM/126.java-jvm-tool-1.png)
+- 内存
+![127.java-jvm-tool-3.png](../assets/images/03-JVM/127.java-jvm-tool-3.png)
+- 线程
+![128.java-jvm-tool-4.png](../assets/images/03-JVM/128.java-jvm-tool-4.png)
+- 类
+![129.java-jvm-tool-5.png](../assets/images/03-JVM/129.java-jvm-tool-5.png)
+- VM概要
+![130.java-jvm-tool-6.png](../assets/images/03-JVM/130.java-jvm-tool-6.png)
+- MBean
+![131.java-jvm-tool-7.png](../assets/images/03-JVM/131.java-jvm-tool-7.png)
+## 19.2 Visual VM(jvisualvm)
+> VisualVM 是一款免费的，集成了多个 JDK 命令行工具的可视化工具，它能为您提供强大的分析能力，对 Java 应用程序做性能分析和调优。这些功能包括生成和分析海量数据、跟踪内存泄漏、监控垃圾回收器、执行内存和 CPU 分析，同时它还支持在 MBeans 上进行浏览和操作。
+
+- Overview
+![132.java-jvm-visualvm-2.png](../assets/images/03-JVM/132.java-jvm-visualvm-2.png)
+- Monitor
+![133.java-jvm-visualvm-1.png](../assets/images/03-JVM/133.java-jvm-visualvm-1.png)
+- 线程
+![134.java-jvm-visualvm-3.png](../assets/images/03-JVM/134.java-jvm-visualvm-3.png)
+- Sampler
+![135.java-jvm-visualvm-4.png](../assets/images/03-JVM/135.java-jvm-visualvm-4.png)
+## 19.3 Visual GC
+> visual gc 是 visualvm 中的图形化查看 gc 状况的插件。官方文档可以参考<a href = 'https://www.oracle.com/java/technologies/visual-garbage-collection-monitoring-tool.html'>这里</a>
+
+比如我在IDEA中使用visual GC 插件来看GC状况。
+![136.java-jvm-tool-10.png](../assets/images/03-JVM/136.java-jvm-tool-10.png)
+## 19.4 JProfiler
+> Profiler 是一个商业的主要用于检查和跟踪系统（限于Java开发的）的性能的工具。JProfiler可以通过时时的监控系统的内存使用情况，随时监视垃圾回收，线程运行状况等手段，从而很好的监视JVM运行情况及其性能。
+
+JProfiler 是一个全功能的Java剖析工具（profiler），专用于分析J2SE和J2EE应用程序。它把CPU、执行绪和内存的剖析组合在一个强大的应用中。 JProfiler可提供许多IDE整合和应用服务器整合用途。JProfiler直觉式的GUI让你可以找到效能瓶颈、抓出内存漏失(memory leaks)、并解决执行绪的问题。它让你得以对heap walker作资源回收器的root analysis，可以轻易找出内存漏失；heap快照（snapshot）模式让未被参照（reference）的对象、稍微被参照的对象、或在终结（finalization）队列的对象都会被移除；整合精灵以便剖析浏览器的Java外挂功能。
+- 核心组件
+
+JProfiler 包含用于采集目标 JVM 分析数据的 JProfiler agent、用于可视化分析数据的 JProfiler UI、提供各种功能的命令行工具，它们之间的关系如下图所示。
+![137.java-jvm-jprofile-18.png](../assets/images/03-JVM/137.java-jvm-jprofile-18.png)
+- JProfiler agent
+
+JProfiler agent 是一个本地库，它可以在 JVM 启动时通过参数-agentpath:<path to native library>进行加载或者在程序运行时通过<a href = 'http://lovestblog.cn/blog/2014/06/18/jvm-attach/'>JVM Attach 机制</a>进行加载。Agent 被成功加载后，会设置 JVMTI 环境，监听虚拟机产生的事件，如类加载、线程创建等。例如，当它监听到类加载事件后，会给这些类注入用于执行度量操作的字节码。
+- JProfiler UI
+
+JProfiler UI 是一个可独立部署的组件，它通过 socket 和 agent 建立连接。这意味着不论目标 JVM 运行在本地还是远端，JProfiler UI 和 agent 间的通信机制都是一样的。
+
+JProfiler UI 的主要功能是展示通过 agent 采集上来的分析数据，此外还可以通过它控制 agent 的采集行为，将快照保存至磁盘，展示保存的快照。
+- 命令行工具
+
+JProfiler 提供了一系列命令行工具以实现不同的功能。
+
+1. jpcontroller - 用于控制 agent 的采集行为。它通过 agent 注册的 JProfiler MBean 向 agent 传递命令。
+2. jpenable - 用于将 agent 加载到一个正在运行的 JVM 上。
+3. jpdump - 用于获取正在运行的 JVM 的堆快照。
+4. jpexport & jpcompare - 用于从保存的快照中提取数据并创建 HTML 报告。
+
+- 运行测试
+
+**我们运行一个SpringBoot测试工程，选择attach到JVM**
+![138.java-jvm-jprofile-1.png](../assets/images/03-JVM/138.java-jvm-jprofile-1.png)
+- 选择指定的进程
+![139.java-jvm-jprofile-2.png](../assets/images/03-JVM/139.java-jvm-jprofile-2.png)
+- 设置数据采集模式
+
+JProfier 提供两种数据采集模式 Sampling 和 Instrumentation。
+
+1. Sampling - 适合于不要求数据完全精确的场景。优点是对系统性能的影响较小，缺点是某些特性不支持（如方法级别的统计信息）。
+2. Instrumentation - 完整功能模式，统计信息也是精确的。缺点是如果需要分析的类比较多，对应用性能影响较大。为了降低影响，往往需要和 Filter 一起使用。
+
+由于我们需要获取方法级别的统计信息，这里选择了 Instrumentation 模式。
+![140.java-jvm-jprofile-3.png](../assets/images/03-JVM/140.java-jvm-jprofile-3.png)
+- 概览
+![141.java-jvm-jprofile-4.png](../assets/images/03-JVM/141.java-jvm-jprofile-4.png)
+- 内存
+![142.java-jvm-jprofile-5.png](../assets/images/03-JVM/142.java-jvm-jprofile-5.png)
+- 实时内存分布（类对象）
+![143.java-jvm-jprofile-6.png](../assets/images/03-JVM/143.java-jvm-jprofile-6.png)
+- dump 堆内存
+![144.java-jvm-jprofile-7.png](../assets/images/03-JVM/144.java-jvm-jprofile-7.png)
+- dump完会直接打开显示
+![145.java-jvm-jprofile-8.png](../assets/images/03-JVM/145.java-jvm-jprofile-8.png)
+- 线程存储
+![146.java-jvm-jprofile-9.png](../assets/images/03-JVM/146.java-jvm-jprofile-9.png)
+- 导出HTML报告
+![147.java-jvm-jprofile-10.png](../assets/images/03-JVM/147.java-jvm-jprofile-10.png)
+- CPU 调用树
+![148.java-jvm-jprofile-14.png](../assets/images/03-JVM/148.java-jvm-jprofile-14.png)
+- 线程历史
+![149.java-jvm-jprofile-15.png](../assets/images/03-JVM/149.java-jvm-jprofile-15.png)
+- JEE & 探针
+![150.java-jvm-jprofile-16.png](../assets/images/03-JVM/150.java-jvm-jprofile-16.png)
+- MBeans
+![151.java-jvm-jprofile-17.png](../assets/images/03-JVM/151.java-jvm-jprofile-17.png)
+## 19.5 Eclipse Memory Analyzer (MAT)
+> MAT 是一种快速且功能丰富的 Java 堆分析器，可帮助你发现内存泄漏并减少内存消耗。 MAT在的堆内存分析问题使用极为广泛，需要重点掌握。
+
+可以在<a herf = 'https://eclipse.dev/mat/'>这里下载</a>， 官方文档可以看<a herf = 'https://help.eclipse.org/latest/index.jsp?topic=/org.eclipse.mat.ui.help/welcome.html'>这里</a>
+
+- Overview
+
+包含内存分布，以及潜在的问题推测
+![152.java-jvm-mat-2.png](../assets/images/03-JVM/152.java-jvm-mat-2.png)
+- Histogram
+
+可以列出内存中的对象，对象的个数以及大小。
+![153.java-jvm-mat-3.png](../assets/images/03-JVM/153.java-jvm-mat-3.png)
+
+具体需要重点理解如下两个概念，可参考<a herf = 'https://help.eclipse.org/latest/index.jsp?topic=/org.eclipse.mat.ui.help/welcome.html'>官网文档</a>的解释
+
+1. Shallow Heap ：一个对象内存的消耗大小，不包含对其他对象的引用
+2. Retained Heap ：是shallow Heap的总和，也就是该对象被GC之后所能回收到内存的总和
+
+- Dominator Tree
+
+可以列出那个线程，以及线程下面的那些对象占用的空间。
+![154.java-jvm-mat-4.png](../assets/images/03-JVM/154.java-jvm-mat-4.png)
+- Top consumers
+
+通过图形列出最大的object。
+![155.java-jvm-mat-5.png](../assets/images/03-JVM/155.java-jvm-mat-5.png)
+- Leak Suspects
+
+自动分析潜在可能的泄漏。
+![156.java-jvm-mat-6.png](../assets/images/03-JVM/156.java-jvm-mat-6.png)
+# 二十、调试排错 - Java动态调试技术原理
+## 20.1 简介
+断点调试是我们最常使用的调试手段，它可以获取到方法执行过程中的变量信息，并可以观察到方法的执行路径。但断点调试会在断点位置停顿，使得整个应用停止响应。在线上停顿应用是致命的，动态调试技术给了我们创造新的调试模式的想象空间。本文将研究Java语言中的动态调试技术，首先概括Java动态调试所涉及的技术基础，接着介绍我们在Java动态调试领域的思考及实践，通过结合实际业务场景，设计并实现了一种具备动态性的断点调试工具Java-debug-tool，显著提高了故障排查效率。
+
+JVMTI (JVM Tool Interface)是Java虚拟机对外提供的Native编程接口，通过JVMTI，外部进程可以获取到运行时JVM的诸多信息，比如线程、GC等。Agent是一个运行在目标JVM的特定程序，它的职责是负责从目标JVM中获取数据，然后将数据传递给外部进程。加载Agent的时机可以是目标JVM启动之时，也可以是在目标JVM运行时进行加载，而在目标JVM运行时进行Agent加载具备动态性，对于时机未知的Debug场景来说非常实用。下面将详细分析Java Agent技术的实现细节。
+## 20.2 Agent的实现模式
+JVMTI是一套Native接口，在Java SE 5之前，要实现一个Agent只能通过编写Native代码来实现。从Java SE 5开始，可以使用Java的Instrumentation接口(java.lang.instrument)来编写Agent。无论是通过Native的方式还是通过Java Instrumentation接口的方式来编写Agent，它们的工作都是借助JVMTI来进行完成，下面介绍通过Java Instrumentation接口编写Agent的方法。
+### 20.2.1 通过Java Instrumentation API
+- 实现Agent启动方法
+
+Java Agent支持目标JVM启动时加载，也支持在目标JVM运行时加载，这两种不同的加载模式会使用不同的入口函数，如果需要在目标JVM启动的同时加载Agent，那么可以选择实现下面的方法：
+```java
+[1] public static void premain(String agentArgs, Instrumentation inst);
+[2] public static void premain(String agentArgs);
+```
+JVM将首先寻找[1]，如果没有发现[1]，再寻找[2]。如果希望在目标JVM运行时加载Agent，则需要实现下面的方法：
+```java
+[1] public static void agentmain(String agentArgs, Instrumentation inst);
+[2] public static void agentmain(String agentArgs);
+```
+这两组方法的第一个参数AgentArgs是随同 “– javaagent”一起传入的程序参数，如果这个字符串代表了多个参数，就需要自己解析这些参数。inst是Instrumentation类型的对象，是JVM自动传入的，我们可以拿这个参数进行类增强等操作。
+
+- 指定Main-Class
+
+Agent需要打包成一个jar包，在ManiFest属性中指定“Premain-Class”或者“Agent-Class”：
+```java
+Premain-Class: com.example.MyAgent
+Agent-Class: com.example.MyAgent
+```
+- 挂载到目标JVM
+
+将编写的Agent打成jar包后，就可以挂载到目标JVM上去了。如果选择在目标JVM启动时加载Agent，则可以使用 “-javaagent:[=]“，具体的使用方法可以使用“Java -Help”来查看。如果想要在运行时挂载Agent到目标JVM，就需要做一些额外的开发了。
+
+com.sun.tools.attach.VirtualMachine 这个类代表一个JVM抽象，可以通过这个类找到目标JVM，并且将Agent挂载到目标JVM上。下面是使用com.sun.tools.attach.VirtualMachine进行动态挂载Agent的一般实现：
+```java
+  private void attachAgentToTargetJVM() throws Exception {
+        List<VirtualMachineDescriptor> virtualMachineDescriptors = VirtualMachine.list();
+        VirtualMachineDescriptor targetVM = null;
+        for (VirtualMachineDescriptor descriptor : virtualMachineDescriptors) {
+            if (descriptor.id().equals(configure.getPid())) {
+                targetVM = descriptor;
+                break;
+            }
+        }
+        if (targetVM == null) {
+            throw new IllegalArgumentException("could not find the target jvm by process id:" + configure.getPid());
+        }
+        VirtualMachine virtualMachine = null;
+        try {
+            virtualMachine = VirtualMachine.attach(targetVM);
+            virtualMachine.loadAgent("{agent}", "{params}");
+        } catch (Exception e) {
+            if (virtualMachine != null) {
+                virtualMachine.detach();
+            }
+        }
+    }
+```
+首先通过指定的进程ID找到目标JVM，然后通过Attach挂载到目标JVM上，执行加载Agent操作。VirtualMachine的Attach方法就是用来将Agent挂载到目标JVM上去的，而Detach则是将Agent从目标JVM卸载。关于Agent是如何挂载到目标JVM上的具体技术细节，将在下文中进行分析。
+
+## 20.3 启动时加载Agent
+### 20.3.1 参数解析
+创建JVM时，JVM会进行参数解析，即解析那些用来配置JVM启动的参数，比如堆大小、GC等；本文主要关注解析的参数为-agentlib、 -agentpath、 -javaagent，这几个参数用来指定Agent，JVM会根据这几个参数加载Agent。下面来分析一下JVM是如何解析这几个参数的。
+```cpp
+// -agentlib and -agentpath
+  if (match_option(option, "-agentlib:", &tail) ||
+          (is_absolute_path = match_option(option, "-agentpath:", &tail))) {
+      if(tail != NULL) {
+        const char* pos = strchr(tail, '=');
+        size_t len = (pos == NULL) ? strlen(tail) : pos - tail;
+        char* name = strncpy(NEW_C_HEAP_ARRAY(char, len + 1, mtArguments), tail, len);
+        name[len] = '\0';
+        char *options = NULL;
+        if(pos != NULL) {
+          options = os::strdup_check_oom(pos + 1, mtArguments);
+        }
+#if !INCLUDE_JVMTI
+        if (valid_jdwp_agent(name, is_absolute_path)) {
+          jio_fprintf(defaultStream::error_stream(),
+            "Debugging agents are not supported in this VM\n");
+          return JNI_ERR;
+        }
+#endif // !INCLUDE_JVMTI
+        add_init_agent(name, options, is_absolute_path);
+      }
+    // -javaagent
+    } else if (match_option(option, "-javaagent:", &tail)) {
+#if !INCLUDE_JVMTI
+      jio_fprintf(defaultStream::error_stream(),
+        "Instrumentation agents are not supported in this VM\n");
+      return JNI_ERR;
+#else
+      if (tail != NULL) {
+        size_t length = strlen(tail) + 1;
+        char *options = NEW_C_HEAP_ARRAY(char, length, mtArguments);
+        jio_snprintf(options, length, "%s", tail);
+        add_init_agent("instrument", options, false);
+        // java agents need module java.instrument
+        if (!create_numbered_property("jdk.module.addmods", "java.instrument", addmods_count++)) {
+          return JNI_ENOMEM;
+        }
+      }
+#endif // !INCLUDE_JVMTI
+    }
+
+```
+上面的代码片段截取自hotspot/src/share/vm/runtime/arguments.cpp中的 Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args, bool* patch_mod_javabase, Flag::Flags origin) 函数，该函数用来解析一个具体的JVM参数。这段代码的主要功能是解析出需要加载的Agent路径，然后调用add_init_agent函数进行解析结果的存储。下面先看一下add_init_agent函数的具体实现：
+```cpp
+ // -agentlib and -agentpath arguments
+  static AgentLibraryList _agentList;
+  static void add_init_agent(const char* name, char* options, bool absolute_path)
+    { _agentList.add(new AgentLibrary(name, options, absolute_path, NULL)); }
+```
+AgentLibraryList是一个简单的链表结构，add_init_agent函数将解析好的、需要加载的Agent添加到这个链表中，等待后续的处理。
+
+这里需要注意，解析-javaagent参数有一些特别之处，这个参数用来指定一个我们通过Java Instrumentation API来编写的Agent，Java Instrumentation API底层依赖的是JVMTI，对-JavaAgent的处理也说明了这一点，在调用add_init_agent函数时第一个参数是“instrument”，关于加载Agent这个问题在下一小节进行展开。到此，我们知道在启动JVM时指定的Agent已经被JVM解析完存放在了一个链表结构中。下面来分析一下JVM是如何加载这些Agent的。
+### 20.3.2 执行加载操作
+在创建JVM进程的函数中，解析完JVM参数之后，下面的这段代码和加载Agent相关：
+```cpp
+// Launch -agentlib/-agentpath and converted -Xrun agents
+  if (Arguments::init_agents_at_startup()) {
+    create_vm_init_agents();
+  }
+  static bool init_agents_at_startup() {
+    return !_agentList.is_empty(); 
+  }
+```
+当JVM判断出上一小节中解析出来的Agent不为空的时候，就要去调用函数create_vm_init_agents来加载Agent，下面来分析一下create_vm_init_agents函数是如何加载Agent的。
+```cpp
+void Threads::create_vm_init_agents() {
+  AgentLibrary* agent;
+  for (agent = Arguments::agents(); agent != NULL; agent = agent->next()) {
+    OnLoadEntry_t  on_load_entry = lookup_agent_on_load(agent);
+    if (on_load_entry != NULL) {
+      // Invoke the Agent_OnLoad function
+      jint err = (*on_load_entry)(&main_vm, agent->options(), NULL);
+    }
+  }
+}
+```
+create_vm_init_agents这个函数通过遍历Agent链表来逐个加载Agent。通过这段代码可以看出，首先通过lookup_agent_on_load来加载Agent并且找到Agent_OnLoad函数，这个函数是Agent的入口函数。如果没找到这个函数，则认为是加载了一个不合法的Agent，则什么也不做，否则调用这个函数，这样Agent的代码就开始执行起来了。对于使用Java Instrumentation API来编写Agent的方式来说，在解析阶段观察到在add_init_agent函数里面传递进去的是一个叫做”instrument”的字符串，其实这是一个动态链接库。在Linux里面，这个库叫做libinstrument.so，在BSD系统中叫做libinstrument.dylib，该动态链接库在{JAVA_HOME}/jre/lib/目录下。
+### 20.3.3 instrument动态链接库
+libinstrument用来支持使用Java Instrumentation API来编写Agent，在libinstrument中有一个非常重要的类称为：JPLISAgent(Java Programming Language Instrumentation Services Agent)，它的作用是初始化所有通过Java Instrumentation API编写的Agent，并且也承担着通过JVMTI实现Java Instrumentation中暴露API的责任。
+
+我们已经知道，在JVM启动的时候，JVM会通过-javaagent参数加载Agent。最开始加载的是libinstrument动态链接库，然后在动态链接库里面找到JVMTI的入口方法：Agent_OnLoad。下面就来分析一下在libinstrument动态链接库中，Agent_OnLoad函数是怎么实现的。
+```cpp
+JNIEXPORT jint JNICALL
+DEF_Agent_OnLoad(JavaVM *vm, char *tail, void * reserved) {
+    initerror = createNewJPLISAgent(vm, &agent);
+    if ( initerror == JPLIS_INIT_ERROR_NONE ) {
+        if (parseArgumentTail(tail, &jarfile, &options) != 0) {
+            fprintf(stderr, "-javaagent: memory allocation failure.\n");
+            return JNI_ERR;
+        }
+        attributes = readAttributes(jarfile);
+        premainClass = getAttribute(attributes, "Premain-Class");
+        /* Save the jarfile name */
+        agent->mJarfile = jarfile;
+        /*
+         * Convert JAR attributes into agent capabilities
+         */
+        convertCapabilityAttributes(attributes, agent);
+        /*
+         * Track (record) the agent class name and options data
+         */
+        initerror = recordCommandLineData(agent, premainClass, options);
+    }
+    return result;
+}
+```
+上述代码片段是经过精简的libinstrument中Agent_OnLoad实现的，大概的流程就是：先创建一个JPLISAgent，然后将ManiFest中设定的一些参数解析出来， 比如(Premain-Class)等。创建了JPLISAgent之后，调用initializeJPLISAgent对这个Agent进行初始化操作。跟进initializeJPLISAgent看一下是如何初始化的：
+```cpp
+JPLISInitializationError initializeJPLISAgent(JPLISAgent *agent, JavaVM *vm, jvmtiEnv *jvmtienv) {
+    /* check what capabilities are available */
+    checkCapabilities(agent);
+    /* check phase - if live phase then we don't need the VMInit event */
+    jvmtierror = (*jvmtienv)->GetPhase(jvmtienv, &phase);
+    /* now turn on the VMInit event */
+    if ( jvmtierror == JVMTI_ERROR_NONE ) {
+        jvmtiEventCallbacks callbacks;
+        memset(&callbacks, 0, sizeof(callbacks));
+        callbacks.VMInit = &eventHandlerVMInit;
+        jvmtierror = (*jvmtienv)->SetEventCallbacks(jvmtienv,&callbacks,sizeof(callbacks));
+    }
+    if ( jvmtierror == JVMTI_ERROR_NONE ) {
+        jvmtierror = (*jvmtienv)->SetEventNotificationMode(jvmtienv,JVMTI_ENABLE,JVMTI_EVENT_VM_INIT,NULL);
+    }
+    return (jvmtierror == JVMTI_ERROR_NONE)? JPLIS_INIT_ERROR_NONE : JPLIS_INIT_ERROR_FAILURE;
+}
+```
+这里，我们关注callbacks.VMInit = &eventHandlerVMInit;这行代码，这里设置了一个VMInit事件的回调函数，表示在JVM初始化的时候会回调eventHandlerVMInit函数。下面来看一下这个函数的实现细节，猜测就是在这里调用了Premain方法：
+```cpp
+void JNICALL  eventHandlerVMInit( jvmtiEnv *jvmtienv,JNIEnv *jnienv,jthread thread) {
+   // ...
+   success = processJavaStart( environment->mAgent, jnienv);
+  // ...
+}
+jboolean  processJavaStart(JPLISAgent *agent,JNIEnv *jnienv) {
+    result = createInstrumentationImpl(jnienv, agent);
+    /*
+     *  Load the Java agent, and call the premain.
+     */
+    if ( result ) {
+        result = startJavaAgent(agent, jnienv, agent->mAgentClassName, agent->mOptionsString, agent->mPremainCaller);
+    }
+    return result;
+}
+jboolean startJavaAgent( JPLISAgent *agent,JNIEnv *jnienv,const char *classname,const char *optionsString,jmethodID agentMainMethod) {
+  // ...  
+  invokeJavaAgentMainMethod(jnienv,agent->mInstrumentationImpl,agentMainMethod, classNameObject,optionsStringObject);
+  // ...
+}
+```
+看到这里，Instrument已经实例化，invokeJavaAgentMainMethod这个方法将我们的premain方法执行起来了。接着，我们就可以根据Instrument实例来做我们想要做的事情了。
+## 20.4 运行时加载Agent
+比起JVM启动时加载Agent，运行时加载Agent就比较有诱惑力了，因为运行时加载Agent的能力给我们提供了很强的动态性，我们可以在需要的时候加载Agent来进行一些工作。因为是动态的，我们可以按照需求来加载所需要的Agent，下面来分析一下动态加载Agent的相关技术细节。
+### 20.4.1 AttachListener
+Attach机制通过Attach Listener线程来进行相关事务的处理，下面来看一下Attach Listener线程是如何初始化的。
+```cpp
+// Starts the Attach Listener thread
+void AttachListener::init() {
+  // 创建线程相关部分代码被去掉了
+  const char thread_name[] = "Attach Listener";
+  Handle string = java_lang_String::create_from_str(thread_name, THREAD);
+  { MutexLocker mu(Threads_lock);
+    JavaThread* listener_thread = new JavaThread(&attach_listener_thread_entry);
+    // ...
+  }
+}
+```
+我们知道，一个线程启动之后都需要指定一个入口来执行代码，Attach Listener线程的入口是attach_listener_thread_entry，下面看一下这个函数的具体实现：
+```cpp
+static void attach_listener_thread_entry(JavaThread* thread, TRAPS) {
+  AttachListener::set_initialized();
+  for (;;) {
+      AttachOperation* op = AttachListener::dequeue();
+      // find the function to dispatch too
+      AttachOperationFunctionInfo* info = NULL;
+      for (int i=0; funcs[i].name != NULL; i++) {
+        const char* name = funcs[i].name;
+        if (strcmp(op->name(), name) == 0) {
+          info = &(funcs[i]); break;
+        }}
+       // dispatch to the function that implements this operation
+        res = (info->func)(op, &st);
+      //...
+    }
+}
+```
+整个函数执行逻辑，大概是这样的：
+
+- 拉取一个需要执行的任务：AttachListener::dequeue。
+- 查询匹配的命令处理函数。
+- 执行匹配到的命令执行函数。
+
+其中第二步里面存在一个命令函数表，整个表如下：
+```cpp
+static AttachOperationFunctionInfo funcs[] = {
+  { "agentProperties",  get_agent_properties },
+  { "datadump",         data_dump },
+  { "dumpheap",         dump_heap },
+  { "load",             load_agent },
+  { "properties",       get_system_properties },
+  { "threaddump",       thread_dump },
+  { "inspectheap",      heap_inspection },
+  { "setflag",          set_flag },
+  { "printflag",        print_flag },
+  { "jcmd",             jcmd },
+  { NULL,               NULL }
+};
+```
+对于加载Agent来说，命令就是“load”。现在，我们知道了Attach Listener大概的工作模式，但是还是不太清楚任务从哪来，这个秘密就藏在AttachListener::dequeue这行代码里面，接下来我们来分析一下dequeue这个函数：
+```cpp
+LinuxAttachOperation* LinuxAttachListener::dequeue() {
+  for (;;) {
+    // wait for client to connect
+    struct sockaddr addr;
+    socklen_t len = sizeof(addr);
+    RESTARTABLE(::accept(listener(), &addr, &len), s);
+    // get the credentials of the peer and check the effective uid/guid
+    // - check with jeff on this.
+    struct ucred cred_info;
+    socklen_t optlen = sizeof(cred_info);
+    if (::getsockopt(s, SOL_SOCKET, SO_PEERCRED, (void*)&cred_info, &optlen) == -1) {
+      ::close(s);
+      continue;
+    }
+    // peer credential look okay so we read the request
+    LinuxAttachOperation* op = read_request(s);
+    return op;
+  }
+}
+```
+这是Linux上的实现，不同的操作系统实现方式不太一样。上面的代码表面，Attach Listener在某个端口监听着，通过accept来接收一个连接，然后从这个连接里面将请求读取出来，然后将请求包装成一个AttachOperation类型的对象，之后就会从表里查询对应的处理函数，然后进行处理。
+
+Attach Listener使用一种被称为“懒加载”的策略进行初始化，也就是说，JVM启动的时候Attach Listener并不一定会启动起来。下面我们来分析一下这种“懒加载”策略的具体实现方案。
+```cpp
+ // Start Attach Listener if +StartAttachListener or it can't be started lazily
+  if (!DisableAttachMechanism) {
+    AttachListener::vm_start();
+    if (StartAttachListener || AttachListener::init_at_startup()) {
+      AttachListener::init();
+    }
+  }
+// Attach Listener is started lazily except in the case when
+// +ReduseSignalUsage is used
+bool AttachListener::init_at_startup() {
+  if (ReduceSignalUsage) {
+    return true;
+  } else {
+    return false;
+  }
+}
+```
+上面的代码截取自create_vm函数，DisableAttachMechanism、StartAttachListener和ReduceSignalUsage这三个变量默认都是false，所以AttachListener::init();这行代码不会在create_vm的时候执行，而vm_start会执行。下面来看一下这个函数的实现细节：
+```cpp
+void AttachListener::vm_start() {
+  char fn[UNIX_PATH_MAX];
+  struct stat64 st;
+  int ret;
+  int n = snprintf(fn, UNIX_PATH_MAX, "%s/.java_pid%d",
+           os::get_temp_directory(), os::current_process_id());
+  assert(n < (int)UNIX_PATH_MAX, "java_pid file name buffer overflow");
+  RESTARTABLE(::stat64(fn, &st), ret);
+  if (ret == 0) {
+    ret = ::unlink(fn);
+    if (ret == -1) {
+      log_debug(attach)("Failed to remove stale attach pid file at %s", fn);
+    }
+  }
+}
+```
+这是在Linux上的实现，是将/tmp/目录下的.java_pid{pid}文件删除，后面在创建Attach Listener线程的时候会创建出来这个文件。上面说到，AttachListener::init()这行代码不会在create_vm的时候执行，这行代码的实现已经在上文中分析了，就是创建Attach Listener线程，并监听其他JVM的命令请求。现在来分析一下这行代码是什么时候被调用的，也就是“懒加载”到底是怎么加载起来的。
+```cpp
+  // Signal Dispatcher needs to be started before VMInit event is posted
+  os::signal_init();
+```
+这是create_vm中的一段代码，看起来跟信号相关，其实Attach机制就是使用信号来实现“懒加载“的。下面我们来仔细地分析一下这个过程。
+```cpp
+void os::signal_init() {
+  if (!ReduceSignalUsage) {
+    // Setup JavaThread for processing signals
+    EXCEPTION_MARK;
+    Klass* k = SystemDictionary::resolve_or_fail(vmSymbols::java_lang_Thread(), true, CHECK);
+    instanceKlassHandle klass (THREAD, k);
+    instanceHandle thread_oop = klass->allocate_instance_handle(CHECK);
+    const char thread_name[] = "Signal Dispatcher";
+    Handle string = java_lang_String::create_from_str(thread_name, CHECK);
+    // Initialize thread_oop to put it into the system threadGroup
+    Handle thread_group (THREAD, Universe::system_thread_group());
+    JavaValue result(T_VOID);
+    JavaCalls::call_special(&result, thread_oop,klass,vmSymbols::object_initializer_name(),vmSymbols::threadgroup_string_void_signature(),
+                           thread_group,string,CHECK);
+    KlassHandle group(THREAD, SystemDictionary::ThreadGroup_klass());
+    JavaCalls::call_special(&result,thread_group,group,vmSymbols::add_method_name(),vmSymbols::thread_void_signature(),thread_oop,CHECK);
+    os::signal_init_pd();
+    { MutexLocker mu(Threads_lock);
+      JavaThread* signal_thread = new JavaThread(&signal_thread_entry);
+     // ...
+    }
+    // Handle ^BREAK
+    os::signal(SIGBREAK, os::user_handler());
+  }
+}
+```
+JVM创建了一个新的进程来实现信号处理，这个线程叫“Signal Dispatcher”，一个线程创建之后需要有一个入口，“Signal Dispatcher”的入口是signal_thread_entry：
+![157.java-jvm-agent-1.png](../assets/images/03-JVM/157.java-jvm-agent-1.png)
+
+这段代码截取自signal_thread_entry函数，截取中的内容是和Attach机制信号处理相关的代码。这段代码的意思是，当接收到“SIGBREAK”信号，就执行接下来的代码，这个信号是需要Attach到JVM上的信号发出来，这个后面会再分析。我们先来看一句关键的代码：AttachListener::is_init_trigger()：
+```cpp
+bool AttachListener::is_init_trigger() {
+  if (init_at_startup() || is_initialized()) {
+    return false;               // initialized at startup or already initialized
+  }
+  char fn[PATH_MAX+1];
+  sprintf(fn, ".attach_pid%d", os::current_process_id());
+  int ret;
+  struct stat64 st;
+  RESTARTABLE(::stat64(fn, &st), ret);
+  if (ret == -1) {
+    log_trace(attach)("Failed to find attach file: %s, trying alternate", fn);
+    snprintf(fn, sizeof(fn), "%s/.attach_pid%d", os::get_temp_directory(), os::current_process_id());
+    RESTARTABLE(::stat64(fn, &st), ret);
+  }
+  if (ret == 0) {
+    // simple check to avoid starting the attach mechanism when
+    // a bogus user creates the file
+    if (st.st_uid == geteuid()) {
+      init();
+      return true;
+    }
+  }
+  return false;
+}
+```
+首先检查了一下是否在JVM启动时启动了Attach Listener，或者是否已经启动过。如果没有，才继续执行，在/tmp目录下创建一个叫做.attach_pid%d的文件，然后执行AttachListener的init函数，这个函数就是用来创建Attach Listener线程的函数，上面已经提到多次并进行了分析。到此，我们知道Attach机制的奥秘所在，也就是Attach Listener线程的创建依靠Signal Dispatcher线程，Signal Dispatcher是用来处理信号的线程，当Signal Dispatcher线程接收到“SIGBREAK”信号之后，就会执行初始化Attach Listener的工作。
+### 20.4.2 运行时加载Agent的实现
+我们继续分析，到底是如何将一个Agent挂载到运行着的目标JVM上，在上文中提到了一段代码，用来进行运行时挂载Agent，可以参考上文中展示的关于“attachAgentToTargetJvm”方法的代码。这个方法里面的关键是调用VirtualMachine的attach方法进行Agent挂载的功能。下面我们就来分析一下VirtualMachine的attach方法具体是怎么实现的。
+```java
+public static VirtualMachine attach(String var0) throws AttachNotSupportedException, IOException {
+    if (var0 == null) {
+        throw new NullPointerException("id cannot be null");
+    } else {
+        List var1 = AttachProvider.providers();
+        if (var1.size() == 0) {
+            throw new AttachNotSupportedException("no providers installed");
+        } else {
+            AttachNotSupportedException var2 = null;
+            Iterator var3 = var1.iterator();
+            while(var3.hasNext()) {
+                AttachProvider var4 = (AttachProvider)var3.next();
+                try {
+                    return var4.attachVirtualMachine(var0);
+                } catch (AttachNotSupportedException var6) {
+                    var2 = var6;
+                }
+            }
+            throw var2;
+        }
+    }
+}
+```
+这个方法通过attachVirtualMachine方法进行attach操作，在MacOS系统中，AttachProvider的实现类是BsdAttachProvider。我们来看一下BsdAttachProvider的attachVirtualMachine方法是如何实现的：
+```java
+public VirtualMachine attachVirtualMachine(String var1) throws AttachNotSupportedException, IOException {
+    this.checkAttachPermission();
+    this.testAttachable(var1);
+    return new BsdVirtualMachine(this, var1);
+}
+BsdVirtualMachine(AttachProvider var1, String var2) throws AttachNotSupportedException, IOException {
+    int var3 = Integer.parseInt(var2);
+    this.path = this.findSocketFile(var3);
+    if (this.path == null) {
+        File var4 = new File(tmpdir, ".attach_pid" + var3);
+        createAttachFile(var4.getPath());
+        try {
+            sendQuitTo(var3);
+            int var5 = 0;
+            long var6 = 200L;
+            int var8 = (int)(this.attachTimeout() / var6);
+            do {
+                try {
+                    Thread.sleep(var6);
+                } catch (InterruptedException var21) {
+                    ;
+                }
+                this.path = this.findSocketFile(var3);
+                ++var5;
+            } while(var5 <= var8 && this.path == null);
+        } finally {
+            var4.delete();
+        }
+    }
+    int var24 = socket();
+    connect(var24, this.path);
+}
+private String findSocketFile(int var1) {
+    String var2 = ".java_pid" + var1;
+    File var3 = new File(tmpdir, var2);
+    return var3.exists() ? var3.getPath() : null;
+}
+```
+findSocketFile方法用来查询目标JVM上是否已经启动了Attach Listener，它通过检查”tmp/“目录下是否存在java_pid{pid}来进行实现。如果已经存在了，则说明Attach机制已经准备就绪，可以接受客户端的命令了，这个时候客户端就可以通过connect连接到目标JVM进行命令的发送，比如可以发送“load”命令来加载Agent。如果java_pid{pid}文件还不存在，则需要通过sendQuitTo方法向目标JVM发送一个“SIGBREAK”信号，让它初始化Attach Listener线程并准备接受客户端连接。可以看到，发送了信号之后客户端会循环等待java_pid{pid}这个文件，之后再通过connect连接到目标JVM上。
+### 20.4.3 load命令的实现
+下面来分析一下，“load”命令在JVM层面的实现：
+```cpp
+static jint load_agent(AttachOperation* op, outputStream* out) {
+  // get agent name and options
+  const char* agent = op->arg(0);
+  const char* absParam = op->arg(1);
+  const char* options = op->arg(2);
+  // If loading a java agent then need to ensure that the java.instrument module is loaded
+  if (strcmp(agent, "instrument") == 0) {
+    Thread* THREAD = Thread::current();
+    ResourceMark rm(THREAD);
+    HandleMark hm(THREAD);
+    JavaValue result(T_OBJECT);
+    Handle h_module_name = java_lang_String::create_from_str("java.instrument", THREAD);
+    JavaCalls::call_static(&result,SystemDictionary::module_Modules_klass(),vmSymbols::loadModule_name(),
+                           vmSymbols::loadModule_signature(),h_module_name,THREAD);
+  }
+  return JvmtiExport::load_agent_library(agent, absParam, options, out);
+}
+```
+这个函数先确保加载了java.instrument模块，之后真正执行Agent加载的函数是 load_agent_library ,这个函数的套路就是加载Agent动态链接库，如果是通过Java instrument API实现的Agent，则加载的是libinstrument动态链接库，然后通过libinstrument里面的代码实现运行agentmain方法的逻辑，这一部分内容和libinstrument实现premain方法运行的逻辑其实差不多，这里不再做分析。至此，我们对Java Agent技术已经有了一个全面而细致的了解。
+## 20.5 动态字节码修改的限制
+上文中已经详细分析了Agent技术的实现，我们使用Java Instrumentation API来完成动态类修改的功能，在Instrumentation接口中，通过addTransformer方法来增加一个类转换器，类转换器由类ClassFileTransformer接口实现。ClassFileTransformer接口中唯一的方法transform用于实现类转换，当类被加载的时候，就会调用transform方法，进行类转换。在运行时，我们可以通过Instrumentation的redefineClasses方法进行类重定义，在方法上有一段注释需要特别注意：
+```java
+    * The redefinition may change method bodies, the constant pool and attributes.
+    * The redefinition must not add, remove or rename fields or methods, change the
+    * signatures of methods, or change inheritance.  These restrictions maybe be
+    * lifted in future versions.  The class file bytes are not checked, verified and installed
+    * until after the transformations have been applied, if the resultant bytes are in
+    * error this method will throw an exception.
+```
+这里面提到，**我们不可以增加、删除或者重命名字段和方法，改变方法的签名或者类的继承关系**。认识到这一点很重要，当我们通过ASM获取到增强的字节码之后，如果增强后的字节码没有遵守这些规则，那么调用redefineClasses方法来进行类的重定义就会失败。那redefineClasses方法具体是怎么实现类的重定义的呢? 它对运行时的JVM会造成什么样的影响呢? 下面来分析redefineClasses的实现细节。
+## 20.6 重定义类字节码的实现细节
+上文中我们提到，libinstrument动态链接库中，JPLISAgent不仅实现了Agent入口代码执行的路由，而且还是Java代码与JVMTI之间的一道桥梁。我们在Java代码中调用Java Instrumentation API的redefineClasses，其实会调用libinstrument中的相关代码，我们来分析一下这条路径。
+```java
+public void redefineClasses(ClassDefinition... var1) throws ClassNotFoundException {
+    if (!this.isRedefineClassesSupported()) {
+        throw new UnsupportedOperationException("redefineClasses is not supported in this environment");
+    } else if (var1 == null) {
+        throw new NullPointerException("null passed as 'definitions' in redefineClasses");
+    } else {
+        for(int var2 = 0; var2 < var1.length; ++var2) {
+            if (var1[var2] == null) {
+                throw new NullPointerException("element of 'definitions' is null in redefineClasses");
+            }
+        }
+        if (var1.length != 0) {
+            this.redefineClasses0(this.mNativeAgent, var1);
+        }
+    }
+}
+private native void redefineClasses0(long var1, ClassDefinition[] var3) throws ClassNotFoundException;
+```
+这是InstrumentationImpl中的redefineClasses实现，该方法的具体实现依赖一个Native方法redefineClasses()，我们可以在libinstrument中找到这个Native方法的实现：
+```cpp
+JNIEXPORT void JNICALL Java_sun_instrument_InstrumentationImpl_redefineClasses0
+  (JNIEnv * jnienv, jobject implThis, jlong agent, jobjectArray classDefinitions) {
+    redefineClasses(jnienv, (JPLISAgent*)(intptr_t)agent, classDefinitions);
+}
+```
+redefineClasses这个函数的实现比较复杂，代码很长。下面是一段关键的代码片段：
+![158.java-jvm-agent-2.png](../assets/images/03-JVM/158.java-jvm-agent-2.png)
+
+可以看到，其实是调用了JVMTI的RetransformClasses函数来完成类的重定义细节。
+```cpp
+// class_count - pre-checked to be greater than or equal to 0
+// class_definitions - pre-checked for NULL
+jvmtiError JvmtiEnv::RedefineClasses(jint class_count, const jvmtiClassDefinition* class_definitions) {
+//TODO: add locking
+  VM_RedefineClasses op(class_count, class_definitions, jvmti_class_load_kind_redefine);
+  VMThread::execute(&op);
+  return (op.check_error());
+} /* end RedefineClasses */
+```
+重定义类的请求会被JVM包装成一个VM_RedefineClasses类型的VM_Operation，VM_Operation是JVM内部的一些操作的基类，包括GC操作等。VM_Operation由VMThread来执行，新的VM_Operation操作会被添加到VMThread的运行队列中去，VMThread会不断从队列里面拉取VM_Operation并调用其doit等函数执行具体的操作。VM_RedefineClasses函数的流程较为复杂，下面是VM_RedefineClasses的大致流程：
+- 加载新的字节码，合并常量池，并且对新的字节码进行校验工作
+```cpp
+ // Load the caller's new class definition(s) into _scratch_classes.
+  // Constant pool merging work is done here as needed. Also calls
+  // compare_and_normalize_class_versions() to verify the class
+  // definition(s).
+  jvmtiError load_new_class_versions(TRAPS);
+```
+- 清除方法上的断点
+```cpp
+// Remove all breakpoints in methods of this class
+  JvmtiBreakpoints& jvmti_breakpoints = JvmtiCurrentBreakpoints::get_jvmti_breakpoints();
+  jvmti_breakpoints.clearall_in_class_at_safepoint(the_class());
+```
+- JIT逆优化
+```cpp
+ // Deoptimize all compiled code that depends on this class
+  flush_dependent_code(the_class, THREAD);
+```
+- 进行字节码替换工作，需要进行更新类itable/vtable等操作
+- 进行类重定义通知
+```cpp
+  SystemDictionary::notice_modification();
+```
+VM_RedefineClasses实现比较复杂的，详细实现可以参考<a href = 'https://github.com/pandening/openjdk/blob/0301fc792ffd3c7b506ef78887af250e0e3ae09e/src/hotspot/share/prims/jvmtiEnv.cpp#L456'>RedefineClasses</a>的实现。
+## 20.7 Java-debug-tool
+Java-debug-tool是一个使用Java Instrument API来实现的动态调试工具，它通过在目标JVM上启动一个TcpServer来和调试客户端通信。调试客户端通过命令行来发送调试命令给TcpServer，TcpServer中有专门用来处理命令的handler，handler处理完命令之后会将结果发送回客户端，客户端通过处理将调试结果展示出来。下面将详细介绍Java-debug-tool的整体设计和实现。
+### 20.7.1 Java-debug-tool整体架构
+Java-debug-tool包括一个Java Agent和一个用于处理调试命令的核心API，核心API通过一个自定义的类加载器加载进来，以保证目标JVM的类不会被污染。整体上Java-debug-tool的设计是一个Client-Server的架构，命令客户端需要完整的完成一个命令之后才能继续执行下一个调试命令。Java-debug-tool支持多人同时进行调试，下面是整体架构图：
+![159.java-jvm-agent-3.png](../assets/images/03-JVM/159.java-jvm-agent-3.png)
+
+下面对每一层做简单介绍：
+- 交互层：负责将程序员的输入转换成调试交互协议，并且将调试信息呈现出来。
+- 连接管理层：负责管理客户端连接，从连接中读调试协议数据并解码，对调试结果编码并将其写到连接中去；同时将那些超时未活动的连接关闭。
+- 业务逻辑层：实现调试命令处理，包括命令分发、数据收集、数据处理等过程。
+- 基础实现层：Java-debug-tool实现的底层依赖，通过Java Instrumentation提供的API进行类查找、类重定义等能力，Java Instrumentation底层依赖JVMTI来完成具体的功能。
+
+在Agent被挂载到目标JVM上之后，Java-debug-tool会安排一个Spy在目标JVM内活动，这个Spy负责将目标JVM内部的相关调试数据转移到命令处理模块，命令处理模块会处理这些数据，然后给客户端返回调试结果。命令处理模块会增强目标类的字节码来达到数据获取的目的，多个客户端可以共享一份增强过的字节码，无需重复增强。下面从Java-debug-tool的字节码增强方案、命令设计与实现等角度详细说明。
+### 20.7.2 Java-debug-tool的字节码增强方案
+Java-debug-tool使用字节码增强来获取到方法运行时的信息，比如方法入参、出参等，可以在不同的字节码位置进行增强，这种行为可以称为“插桩”，每个“桩”用于获取数据并将他转储出去。Java-debug-tool具备强大的插桩能力，不同的桩负责获取不同类别的数据，下面是Java-debug-tool目前所支持的“桩”：
+- 方法进入点：用于获取方法入参信息。
+- Fields获取点1：在方法执行前获取到对象的字段信息。
+- 变量存储点：获取局部变量信息。
+- Fields获取点2：在方法退出前获取到对象的字段信息。
+- 方法退出点：用于获取方法返回值。
+- 抛出异常点：用于获取方法抛出的异常信息。
+
+通过上面这些代码桩，Java-debug-tool可以收集到丰富的方法执行信息，经过处理可以返回更加可视化的调试结果。
+#### 20.7.2.1 字节码增强
+Java-debug-tool在实现上使用了ASM工具来进行字节码增强，并且每个插桩点都可以进行配置，如果不想要什么信息，则没必要进行对应的插桩操作。这种可配置的设计是非常有必要的，因为有时候我们仅仅是想要知道方法的入参和出参，但Java-debug-tool却给我们返回了所有的调试信息，这样我们就得在众多的输出中找到我们所关注的内容。如果可以进行配置，则除了入参点和出参点外其他的桩都不插，那么就可以快速看到我们想要的调试数据，这种设计的本质是为了让调试者更加专注。下面是Java-debug-tool的字节码增强工作方式：
+![160.java-jvm-agent-4.png](../assets/images/03-JVM/160.java-jvm-agent-4.png)
+
+如图所示，当调试者发出调试命令之后，Java-debug-tool会识别命令并判断是否需要进行字节码增强，如果命令需要增强字节码，则判断当前类+当前方法是否已经被增强过。上文已经提到，字节码替换是有一定损耗的，这种具有损耗的操作发生的次数越少越好，所以字节码替换操作会被记录起来，后续命令直接使用即可，不需要重复进行字节码增强，字节码增强还涉及多个调试客户端的协同工作问题，当一个客户端增强了一个类的字节码之后，这个客户端就锁定了该字节码，其他客户端变成只读，无法对该类进行字节码增强，只有当持有锁的客户端主动释放锁或者断开连接之后，其他客户端才能继续增强该类的字节码。
+
+字节码增强模块收到字节码增强请求之后，会判断每个增强点是否需要插桩，这个判断的根据就是上文提到的插桩配置，之后字节码增强模块会生成新的字节码，Java-debug-tool将执行字节码替换操作，之后就可以进行调试数据收集了。
+
+经过字节码增强之后，原来的方法中会插入收集运行时数据的代码，这些代码在方法被调用的时候执行，获取到诸如方法入参、局部变量等信息，这些信息将传递给数据收集装置进行处理。数据收集的工作通过Advice完成，每个客户端同一时间只能注册一个Advice到Java-debug-tool调试模块上，多个客户端可以同时注册自己的Advice到调试模块上。Advice负责收集数据并进行判断，如果当前数据符合调试命令的要求，Java-debug-tool就会卸载这个Advice，Advice的数据就会被转移到Java-debug-tool的命令结果处理模块进行处理，并将结果发送到客户端。
+#### 20.7.2.2 Advice的工作方式
+Advice是调试数据收集器，不同的调试策略会对应不同的Advice。Advice是工作在目标JVM的线程内部的，它需要轻量级和高效，意味着Advice不能做太过于复杂的事情，它的核心接口“match”用来判断本次收集到的调试数据是否满足调试需求。如果满足，那么Java-debug-tool就会将其卸载，否则会继续让他收集调试数据，这种“加载Advice” -> “卸载Advice”的工作模式具备很好的灵活性。
+
+关于Advice，需要说明的另外一点就是线程安全，因为它加载之后会运行在目标JVM的线程中，目标JVM的方法极有可能是多线程访问的，这也就是说，Advice需要有能力处理多个线程同时访问方法的能力，如果Advice处理不当，则可能会收集到杂乱无章的调试数据。下面的图片展示了Advice和Java-debug-tool调试分析模块、目标方法执行以及调试客户端等模块的关系。
+![161.java-jvm-agent-5.png](../assets/images/03-JVM/161.java-jvm-agent-5.png)
+
+Advice的首次挂载由Java-debug-tool的命令处理器完成，当一次调试数据收集完成之后，调试数据处理模块会自动卸载Advice，然后进行判断，如果调试数据符合Advice的策略，则直接将数据交由数据处理模块进行处理，否则会清空调试数据，并再次将Advice挂载到目标方法上去，等待下一次调试数据。非首次挂载由调试数据处理模块进行，它借助Advice按需取数据，如果不符合需求，则继续挂载Advice来获取数据，否则对调试数据进行处理并返回给客户端。
+### 20.7.3 Java-debug-tool的命令设计与实现
+#### 20.7.3.1 命令执行
+上文已经完整的描述了Java-debug-tool的设计以及核心技术方案，本小节将详细介绍Java-debug-tool的命令设计与实现。首先需要将一个调试命令的执行流程描述清楚，下面是一张用来表示命令请求处理流程的图片：
+![162.java-jvm-agent-6.png](../assets/images/03-JVM/162.java-jvm-agent-6.png)
+
+上图简单的描述了Java-debug-tool的命令处理方式，客户端连接到服务端之后，会进行一些协议解析、协议认证、协议填充等工作，之后将进行命令分发。服务端如果发现客户端的命令不合法，则会立即返回错误信息，否则再进行命令处理。命令处理属于典型的三段式处理，前置命令处理、命令处理以及后置命令处理，同时会对命令处理过程中的异常信息进行捕获处理，三段式处理的好处是命令处理被拆成了多个阶段，多个阶段负责不同的职责。前置命令处理用来做一些命令权限控制的工作，并填充一些类似命令处理开始时间戳等信息，命令处理就是通过字节码增强，挂载Advice进行数据收集，再经过数据处理来产生命令结果的过程，后置处理则用来处理一些连接关闭、字节码解锁等事项。
+
+Java-debug-tool允许客户端设置一个命令执行超时时间，超过这个时间则认为命令没有结果，如果客户端没有设置自己的超时时间，就使用默认的超时时间进行超时控制。Java-debug-tool通过设计了两阶段的超时检测机制来实现命令执行超时功能：首先，第一阶段超时触发，则Java-debug-tool会友好的警告命令处理模块处理时间已经超时，需要立即停止命令执行，这允许命令自己做一些现场清理工作，当然需要命令执行线程自己感知到这种超时警告；当第二阶段超时触发，则Java-debug-tool认为命令必须结束执行，会强行打断命令执行线程。超时机制的目的是为了不让命令执行太长时间，命令如果长时间没有收集到调试数据，则应该停止执行，并思考是否调试了一个错误的方法。当然，超时机制还可以定期清理那些因为未知原因断开连接的客户端持有的调试资源，比如字节码锁。
+#### 20.7.3.2 获取方法执行视图
+Java-debug-tool通过下面的信息来向调试者呈现出一次方法执行的视图：
+- 正在调试的方法信息。
+- 方法调用堆栈。
+- 调试耗时，包括对目标JVM造成的STW时间。
+- 方法入参，包括入参的类型及参数值。
+- 方法的执行路径。
+- 代码执行耗时。
+- 局部变量信息。
+- 方法返回结果。
+- 方法抛出的异常。
+- 对象字段值快照。
+
+下图展示了Java-debug-tool获取到正在运行的方法的执行视图的信息。
+![163.java-jvm-agent-7.png](../assets/images/03-JVM/163.java-jvm-agent-7.png)
+
+## 20.8 Java-debug-tool与同类产品对比分析
+Java-debug-tool的同类产品主要是greys，其他类似的工具大部分都是基于greys进行的二次开发，所以直接选择greys来和Java-debug-tool进行对比。
+![164.java-jvm-agent-8.jpg](../assets/images/03-JVM/164.java-jvm-agent-8.jpg)
+# 二十一、调试排错 - Java 问题排查之应用在线调试Arthas
+## 21.1 Arthas简介
+### 21.1.1 Arthas是什么
+`Arthas` 是Alibaba开源的Java诊断工具，深受开发者喜爱。
+### 21.1.2 Arthas能解决什么问题
+当你遇到以下类似问题而束手无策时，`Arthas`可以帮助你解决：
+- 这个类从哪个 jar 包加载的? 为什么会报各种类相关的 Exception?
+- 我改的代码为什么没有执行到? 难道是我没 commit? 分支搞错了?
+- 遇到问题无法在线上 debug，难道只能通过加日志再重新发布吗?
+- 线上遇到某个用户的数据处理有问题，但线上同样无法 debug，线下无法重现！
+- 是否有一个全局视角来查看系统的运行状况?
+- 有什么办法可以监控到JVM的实时运行状态?
+
+`Arthas`支持JDK 6+，支持Linux/Mac/Windows，采用命令行交互模式，同时提供丰富的 `Tab`自动补全功能，进一步方便进行问题的定位和诊断。
+### 21.1.3 Arthas资源推荐
+- <a href = 'https://alibaba.github.io/arthas/'>用户文档</a>
+- <a href = 'https://arthas.aliyun.com/doc/arthas-tutorials.html?language=cn'>官方在线教程(推荐)</a>
+- <a href = 'https://arthas.aliyun.com/doc/arthas-tutorials.html?language=cn&id=arthas-basics'>快速入门</a>
+- <a href = 'https://arthas.aliyun.com/doc/arthas-tutorials.html?language=cn&id=arthas-advanced'>进阶使用</a>
+- <a href = 'https://arthas.aliyun.com/doc/arthas-tutorials.html?language=cn&id=command-help'>命令列表</a>
+- <a href = 'https://arthas.aliyun.com/doc/arthas-tutorials.html?language=cn&id=case-web-console'>WebConsole</a>
+- <a href = 'https://github.com/alibaba/arthas/issues?q=label%3Auser-case'>用户案例</a>
+- <a href = 'https://github.com/alibaba/arthas/issues?utf8=%E2%9C%93&q=label%3Aquestion-answered+'>常见问题</a>
+### 21.1.4 Arthas基于了哪些工具上发展而来
+- greys-anatomy: Arthas代码基于Greys二次开发而来，非常感谢Greys之前所有的工作，以及Greys原作者对Arthas提出的意见和建议！
+- termd: Arthas的命令行实现基于termd开发，是一款优秀的命令行程序开发框架，感谢termd提供了优秀的框架。
+- crash: Arthas的文本渲染功能基于crash中的文本渲染功能开发，可以从这里看到源码，感谢crash在这方面所做的优秀工作。
+- cli: Arthas的命令行界面基于vert.x提供的cli库进行开发，感谢vert.x在这方面做的优秀工作。
+- compiler Arthas里的内存编绎器代码来源
+- Apache Commons Net Arthas里的Telnet Client代码来源
+- JavaAgent：运行在 main方法之前的拦截器，它内定的方法名叫 premain ，也就是说先执行 premain 方法然后再执行 main 方法ASM：一个通用的Java字节码操作和分析框架。它可以用于修改现有的类或直接以二进制形式动态生成类。
+- ASM提供了一些常见的字节码转换和分析算法，可以从它们构建定制的复杂转换和代码分析工具。ASM提供了与其他Java字节码框架类似的功能，但是主要关注性能。因为它被设计和实现得尽可能小和快，所以非常适合在动态系统中使用(当然也可以以静态方式使用，例如在编译器中)
+### 21.1.5 同类工具有哪些
+- BTrace
+- 美团 Java-debug-tool
+- <a href = 'https://github.com/qunarcorp/bistoury'>去哪儿Bistoury</a>: 一个集成了Arthas的项目
+- <a href = 'https://github.com/XhinLiang/arthas-mvel'>一个使用MVEL脚本的fork</a>
+## 21.2 Arthas入门
+### 21.2.1 Arthas 安装
+下载arthas-boot.jar，然后用java -jar的方式启动：
+```sh
+curl -O https://alibaba.github.io/arthas/arthas-boot.jar
+java -jar arthas-boot.jar
+```
+### 21.2.2 Arthas 官方案例展示
+#### 21.2.2.1 Dashboard
+![165.java-jvm-agent-arthas-dashboard.png](../assets/images/03-JVM/165.java-jvm-agent-arthas-dashboard.png)
+#### 21.2.2.2 Thread
+一目了然的了解系统的状态，哪些线程比较占cpu? 他们到底在做什么?
+```sh
+$ thread -n 3
+"as-command-execute-daemon" Id=29 cpuUsage=75% RUNNABLE
+    at sun.management.ThreadImpl.dumpThreads0(Native Method)
+    at sun.management.ThreadImpl.getThreadInfo(ThreadImpl.java:440)
+    at com.taobao.arthas.core.command.monitor200.ThreadCommand$1.action(ThreadCommand.java:58)
+    at com.taobao.arthas.core.command.handler.AbstractCommandHandler.execute(AbstractCommandHandler.java:238)
+    at com.taobao.arthas.core.command.handler.DefaultCommandHandler.handleCommand(DefaultCommandHandler.java:67)
+    at com.taobao.arthas.core.server.ArthasServer$4.run(ArthasServer.java:276)
+    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:615)
+    at java.lang.Thread.run(Thread.java:745)
+
+    Number of locked synchronizers = 1
+    - java.util.concurrent.ThreadPoolExecutor$Worker@6cd0b6f8
+
+"as-session-expire-daemon" Id=25 cpuUsage=24% TIMED_WAITING
+    at java.lang.Thread.sleep(Native Method)
+    at com.taobao.arthas.core.server.DefaultSessionManager$2.run(DefaultSessionManager.java:85)
+
+"Reference Handler" Id=2 cpuUsage=0% WAITING on java.lang.ref.Reference$Lock@69ba0f27
+    at java.lang.Object.wait(Native Method)
+    -  waiting on java.lang.ref.Reference$Lock@69ba0f27
+    at java.lang.Object.wait(Object.java:503)
+    at java.lang.ref.Reference$ReferenceHandler.run(Reference.java:133)
+```
+#### 21.2.2.3 jad
+对类进行反编译:
+```sh
+$ jad javax.servlet.Servlet
+
+ClassLoader:
++-java.net.URLClassLoader@6108b2d7
+  +-sun.misc.Launcher$AppClassLoader@18b4aac2
+    +-sun.misc.Launcher$ExtClassLoader@1ddf84b8
+
+Location:
+/Users/xxx/work/test/lib/servlet-api.jar
+
+/*
+ * Decompiled with CFR 0_122.
+ */
+package javax.servlet;
+
+import java.io.IOException;
+import javax.servlet.ServletConfig;
+import javax.servlet.ServletException;
+import javax.servlet.ServletRequest;
+import javax.servlet.ServletResponse;
+
+public interface Servlet {
+    public void init(ServletConfig var1) throws ServletException;
+
+    public ServletConfig getServletConfig();
+
+    public void service(ServletRequest var1, ServletResponse var2) throws ServletException, IOException;
+
+    public String getServletInfo();
+
+    public void destroy();
+}
+```
+#### 21.2.2.4 mc
+Memory Compiler/内存编译器，编译.java文件生成.class。
+```sh
+mc /tmp/Test.java
+```
+#### 21.2.2.5 redefine
+加载外部的.class文件，redefine jvm已加载的类。
+```sh
+redefine /tmp/Test.class
+redefine -c 327a647b /tmp/Test.class /tmp/Test\$Inner.class
+```
+#### 21.2.2.6 sc
+查找JVM中已经加载的类
+```sh
+$ sc -d org.springframework.web.context.support.XmlWebApplicationContext
+ class-info        org.springframework.web.context.support.XmlWebApplicationContext
+ code-source       /Users/xxx/work/test/WEB-INF/lib/spring-web-3.2.11.RELEASE.jar
+ name              org.springframework.web.context.support.XmlWebApplicationContext
+ isInterface       false
+ isAnnotation      false
+ isEnum            false
+ isAnonymousClass  false
+ isArray           false
+ isLocalClass      false
+ isMemberClass     false
+ isPrimitive       false
+ isSynthetic       false
+ simple-name       XmlWebApplicationContext
+ modifier          public
+ annotation
+ interfaces
+ super-class       +-org.springframework.web.context.support.AbstractRefreshableWebApplicationContext
+                     +-org.springframework.context.support.AbstractRefreshableConfigApplicationContext
+                       +-org.springframework.context.support.AbstractRefreshableApplicationContext
+                         +-org.springframework.context.support.AbstractApplicationContext
+                           +-org.springframework.core.io.DefaultResourceLoader
+                             +-java.lang.Object
+ class-loader      +-org.apache.catalina.loader.ParallelWebappClassLoader
+                     +-java.net.URLClassLoader@6108b2d7
+                       +-sun.misc.Launcher$AppClassLoader@18b4aac2
+                         +-sun.misc.Launcher$ExtClassLoader@1ddf84b8
+ classLoaderHash   25131501
+```
+#### 21.2.2.7 stack
+查看方法 test.arthas.TestStack#doGet 的调用堆栈：
+```sh
+$ stack test.arthas.TestStack doGet
+Press Ctrl+C to abort.
+Affect(class-cnt:1 , method-cnt:1) cost in 286 ms.
+ts=2018-09-18 10:11:45;thread_name=http-bio-8080-exec-10;id=d9;is_daemon=true;priority=5;TCCL=org.apache.catalina.loader.ParallelWebappClassLoader@25131501
+    @test.arthas.TestStack.doGet()
+        at javax.servlet.http.HttpServlet.service(HttpServlet.java:624)
+        at javax.servlet.http.HttpServlet.service(HttpServlet.java:731)
+        at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:303)
+        at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:208)
+        at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:52)
+        at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:241)
+        at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:208)
+        at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:241)
+        at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:208)
+        at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:220)
+        at org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:110)
+        ...
+        at org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:169)
+        at org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:103)
+        at org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:116)
+        at org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:451)
+        at org.apache.coyote.http11.AbstractHttp11Processor.process(AbstractHttp11Processor.java:1121)
+        at org.apache.coyote.AbstractProtocol$AbstractConnectionHandler.process(AbstractProtocol.java:637)
+        at org.apache.tomcat.util.net.JIoEndpoint$SocketProcessor.run(JIoEndpoint.java:316)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1142)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:617)
+        at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:61)
+        at java.lang.Thread.run(Thread.java:745)
+```
+#### 21.2.2.8 Trace
+观察方法执行的时候哪个子调用比较慢:
+![166.java-jvm-agent-arthas-trace.png](../assets/images/03-JVM/166.java-jvm-agent-arthas-trace.png)
+
+#### 21.2.2.9 Watch
+观察方法 test.arthas.TestWatch#doGet 执行的入参，仅当方法抛出异常时才输出。
+```sh
+$ watch test.arthas.TestWatch doGet {params[0], throwExp} -e
+Press Ctrl+C to abort.
+Affect(class-cnt:1 , method-cnt:1) cost in 65 ms.
+ts=2018-09-18 10:26:28;result=@ArrayList[
+    @RequestFacade[org.apache.catalina.connector.RequestFacade@79f922b2],
+    @NullPointerException[java.lang.NullPointerException],
+]
+```
+#### 21.2.2.10 Monitor
+监控某个特殊方法的调用统计数据，包括总调用次数，平均rt，成功率等信息，每隔5秒输出一次。
+```sh
+$ monitor -c 5 org.apache.dubbo.demo.provider.DemoServiceImpl sayHello
+Press Ctrl+C to abort.
+Affect(class-cnt:1 , method-cnt:1) cost in 109 ms.
+ timestamp            class                                           method    total  success  fail  avg-rt(ms)  fail-rate
+----------------------------------------------------------------------------------------------------------------------------
+ 2018-09-20 09:45:32  org.apache.dubbo.demo.provider.DemoServiceImpl  sayHello  5      5        0     0.67        0.00%
+
+ timestamp            class                                           method    total  success  fail  avg-rt(ms)  fail-rate
+----------------------------------------------------------------------------------------------------------------------------
+ 2018-09-20 09:45:37  org.apache.dubbo.demo.provider.DemoServiceImpl  sayHello  5      5        0     1.00        0.00%
+
+ timestamp            class                                           method    total  success  fail  avg-rt(ms)  fail-rate
+----------------------------------------------------------------------------------------------------------------------------
+ 2018-09-20 09:45:42  org.apache.dubbo.demo.provider.DemoServiceImpl  sayHello  5      5        0     0.43        0.00%
+```
+#### 21.2.2.11 Time Tunnel(tt)
+记录方法调用信息，支持事后查看方法调用的参数，返回值，抛出的异常等信息，仿佛穿越时空隧道回到调用现场一般。
+```sh
+$ tt -t org.apache.dubbo.demo.provider.DemoServiceImpl sayHello
+Press Ctrl+C to abort.
+Affect(class-cnt:1 , method-cnt:1) cost in 75 ms.
+ INDEX   TIMESTAMP            COST(ms)  IS-RET  IS-EXP   OBJECT         CLASS                          METHOD
+-------------------------------------------------------------------------------------------------------------------------------------
+ 1000    2018-09-20 09:54:10  1.971195  true    false    0x55965cca     DemoServiceImpl                sayHello
+ 1001    2018-09-20 09:54:11  0.215685  true    false    0x55965cca     DemoServiceImpl                sayHello
+ 1002    2018-09-20 09:54:12  0.236303  true    false    0x55965cca     DemoServiceImpl                sayHello
+ 1003    2018-09-20 09:54:13  0.159598  true    false    0x55965cca     DemoServiceImpl                sayHello
+ 1004    2018-09-20 09:54:14  0.201982  true    false    0x55965cca     DemoServiceImpl                sayHello
+ 1005    2018-09-20 09:54:15  0.214205  true    false    0x55965cca     DemoServiceImpl                sayHello
+ 1006    2018-09-20 09:54:16  0.241863  true    false    0x55965cca     DemoServiceImpl                sayHello
+ 1007    2018-09-20 09:54:17  0.305747  true    false    0x55965cca     DemoServiceImpl                sayHello
+ 1008    2018-09-20 09:54:18  0.18468   true    false    0x55965cca     DemoServiceImpl                sayHello
+```
+#### 21.2.2.12 Classloader
+了解当前系统中有多少类加载器，以及每个加载器加载的类数量，帮助您判断是否有类加载器泄露。
+```sh
+$ classloader
+ name                                                  numberOfInstances  loadedCountTotal
+ BootstrapClassLoader                                  1                  3346
+ com.taobao.arthas.agent.ArthasClassloader             1                  1262
+ java.net.URLClassLoader                               2                  1033
+ org.apache.catalina.loader.ParallelWebappClassLoader  1                  628
+ sun.reflect.DelegatingClassLoader                     166                166
+ sun.misc.Launcher$AppClassLoader                      1                  31
+ com.alibaba.fastjson.util.ASMClassLoader              6                  15
+ sun.misc.Launcher$ExtClassLoader                      1                  7
+ org.jvnet.hk2.internal.DelegatingClassLoader          2                  2
+ sun.reflect.misc.MethodUtil                           1                  1
+```
+### 21.2.3 Web Console
+![167.java-jvm-agent-arthas-webconsole.png](../assets/images/03-JVM/167.java-jvm-agent-arthas-webconsole.png)
+## 21.3 Arthas场景实战
+### 21.3.1 查看最繁忙的线程，以及是否有阻塞情况发生?
+> 场景：我想看下查看最繁忙的线程，以及是否有阻塞情况发生? 常规查看线程，一般我们可以通过 top 等系统命令进行查看，但是那毕竟要很多个步骤，很麻烦。
+```sh
+thread -n 3 # 查看最繁忙的三个线程栈信息
+thread  # 以直观的方式展现所有的线程情况
+thread -b #找出当前阻塞其他线程的线程
+```
+### 21.3.2 确认某个类是否已被系统加载?
+> 场景：我新写了一个类或者一个方法，我想知道新写的代码是否被部署了?
+```sh
+# 即可以找到需要的类全路径，如果存在的话
+sc *MyServlet
+
+# 查看这个某个类所有的方法
+sm pdai.tech.servlet.TestMyServlet *
+
+# 查看某个方法的信息，如果存在的话
+sm pdai.tech.servlet.TestMyServlet testMethod  
+```
+### 21.3.3 如何查看一个class类的源码信息?
+> 场景：我新修改的内容在方法内部，而上一个步骤只能看到方法，这时候可以反编译看下源码
+```sh
+# 直接反编译出java 源代码，包含一此额外信息的
+jad pdai.tech.servlet.TestMyServlet
+```
+### 21.3.4 重要：如何跟踪某个方法的返回值、入参.... ?
+> 场景：我想看下我新加的方法在线运行的参数和返回值?
+```sh
+# 同时监控入参，返回值，及异常
+watch pdai.tech.servlet.TestMyServlet testMethod "{params, returnObj, throwExp}" -e -x 2 
+```
+### 21.3.5 如何看方法调用栈的信息?
+```sh
+stack pdai.tech.servlet.TestMyServlet testMethod
+```
+运行此命令之后需要即时触发方法才会有响应的信息打印在控制台上
+
+### 21.3.6 重要：找到最耗时的方法调用?
+> 场景：testMethod这个方法入口响应很慢，如何找到最耗时的子调用?
+```sh
+# 执行的时候每个子调用的运行时长，可以找到最耗时的子调用。
+trace pdai.tech.servlet.TestMyServlet testMethod
+```
+运行此命令之后需要即时触发方法才会有响应的信息打印在控制台上，然后一层一层看子调用。
+
+### 21.3.7 重要：如何临时更改代码运行?
+> 场景：我找到了问题所在，能否线上直接修改测试，而不需要在本地改了代码后，重新打包部署，然后重启观察效果?
+```sh
+# 先反编译出class源码
+jad --source-only com.example.demo.arthas.user.UserController > /tmp/UserController.java  
+
+# 然后使用外部工具编辑内容
+mc /tmp/UserController.java -d /tmp  # 再编译成class
+
+# 最后，重新载入定义的类，就可以实时验证你的猜测了
+redefine /tmp/com/example/demo/arthas/user/UserController.class
+```
+如上，是直接更改线上代码的方式，但是一般好像是编译不成功的。所以，最好是本地ide编译成 class文件后，再上传替换为好！
+
+总之，已经完全不用重启和发布了！这个功能真的很方便，比起重启带来的代价，真的是不可比的。比如，重启时可能导致负载重分配，选主等等问题，就不是你能控制的了。
+
+### 21.3.8 我如何测试某个方法的性能问题?
+```sh
+monitor -c 5 demo.MathGame primeFactors
+```
+
+
+- 宏观的模块调用图
+
+![168.java-jvm-agent-arthas-2.jpg](../assets/images/03-JVM/168.java-jvm-agent-arthas-2.jpg)
+# 二十二、调试排错 - Java 问题排查之使用IDEA本地调试和远程调试
 
 
 
