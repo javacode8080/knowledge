@@ -1312,362 +1312,3036 @@ new Socket ("yahoo.com", 80);
 #### 6.2.1.2 SeverSocket
 Socket 类代表一个**客户端套接字**，即任何时候你想连接到一个远程服务器应用的时候你构造的套接字，现在，假如你想实施一个服务器应用，例如一个 HTTP 服务器或者 FTP 服务器，你需要一种不同的做法。这是因为你的服务器必须随时待命，因为它不知道一个客户端应用什么时候会尝试去连接它。为了让你的应用能随时待命，你需要使用`java.net.ServerSocket`类。这是**服务器套接字**的实现。
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+`ServerSocket` 和 `Socket` 不同，服务器套接字的角色是等待来自客户端的连接请求。**一旦服务器套接字获得一个连接请求，它创建一个 Socket 实例来与客户端进行通信。**
+
+要创建一个服务器套接字，你需要使用 ServerSocket 类提供的四个构造方法中的一个。你 需要指定 IP 地址和服务器套接字将要进行监听的端口号。通常，IP 地址将会是 127.0.0.1，也 就是说，服务器套接字将会监听本地机器。服务器套接字正在监听的 IP 地址被称为是绑定地址。 服务器套接字的另一个重要的属性是 backlog，这是服务器套接字开始拒绝传入的请求之前，传 入的连接请求的最大队列长度。
+
+其中一个 ServerSocket 类的构造方法如下所示:
+```java
+public ServerSocket(int port, int backLog, InetAddress bindingAddress);
+```
+### 6.2.2 一个简单web容器的设计和实现：对静态资源
+> 准备，这个例子来源于《How Tomcat Works》, 可以从这里下载源码.注意：当你跑如下程序时，可能会由于浏览器新版本不再支持的HTTP 0.9协议，而造成浏览器页面没有返回信息。 
+
+#### 6.2.2.1 组件设计
+根据上述的基础，我们可以看到，我们只需要提供三个最基本的类，分别是：
+- Request - 表示请求，这里表示浏览器发起的HTTP请求
+- HttpServer - 表示处理请求的服务器，同时这里使用我们上面铺垫的ServerSocket
+- Reponse - 表示处理请求后的响应， 这里表示服务器对HTTP请求的响应结果
+![4.tomcat-x-design-1.png](../../assets/images/04-主流框架/Servlet容器/4.tomcat-x-design-1.png)
+#### 6.2.2.2 组件实现
+从上图中我们可以看到，组织这几个类的入口在Server的启动方法中，即main方法中, 所以我们透过main方法从Server类进行分析：
+- Server是如何启动的？
+```java
+public class HttpServer {
+
+  // 存放静态资源的位置
+  public static final String WEB_ROOT =
+    System.getProperty("user.dir") + File.separator  + "webroot";
+
+  // 关闭Server的请求
+  private static final String SHUTDOWN_COMMAND = "/SHUTDOWN";
+
+  // 是否关闭Server
+  private boolean shutdown = false;
+
+  // 主入口
+  public static void main(String[] args) {
+    HttpServer server = new HttpServer();
+    server.await();
+  }
+
+  public void await() {
+    // 启动ServerSocket
+    ServerSocket serverSocket = null;
+    int port = 8080;
+    try {
+      serverSocket =  new ServerSocket(port, 1, InetAddress.getByName("127.0.0.1"));
+    }
+    catch (IOException e) {
+      e.printStackTrace();
+      System.exit(1);
+    }
+
+    // 循环等待一个Request请求
+    while (!shutdown) {
+      Socket socket = null;
+      InputStream input = null;
+      OutputStream output = null;
+      try {
+        // 创建socket
+        socket = serverSocket.accept();
+        input = socket.getInputStream();
+        output = socket.getOutputStream();
+
+        // 封装input至request, 并处理请求
+        Request request = new Request(input);
+        request.parse();
+
+        // 封装output至response
+        Response response = new Response(output);
+        response.setRequest(request);
+        response.sendStaticResource();
+
+        // 关闭socket
+        socket.close();
+
+        // 如果接受的是关闭请求，则设置关闭监听request的标志
+        shutdown = request.getUri().equals(SHUTDOWN_COMMAND);
+      }
+      catch (Exception e) {
+        e.printStackTrace();
+        continue;
+      }
+    }
+  }
+}
+```
+- Request请求是如何封装和处理的？
+```java
+public class Request {
+
+  private InputStream input;
+  private String uri;
+
+  // 初始化Request
+  public Request(InputStream input) {
+    this.input = input;
+  }
+
+  // 处理request的方法
+  public void parse() {
+    // 从socket中读取字符
+    StringBuffer request = new StringBuffer(2048);
+    int i;
+    byte[] buffer = new byte[2048];
+    try {
+      i = input.read(buffer);
+    }
+    catch (IOException e) {
+      e.printStackTrace();
+      i = -1;
+    }
+    for (int j=0; j<i; j++) {
+      request.append((char) buffer[j]);
+    }
+    System.out.print(request.toString());
+
+    // 获得两个空格之间的内容, 这里将是HttpServer.WEB_ROOT中静态文件的文件名称
+    uri = parseUri(request.toString());
+  }
+
+  private String parseUri(String requestString) {
+    int index1, index2;
+    index1 = requestString.indexOf(' ');
+    if (index1 != -1) {
+      index2 = requestString.indexOf(' ', index1 + 1);
+      if (index2 > index1)
+        return requestString.substring(index1 + 1, index2);
+    }
+    return null;
+  }
+
+  public String getUri() {
+    return uri;
+  }
+
+}
+```
+- Response中响应了什么？
+```java
+public class Response {
+
+  private static final int BUFFER_SIZE = 1024;
+  Request request;
+  OutputStream output;
+
+  public Response(OutputStream output) {
+    this.output = output;
+  }
+
+  // response中封装了request，以便获取request中的请求参数
+  public void setRequest(Request request) {
+    this.request = request;
+  }
+
+  public void sendStaticResource() throws IOException {
+    byte[] bytes = new byte[BUFFER_SIZE];
+    FileInputStream fis = null;
+    try {
+      // 读取文件内容
+      File file = new File(HttpServer.WEB_ROOT, request.getUri());
+      if (file.exists()) {
+        fis = new FileInputStream(file);
+        int ch = fis.read(bytes, 0, BUFFER_SIZE);
+        while (ch!=-1) {
+          output.write(bytes, 0, ch);
+          ch = fis.read(bytes, 0, BUFFER_SIZE);
+        }
+      }
+      else {
+        // 文件不存在时，输出404信息
+        String errorMessage = "HTTP/1.1 404 File Not Found\r\n" +
+          "Content-Type: text/html\r\n" +
+          "Content-Length: 23\r\n" +
+          "\r\n" +
+          "<h1>File Not Found</h1>";
+        output.write(errorMessage.getBytes());
+      }
+    }
+    catch (Exception e) {
+      // thrown if cannot instantiate a File object
+      System.out.println(e.toString() );
+    }
+    finally {
+      if (fis!=null)
+        fis.close();
+    }
+  }
+}
+```
+- 启动输出
+
+当我们run上面HttpServer中的main方法之后，我们就可以打开浏览器http://localhost:8080, 后面添加参数看返回webroot目录中静态文件的内容了(比如这里我加了hello.txt文件到webroot下，并访问http://localhost:8080/hello.txt)。
+![5.tomcat-x-design-5.png](../../assets/images/04-主流框架/Servlet容器/5.tomcat-x-design-5.png)
+![6.tomcat-x-design-4.png](../../assets/images/04-主流框架/Servlet容器/6.tomcat-x-design-4.png)
+### 6.2.3 一个简单web容器的设计和实现：对Servelet
+上面这个例子是不是很简单？是否打破了对一个简单http服务器的认知，减少了对它的恐惧。
+
+但是上述的例子中只处理了静态资源，我们如果要处理Servlet呢？
+#### 6.2.3.1 组件设计
+不难发现，我们只需要在HttpServer只需要请求的处理委托给ServletProcessor, 让它接受请求，并处理Response即可。
+![7.tomcat-x-design-2.png](../../assets/images/04-主流框架/Servlet容器/7.tomcat-x-design-2.png)
+#### 6.2.3.2 组件实现
+- 在HttpServer中
+```java
+public void await() {
+    //....
+
+        // create Response object
+        Response response = new Response(output);
+        response.setRequest(request);
+
+        // 不再有response自己处理
+        //response.sendStaticResource();
+
+        // 而是如果以/servlet/开头，则委托ServletProcessor处理
+        if (request.getUri().startsWith("/servlet/")) {
+          ServletProcessor1 processor = new ServletProcessor1();
+          processor.process(request, response);
+        } else {
+          // 原有的静态资源处理
+          StaticResourceProcessor processor = new StaticResourceProcessor();
+          processor.process(request, response);
+        }
+
+    // ....
+  }
+```
+- ServletProcessor 如何处理的？
+```java
+public class ServletProcessor1 {
+
+  public void process(Request request, Response response) {
+
+    // 获取servlet名字
+    String uri = request.getUri();
+    String servletName = uri.substring(uri.lastIndexOf("/") + 1);
+    
+    // 初始化URLClassLoader
+    URLClassLoader loader = null;
+    try {
+      // create a URLClassLoader
+      URL[] urls = new URL[1];
+      URLStreamHandler streamHandler = null;
+      File classPath = new File(Constants.WEB_ROOT);
+      // the forming of repository is taken from the createClassLoader method in
+      // org.apache.catalina.startup.ClassLoaderFactory
+      String repository = (new URL("file", null, classPath.getCanonicalPath() + File.separator)).toString() ;
+      // the code for forming the URL is taken from the addRepository method in
+      // org.apache.catalina.loader.StandardClassLoader class.
+      urls[0] = new URL(null, repository, streamHandler);
+      loader = new URLClassLoader(urls);
+    } catch (IOException e) {
+      System.out.println(e.toString() );
+    }
+
+    // 用classLoader加载上面的servlet
+    Class myClass = null;
+    try {
+      myClass = loader.loadClass(servletName);
+    }
+    catch (ClassNotFoundException e) {
+      System.out.println(e.toString());
+    }
+
+    // 将加载到的class转成Servlet，并调用service方法处理
+    Servlet servlet = null;
+    try {
+      servlet = (Servlet) myClass.newInstance();
+      servlet.service((ServletRequest) request, (ServletResponse) response);
+    } catch (Exception e) {
+      System.out.println(e.toString());
+    } catch (Throwable e) {
+      System.out.println(e.toString());
+    }
+
+  }
+}
+```
+- Repsonse
+```java
+public class PrimitiveServlet implements Servlet {
+
+  public void init(ServletConfig config) throws ServletException {
+    System.out.println("init");
+  }
+
+  public void service(ServletRequest request, ServletResponse response)
+    throws ServletException, IOException {
+    System.out.println("from service");
+    PrintWriter out = response.getWriter();
+    out.println("Hello. Roses are red.");
+    out.print("Violets are blue.");
+  }
+
+  public void destroy() {
+    System.out.println("destroy");
+  }
+
+  public String getServletInfo() {
+    return null;
+  }
+  public ServletConfig getServletConfig() {
+    return null;
+  }
+
+}
+```
+- 访问 URL
+![8.tomcat-x-design-8.png](../../assets/images/04-主流框架/Servlet容器/8.tomcat-x-design-8.png)
+
+#### 6.2.3.3 利用外观模式改造
+上述代码存在一个问题，
+```java
+// 将加载到的class转成Servlet，并调用service方法处理
+    Servlet servlet = null;
+    try {
+      servlet = (Servlet) myClass.newInstance();
+      servlet.service((ServletRequest) request, (ServletResponse) response);
+    } catch (Exception e) {
+      System.out.println(e.toString());
+    } catch (Throwable e) {
+      System.out.println(e.toString());
+    }
+```
+这里直接处理将request和response传给servlet处理是不安全的，因为request可以向下转型为Request类，从而ServeletRequest便具备了访问Request中方法的能力。
+```java
+public class Request implements ServletRequest {
+  // 一些public方法
+}
+public class Response implements ServletResponse {
+
+}
+```
+
+
+- 先看一个简单的例子来理解
+
+```java
+// 假设我们有这样的类结构
+interface Animal {
+    void eat();
+}
+
+class Dog implements Animal {
+    public void eat() { System.out.println("狗吃骨头"); }
+    public void bark() { System.out.println("汪汪叫"); }  // Dog特有的方法
+}
+
+// 使用场景
+public class Test {
+    public static void main(String[] args) {
+        // 向上转型：Dog → Animal
+        Animal animal = new Dog();  // 编译时类型是Animal，运行时类型是Dog
+        
+        // 调用接口方法 - 正常
+        animal.eat();  // 输出"狗吃骨头"
+        
+        // 尝试调用Dog特有方法 - 编译错误！
+        // animal.bark();  // 编译错误：Animal接口没有bark()方法
+        
+        // 但是！我们可以向下转型回来
+        if (animal instanceof Dog) {
+            Dog dog = (Dog) animal;  // 向下转型成功！
+            dog.bark();  // 现在可以调用特有方法了，输出"汪汪叫"
+        }
+    }
+}
+```
+
+- 应用到Servlet场景
+
+  -  当前的不安全情况
+
+    ```java
+    // 容器内部实现
+    public class Request implements ServletRequest {
+        // 标准方法
+        public String getParameter(String name) { return "value"; }
+        
+        // 容器内部方法（危险！）
+        public void setInternalState(String state) { 
+            System.out.println("修改内部状态：" + state); 
+        }
+    }
+
+    // 容器调用Servlet时的代码
+    Request realRequest = new Request();  // 创建真实的Request对象
+    Servlet servlet = new MaliciousServlet();
+
+    // 关键步骤：向上转型为接口类型
+    ServletRequest interfaceRequest = realRequest;  // Request → ServletRequest
+
+    // 传递给Servlet
+    servlet.service(interfaceRequest, response);
+    ```
+
+**问题就在这里**：虽然传递的是`ServletRequest`接口类型，但**实际对象仍然是Request类的实例**！
+
+- Servlet开发者可以这样攻击：
+
+```java
+public class MaliciousServlet extends HttpServlet {
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) {
+        // 检查运行时类型
+        System.out.println("req的实际类型：" + req.getClass().getName());
+        // 输出：com.example.Request （这就是问题所在！）
+        
+        // 因为实际类型是Request，所以可以向下转型
+        if (req instanceof Request) {  // 这个检查会通过！
+            Request realRequest = (Request) req;  // 转型成功！
+            
+            // 现在可以调用容器的内部方法了
+            realRequest.setInternalState("我被黑客修改了！");
+        }
+    }
+}
+```
+
+- 为什么转型不会报错？
+
+因为**Java的转型检查是基于运行时类型**的：
+
+```java
+Object obj = "我是字符串";      // 运行时类型是String
+String str = (String) obj;     // 转型成功，因为obj实际上是String
+
+Object obj2 = new Integer(100);
+String str2 = (String) obj2;   // 运行时报错：ClassCastException
+```
+
+在您提到的不安全代码中：
+- `req`的**编译时类型**是`ServletRequest`（接口）
+- `req`的**运行时类型**是`Request`（具体类）
+- `(Request) req`转型会成功，因为运行时类型匹配
+
+- 解决方案：使用外观模式切断这种联系
+
+```java
+// 安全版本：使用外观类
+public class RequestFacade implements ServletRequest {
+    private ServletRequest request;
+    
+    public RequestFacade(ServletRequest request) {
+        this.request = request;
+    }
+    
+    // 只委托标准方法
+    public String getParameter(String name) {
+        return request.getParameter(name);
+    }
+    // ... 其他标准方法
+}
+
+// 容器调用时改为：
+Request realRequest = new Request();
+RequestFacade facade = new RequestFacade(realRequest);  // 包装一层
+
+Servlet servlet = new MaliciousServlet();
+servlet.service(facade, response);  // 传递外观对象
+```
+
+- 现在攻击会失败：
+
+```java
+public class MaliciousServlet extends HttpServlet {
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) {
+        System.out.println("req的实际类型：" + req.getClass().getName());
+        // 输出：com.example.RequestFacade （不再是Request！）
+        
+        // 尝试转型会失败
+        if (req instanceof Request) {  // 这个检查不会通过！
+            Request realRequest = (Request) req;  // 永远不会执行到这里
+        }
+        
+        // 即使强行转型也会报错
+        try {
+            Request realRequest = (Request) req;  // ClassCastException!
+        } catch (ClassCastException e) {
+            System.out.println("转型失败！无法访问容器内部方法");
+        }
+    }
+}
+```
+- `关键理解：强转不改变对象本身`
+**在Java中，类型转换只是改变引用的类型，不改变对象的实际类型：**
+
+解决的方法便是通过外观模式进行改造：
+![9.tomcat-x-design-3.png](../../assets/images/04-主流框架/Servlet容器/9.tomcat-x-design-3.png)
+- RequestFacade为例
+```java
+public class RequestFacade implements ServletRequest {
+
+  private ServletRequest request = null;
+
+  public RequestFacade(Request request) {
+    this.request = request;
+  }
+
+  /* implementation of the ServletRequest*/
+  public Object getAttribute(String attribute) {
+    return request.getAttribute(attribute);
+  }
+
+  public Enumeration getAttributeNames() {
+    return request.getAttributeNames();
+  }
+
+  public String getRealPath(String path) {
+    return request.getRealPath(path);
+  }
+
+...
+```
+- Process中由传入外观类
+```java
+Servlet servlet = null;
+RequestFacade requestFacade = new RequestFacade(request); // 转换成外观类
+ResponseFacade responseFacade = new ResponseFacade(response);// 转换成外观类
+try {
+  servlet = (Servlet) myClass.newInstance();
+  servlet.service((ServletRequest) requestFacade, (ServletResponse) responseFacade);
+}
+catch (Exception e) {
+  System.out.println(e.toString());
+}
+catch (Throwable e) {
+  System.out.println(e.toString());
+}
+```
+## 6.3 Tomcat - 理解Tomcat架构设计
+> 前文我们已经介绍了一个简单的Servlet容器是如何设计出来，我们就可以开始正式学习Tomcat了，在学习开始，我们有必要站在高点去看看Tomcat的架构设计
+### 6.3.1 Tomcat和Catalina是什么关系？
+> Tomcat的前身为Catalina，Catalina又是一个轻量级的Servlet容器
+
+Tomcat的前身为Catalina，Catalina又是一个轻量级的Servlet容器。在美国，catalina是一个很美的小岛。所以Tomcat作者的寓意可能是想把Tomcat设计成一个优雅美丽且轻量级的web服务器。Tomcat从4.x版本开始除了作为支持Servlet的容器外，额外加入了很多的功能，比如：jsp、el、naming等等，所以说Tomcat不仅仅是Catalina。
+### 6.3.2 什么是Servlet？
+> 所谓Servlet，其实就是Sun为了让Java能实现动态可交互的网页，从而进入Web编程领域而制定的一套标准！
+
+在互联网兴起之初，当时的Sun公司（后面被Oracle收购）已然看到了这次机遇，于是设计出了Applet来对Web应用的支持。不过事实却并不是预期那么得好，Sun悲催地发现Applet并没有给业界带来多大的影响。经过反思，Sun就想既然机遇出现了，市场前景也非常不错，总不能白白放弃了呀，怎么办呢？于是又投入精力去搞一套规范出来，这时Servlet诞生了！
+
+一个Servlet主要做下面三件事情：
+
+- 创建并填充Request对象，包括：URI、参数、method、请求头信息、请求体信息等
+- 创建Response对象
+- 执行业务逻辑，将结果通过Response的输出流输出到客户端
+
+**Servlet没有main方法，所以，如果要执行，则需要在一个容器里面才能执行，这个容器就是为了支持Servlet的功能而存在，Tomcat其实就是一个Servlet容器的实现。**
+
+### 6.3.3 Tomcat 总结架构
+下图应该是网上能找的最好的关于Tomcat的架构图了， 我们来看下它的构成：
+![1.tomcat-x-design-2-1.jpeg](../../assets/images/04-主流框架/Servlet容器/1.tomcat-x-design-2-1.jpeg)
+#### 6.3.3.1 从组件的角度看
+- `Server`: 表示服务器，它提供了一种优雅的方式来启动和停止整个系统，不必单独启停连接器和容器；它是Tomcat构成的顶级构成元素，所有一切均包含在Server中；
+- `Service`: 表示服务，Server可以运行多个服务。比如一个Tomcat里面可运行订单服务、支付服务、用户服务等等；Server的实现类StandardServer可以包含一个到多个Services, Service的实现类为StandardService调用了容器(Container)接口，其实是调用了Servlet Engine(引擎)，而且StandardService类中也指明了该Service归属的Server;
+- `Container`: 表示容器，可以看做Servlet容器；引擎(Engine)、主机(Host)、上下文(Context)和Wraper均继承自Container接口，所以它们都是容器。
+    - Engine -- 引擎
+    - Host -- 主机
+    - Context -- 上下文
+    - Wrapper -- 包装器
+- `Connector`: 表示连接器, **它将Service和Container连接起来**，首先它需要注册到一个Service，它的作用就是把来自客户端的请求转发到Container(容器)，这就是它为什么称作连接器, 它支持的协议如下：
+  - 支持AJP协议
+  - 支持Http协议
+  - 支持Https协议
+- `Service内部`还有各种支撑组件，下面简单罗列一下这些组件
+  - Manager -- 管理器，用于管理会话
+  - SessionLogger -- 日志器，用于管理日志
+  - Loader -- 加载器，和类加载有关，只会开放给Context所使用
+  - Pipeline -- 管道组件，配合Valve实现过滤器功能
+  - Valve -- 阀门组件，配合Pipeline实现过滤器功能
+  - Realm -- 认证授权组件
+#### 6.3.3.2 从配置和模块对应角度
+> 上述模块的理解不是孤立的，它直接映射为Tomcat的server.xml配置，让我们联系起来看
+![10.tomcat-x-design-2-3.jpg](../../assets/images/04-主流框架/Servlet容器/10.tomcat-x-design-2-3.jpg)
+1. server.xml - **容器级配置**
+```xml
+<!-- server.xml 示例 -->
+<Server port="8005" shutdown="SHUTDOWN">
+    <Service name="Catalina">
+        <Connector port="8080" protocol="HTTP/1.1"/>
+        <Engine name="Catalina" defaultHost="localhost">
+            <Host name="localhost" appBase="webapps">
+                <Context path="/myapp" docBase="/path/to/myapp"/>
+            </Host>
+        </Engine>
+    </Service>
+</Server>
+```
+**作用范围**：整个Tomcat服务器
+**配置内容**：
+- 服务器端口、关闭命令
+- 连接器配置（HTTP、AJP等）
+- 引擎、虚拟主机设置
+- 全局资源（数据源、JNDI等）
+- 阀门（Valve）和监听器
+
+2. web.xml - **应用级配置**
+```xml
+<!-- web.xml 示例 -->
+<web-app>
+    <servlet>
+        <servlet-name>MyServlet</servlet-name>
+        <servlet-class>com.example.MyServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>MyServlet</servlet-name>
+        <url-pattern>/myservlet</url-pattern>
+    </servlet-mapping>
+    
+    <filter>
+        <filter-name>MyFilter</filter-name>
+        <filter-class>com.example.MyFilter</filter-class>
+    </filter>
+</web-app>
+```
+**作用范围**：单个Web应用
+**配置位置**：
+- `CATALINA_HOME/conf/web.xml` - 全局默认配置
+- `WEB-INF/web.xml` - 每个应用的特定配置
+#### 6.3.3.3 从一个完整请求的角度来看
+> 通过一个完整的HTTP请求，我们还需要把它贯穿起来
+
+假设来自客户的请求为：http://localhost:8080/test/index.jsp 请求被发送到本机端口8080，被在那里侦听的Coyote HTTP/1.1 Connector,然后
+- Connector把该请求交给它所在的Service的Engine来处理，并等待Engine的回应
+- Engine获得请求localhost:8080/test/index.jsp，匹配它所有虚拟主机Host
+- Engine匹配到名为localhost的Host(即使匹配不到也把请求交给该Host处理，因为该Host被定义为该Engine的默认主机)
+- localhost Host获得请求/test/index.jsp，匹配它所拥有的所有Context
+- Host匹配到路径为/test的Context(如果匹配不到就把该请求交给路径名为""的Context去处理)
+- path="/test"的Context获得请求/index.jsp，在它的mapping table中寻找对应的servlet
+- Context匹配到URL PATTERN为*.jsp的servlet，对应于JspServlet类，构造HttpServletRequest对象和HttpServletResponse对象，作为参数调用JspServlet的doGet或doPost方法
+- Context把执行完了之后的HttpServletResponse对象返回给Host
+- Host把HttpServletResponse对象返回给Engine
+- Engine把HttpServletResponse对象返回给Connector
+- Connector把HttpServletResponse对象返回给客户browser
+#### 6.3.3.4 从源码的设计角度看
+> 从功能的角度将Tomcat源代码分成5个子模块，分别是:
+- `Jsper模块`: 这个子模块负责jsp页面的解析、jsp属性的验证，同时也负责将jsp页面动态转换为java代码并编译成class文件。在Tomcat源代码中，凡是属于org.apache.jasper包及其子包中的源代码都属于这个子模块;
+- `Servlet和Jsp模块`: 这个子模块的源代码属于javax.servlet包及其子包，如我们非常熟悉的javax.servlet.Servlet接口、javax.servet.http.HttpServlet类及javax.servlet.jsp.HttpJspPage就位于这个子模块中;
+- `Catalina模块`: 这个子模块包含了所有以org.apache.catalina开头的java源代码。该子模块的任务是规范了Tomcat的总体架构，定义了Server、Service、Host、Connector、Context、Session及Cluster等关键组件及这些组件的实现，**这个子模块大量运用了Composite（组合）设计模式**。同时也规范了Catalina的启动及停止等事件的执行流程。从代码阅读的角度看，这个子模块应该是我们阅读和学习的重点。
+- `Connector模块`: 如果说上面三个子模块实现了Tomcat应用服务器的话，那么这个子模块就是Web服务器的实现。所谓连接器(Connector)就是一个连接客户和应用服务器的桥梁，它接收用户的请求，并把用户请求包装成标准的Http请求(包含协议名称，请求头Head，请求方法是Get还是Post等等)。同时，这个子模块还按照标准的Http协议，负责给客户端发送响应页面，比如在请求页面未发现时，connector就会给客户端浏览器发送标准的Http 404错误响应页面。
+- `Resource模块`: 这个子模块包含一些资源文件，如Server.xml及Web.xml配置文件。严格说来，这个子模块不包含java源代码，但是它还是Tomcat编译运行所必需的。
+#### 6.3.3.5 从后续深入理解的角度
+- 基于组件的架构
+
+我们知道组成Tomcat的是各种各样的组件，每个组件各司其职，组件与组件之间有明确的职责划分，同时组件与组件之间又通过一定的联系相互通信。Tomcat整体就是一个个组件的堆砌！
+- 基于JMX
+
+我们在后续阅读Tomcat源码的时候，会发现代码里充斥着大量的类似于下面的代码。
+```java
+Registry.getRegistry(null, null).invoke(mbeans, "init", false);
+Registry.getRegistry(null, null).invoke(mbeans, "start", false);
+```
+而这实际上就是通过JMX来管理相应对象的代码。这儿我们不会详细讲述什么是JMX，我们只是简单地说明一下JMX的概念，参考JMX百度百科。
+> JMX（Java Management Extensions，即Java管理扩展）是一个为应用程序、设备、系统等植入管理功能的框架。JMX可以跨越一系列异构操作系统平台、系统体系结构和网络传输协议，灵活的开发无缝集成的系统、网络和服务管理应用。
+- 基于生命周期
+
+如果我们查阅各个组件的源代码，会发现绝大多数组件实现了Lifecycle接口，这也就是我们所说的基于生命周期。生命周期的各个阶段的触发又是基于事件的方式。
+
+### 补充
+#### 1.Composite（组合）设计模式
+
+##### 核心思想
+
+Composite模式的核心思想是：**将对象组合成树形结构以表示“部分-整体”的层次结构。它使得用户对单个对象和组合对象的使用具有一致性。**
+
+简单来说，就是**用相同的方式处理单个对象和由多个对象组成的组合对象**。
+
+---
+
+##### 一个生动的比喻：文件系统
+
+要理解Composite模式，最好的例子就是计算机的**文件系统**：
+
+- **单个对象**：**文件（File）**。它是树结构中的**叶子节点（Leaf）**，不能再包含其他东西。
+- **组合对象**：**文件夹（Directory）**。它是树结构中的**树枝节点（Composite）**，里面可以包含文件（叶子），也可以包含其他文件夹（树枝），从而形成树形结构。
+- **一致性操作**：无论是文件还是文件夹，你都可以执行一些共同的操作，比如：
+    - `getSize()`：获取大小（文件返回自身大小，文件夹递归返回内部所有内容的大小之和）。
+    - `open()` / `doubleClick()`：打开（文件是打开内容，文件夹是展开列表）。
+    - `delete()`：删除。
+
+对你来说，你不需要关心你操作的是文件还是文件夹，你只需要执行“打开”或“获取大小”这个命令即可。这就是Composite模式带来的巨大好处。
+
+---
+
+##### 模式的三大角色
+
+Composite模式通常包含三个关键角色，我们用文件系统的例子来对应：
+
+1.  **组件（Component）接口**
+    - 这是整个模式的核心。它定义了叶子节点和树枝节点的**共同接口**（即共同的操作方法）。
+    - **对应例子**：定义一个 `FileSystemNode` 接口，里面有 `getSize()`, `print()` 等方法。
+
+2.  **叶子（Leaf）类**
+    - 表示树结构中的末端节点（没有子节点）。它实现了组件接口。
+    - **对应例子**：`File` 类，实现 `FileSystemNode` 接口。它的 `getSize()` 返回自己的大小，`print()` 打印自己的文件名。
+
+3.  **复合（Composite）类**
+    - 表示有子节点的复杂组件。它包含一个子组件（可以是Leaf，也可以是另一个Composite）的集合，并实现了在组件接口中定义的方法。这些方法通常会委托给它的子组件去执行（比如递归调用）。
+    - **对应例子**：`Directory` 类，实现 `FileSystemNode` 接口。它内部有一个 `List<FileSystemNode>` 来存放文件和子文件夹。它的 `getSize()` 会遍历所有子节点，将它们的 `getSize()` 结果相加。
+
+---
+
+##### 代码示例
+
+下面我们用Java代码来实现上面提到的文件系统例子。
+
+```java
+import java.util.ArrayList;
+import java.util.List;
+
+// 1. 组件接口
+interface FileSystemNode {
+    String getName();
+    long getSize();
+    void print(String indent);
+}
+
+// 2. 叶子节点 - 文件
+class File implements FileSystemNode {
+    private String name;
+    private long size;
+
+    public File(String name, long size) {
+        this.name = name;
+        this.size = size;
+    }
+
+    @Override
+    public String getName() {
+        return name;
+    }
+
+    @Override
+    public long getSize() {
+        return size; // 文件直接返回自身大小
+    }
+
+    @Override
+    public void print(String indent) {
+        System.out.println(indent + "📄 " + name + " (" + size + " bytes)");
+    }
+}
+
+// 3. 复合节点 - 文件夹
+class Directory implements FileSystemNode {
+    private String name;
+    private List<FileSystemNode> children = new ArrayList<>();
+
+    public Directory(String name) {
+        this.name = name;
+    }
+
+    // 关键方法：向文件夹中添加节点（文件或子文件夹）
+    public void add(FileSystemNode node) {
+        children.add(node);
+    }
+
+    // 关键方法：从文件夹中移除节点
+    public void remove(FileSystemNode node) {
+        children.remove(node);
+    }
+
+    @Override
+    public String getName() {
+        return name;
+    }
+
+    @Override
+    public long getSize() {
+        long totalSize = 0;
+        // 核心：递归计算所有子节点的大小之和
+        for (FileSystemNode child : children) {
+            totalSize += child.getSize();
+        }
+        return totalSize;
+    }
+
+    @Override
+    public void print(String indent) {
+        System.out.println(indent + "📁 " + name + "/");
+        // 核心：递归打印所有子节点，并增加缩进以示层次
+        String newIndent = indent + "    ";
+        for (FileSystemNode child : children) {
+            child.print(newIndent);
+        }
+    }
+}
+
+// 4. 客户端使用
+public class CompositeDemo {
+    public static void main(String[] args) {
+        // 创建文件
+        File file1 = new File("readme.txt", 1024);
+        File file2 = new File("image.png", 204800);
+        File file3 = new File("script.py", 5120);
+
+        // 创建子文件夹和根文件夹
+        Directory subDir = new Directory("Documents");
+        Directory rootDir = new Directory("MyComputer");
+
+        // 构建树形结构
+        subDir.add(file1);
+        subDir.add(file2);
+
+        rootDir.add(subDir);
+        rootDir.add(file3);
+
+        // 客户端统一对待所有节点，无需判断是文件还是文件夹
+        System.out.println("=== 打印结构 ===");
+        rootDir.print(""); // 根目录缩进为空
+
+        System.out.println("\n=== 计算总大小 ===");
+        System.out.println("Total size of '" + rootDir.getName() + "': " + rootDir.getSize() + " bytes");
+
+        // 也可以单独操作子文件夹
+        System.out.println("\n=== 子文件夹信息 ===");
+        System.out.println("Size of '" + subDir.getName() "': " + subDir.getSize() + " bytes");
+    }
+}
+```
+
+**输出结果：**
+```
+=== 打印结构 ===
+📁 MyComputer/
+    📁 Documents/
+        📄 readme.txt (1024 bytes)
+        📄 image.png (204800 bytes)
+    📄 script.py (5120 bytes)
+
+=== 计算总大小 ===
+Total size of 'MyComputer': 210944 bytes
+
+=== 子文件夹信息 ===
+Size of 'Documents': 205824 bytes
+```
+
+---
+
+##### 优点
+
+1.  **简化客户端代码**：客户端可以一致地处理单个对象和组合对象，无需关心自己处理的是何种对象，大大简化了代码。
+2.  **易于增加新类型的组件**：要增加一个新的节点类型（比如“快捷方式”），只需要实现组件接口即可，符合“开闭原则”。
+3.  **可以递归组合**：可以构建出非常复杂的树形结构。
+
+##### 缺点
+
+1.  **设计抽象性高**：要求过度抽象化。让组合节点和叶子节点具有完全一致的接口有时会很困难，因为有些操作对叶子节点可能没有意义（比如给一个“文件”添加子节点）。需要在叶子节点的相关方法中做特殊处理（如抛出异常）。
+
+##### 实际应用场景
+
+-   **GUI开发中的容器和组件**：例如，一个 `Window`（复合）可以包含 `Button`（叶子）、`TextField`（叶子），也可以包含另一个 `Panel`（复合）。
+-   **菜单系统**：菜单（复合）可以包含菜单项（叶子），也可以包含子菜单（复合）。
+-   **公司组织架构**：部门（复合）由员工（叶子）和子部门（复合）组成。
+-   **任何树形数据结构**：如XML/HTML文档解析、表达式解析（表达式由子表达式和操作数组成）。
+
+##### 总结
+
+**Composite模式通过将部分与整体的关系用树形结构表示，并提供一致的操作接口，使得客户端代码能够以统一的方式处理简单元素和复杂元素。** 当你发现业务模型中存在明显的“部分-整体”层次关系，并且你希望忽略层次差异统一对待时，就应该考虑使用Composite模式。
+
+#### 2. JMX（Java Management Extensions，Java管理扩展）
+
+##### 什么是 JMX？
+
+**JMX** 是 Java 管理扩展的缩写，它提供了一个标准的方式来**监控和管理 Java 应用程序、系统对象、设备和服务**。简单来说，JMX 就是 Java 平台的**管理和监控框架**。
+
+##### 核心思想
+JMX 的核心思想是：**将应用程序的管理功能封装成标准的 MBean（管理 Bean），然后通过统一的接口来访问和操作这些管理功能。**
+
+---
+
+##### 为什么需要 JMX？
+
+想象一下这样的场景：
+- 你的线上服务运行中，你想**动态修改日志级别**而不重启服务
+- 你想**实时查看线程池状态**、数据库连接池使用情况
+- 你想**动态调整缓存大小**、开关某些功能
+- 你想**监控应用性能指标**（QPS、响应时间等）
+
+**传统做法**：需要写很多监控接口，或者重启应用。
+**JMX 做法**：通过标准的管理工具（如 JConsole）直接操作，无需额外开发。
+
+---
+
+##### JMX 的三层架构
+
+JMX 架构分为三个层次：
+
+###### 1. **Instrumentation Level（ instrumentation 层）**
+- **核心**：**MBean（Managed Bean）**
+- 作用：将资源（如应用组件）包装成可管理的对象
+- 包含：Standard MBean、Dynamic MBean、Open MBean、Model MBean
+
+###### 2. **Agent Level（代理层）**
+- **核心**：**MBeanServer**
+- 作用：MBean 的注册中心和操作中介
+- 包含：MBeanServer、Agent Services
+
+###### 3. **Remote Management Level（远程管理层）**
+- **核心**：**Connectors 和 Adaptors**
+- 作用：提供远程访问能力
+- 例如：RMI Connector、HTML Adaptor
+
+---
+
+##### 核心概念详解
+
+###### 1. **MBean（管理 Bean）**
+
+MBean 是 JMX 的核心，代表一个可管理的资源。有几种类型：
+
+###### **Standard MBean（最常用）**
+```java
+// 1. 定义 MBean 接口（命名规范：类名 + MBean）
+public interface CalculatorMBean {
+    // 属性（可读可写）
+    void setMemory(int memory);
+    int getMemory();
+    
+    // 操作（方法）
+    int add(int a, int b);
+    String getStatus();
+}
+
+// 2. 实现 MBean 接口
+public class Calculator implements CalculatorMBean {
+    private int memory = 0;
+    
+    @Override
+    public void setMemory(int memory) {
+        this.memory = memory;
+    }
+    
+    @Override
+    public int getMemory() {
+        return memory;
+    }
+    
+    @Override
+    public int add(int a, int b) {
+        return a + b;
+    }
+    
+    @Override
+    public String getStatus() {
+        return "Running, memory: " + memory;
+    }
+}
+```
+
+###### **MXBean（推荐使用）**
+```java
+// MXBean 接口（命名规范：类名 + MXBean）
+public interface SystemConfigMXBean {
+    int getThreadCount();
+    void setThreadCount(int count);
+    String getSchemaName();
+}
+
+// 实现类
+public class SystemConfig implements SystemConfigMXBean {
+    private int threadCount = 100;
+    private String schemaName = "default";
+    
+    @Override
+    public int getThreadCount() { return threadCount; }
+    
+    @Override
+    public void setThreadCount(int count) { 
+        this.threadCount = count; 
+    }
+    
+    @Override
+    public String getSchemaName() { return schemaName; }
+}
+```
+
+**MXBean 的优势**：更好的兼容性，支持复杂类型。
+
+###### 2. **MBeanServer（MBean 服务器）**
+
+MBeanServer 是 MBean 的注册中心和操作入口：
+
+```java
+import javax.management.*;
+import java.lang.management.ManagementFactory;
+
+public class JMXDemo {
+    public static void main(String[] args) throws Exception {
+        // 获取 MBeanServer
+        MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+        
+        // 创建 ObjectName（唯一标识 MBean）
+        ObjectName name = new ObjectName("com.example:type=SystemConfig");
+        
+        // 创建 MBean 实例并注册
+        SystemConfig mbean = new SystemConfig();
+        mbs.registerMBean(mbean, name);
+        
+        // 保持程序运行，以便通过管理工具连接
+        System.out.println("JMX Server started...");
+        Thread.sleep(Long.MAX_VALUE);
+    }
+}
+```
+
+---
+
+##### 实际应用示例：数据库连接池监控
+
+让我们看一个更实际的例子：
+
+```java
+import javax.management.*;
+import java.lang.management.ManagementFactory;
+import java.util.concurrent.atomic.AtomicInteger;
+
+// MXBean 接口
+public interface ConnectionPoolMXBean {
+    int getActiveConnections();
+    int getIdleConnections();
+    int getMaxPoolSize();
+    void setMaxPoolSize(int size);
+    double getUsagePercentage();
+    void resetStatistics();
+}
+
+// 连接池实现（简化版）
+public class ConnectionPool implements ConnectionPoolMXBean {
+    private final AtomicInteger activeConnections = new AtomicInteger(0);
+    private final AtomicInteger idleConnections = new AtomicInteger(10);
+    private volatile int maxPoolSize = 100;
+    
+    @Override
+    public int getActiveConnections() {
+        return activeConnections.get();
+    }
+    
+    @Override
+    public int getIdleConnections() {
+        return idleConnections.get();
+    }
+    
+    @Override
+    public int getMaxPoolSize() {
+        return maxPoolSize;
+    }
+    
+    @Override
+    public void setMaxPoolSize(int size) {
+        if (size > 0) {
+            this.maxPoolSize = size;
+            System.out.println("Max pool size changed to: " + size);
+        }
+    }
+    
+    @Override
+    public double getUsagePercentage() {
+        return (double) activeConnections.get() / maxPoolSize * 100;
+    }
+    
+    @Override
+    public void resetStatistics() {
+        activeConnections.set(0);
+        System.out.println("Statistics reset");
+    }
+    
+    // 模拟业务方法
+    public void getConnection() {
+        if (activeConnections.get() < maxPoolSize) {
+            activeConnections.incrementAndGet();
+            idleConnections.decrementAndGet();
+        }
+    }
+    
+    public void releaseConnection() {
+        activeConnections.decrementAndGet();
+        idleConnections.incrementAndGet();
+    }
+}
+
+// 启动 JMX 服务
+public class ConnectionPoolJMXServer {
+    public static void main(String[] args) throws Exception {
+        MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+        
+        // 注册连接池 MBean
+        ConnectionPool pool = new ConnectionPool();
+        ObjectName poolName = new ObjectName("com.example:type=ConnectionPool,name=DatabasePool");
+        mbs.registerMBean(pool, poolName);
+        
+        System.out.println("ConnectionPool JMX MBean registered!");
+        System.out.println("Connect with JConsole to manage the connection pool");
+        
+        // 模拟使用
+        while (true) {
+            pool.getConnection();
+            Thread.sleep(1000);
+            pool.releaseConnection();
+            Thread.sleep(1000);
+        }
+    }
+}
+```
+
+---
+
+##### 如何使用 JMX 管理工具
+
+###### 1. **JConsole（Java 自带）**
+```bash
+# 启动应用时开启 JMX
+java -Dcom.sun.management.jmxremote \
+     -Dcom.sun.management.jmxremote.port=9999 \
+     -Dcom.sun.management.jmxremote.authenticate=false \
+     -Dcom.sun.management.jmxremote.ssl=false \
+     YourApplication
+
+# 然后运行 jconsole 连接 localhost:9999
+jconsole
+```
+
+###### 2. **JVisualVM（更强大）**
+```bash
+jvisualvm
+```
+
+###### 3. **通过代码访问**
+```java
+import javax.management.*;
+import javax.management.remote.JMXConnector;
+import javax.management.remote.JMXConnectorFactory;
+import javax.management.remote.JMXServiceURL;
+
+public class JMXClient {
+    public static void main(String[] args) throws Exception {
+        // 连接 JMX 服务
+        JMXServiceURL url = new JMXServiceURL(
+            "service:jmx:rmi:///jndi/rmi://localhost:9999/jmxrmi");
+        JMXConnector connector = JMXConnectorFactory.connect(url);
+        MBeanServerConnection connection = connector.getMBeanServerConnection();
+        
+        // 访问 MBean
+        ObjectName name = new ObjectName("com.example:type=ConnectionPool,name=DatabasePool");
+        
+        // 获取属性
+        Integer activeConnections = (Integer) connection.getAttribute(name, "ActiveConnections");
+        System.out.println("Active connections: " + activeConnections);
+        
+        // 调用操作
+        connection.invoke(name, "resetStatistics", null, null);
+        
+        connector.close();
+    }
+}
+```
+
+---
+
+##### Spring Boot 中的 JMX
+
+Spring Boot 自动配置了 JMX 支持：
+
+```java
+@Component
+@ManagedResource(objectName = "com.example:type=BusinessMetrics")
+public class BusinessMetrics {
+    private final AtomicInteger requestCount = new AtomicInteger(0);
+    
+    @ManagedAttribute(description = "Total request count")
+    public int getRequestCount() {
+        return requestCount.get();
+    }
+    
+    @ManagedOperation(description = "Reset counters")
+    public void reset() {
+        requestCount.set(0);
+    }
+    
+    public void incrementRequest() {
+        requestCount.incrementAndGet();
+    }
+}
+```
+
+在 `application.properties` 中配置：
+```properties
+# 启用 JMX
+spring.jmx.enabled=true
+# JMX 域名
+spring.jmx.default-domain=myapp
+```
+
+---
+
+##### JMX 的优势和应用场景
+
+###### 优势：
+1. **标准化**：Java 平台标准，工具生态丰富
+2. **动态性**：运行时修改配置，无需重启
+3. **远程管理**：支持远程监控和操作
+4. **集成性好**：与各种监控系统集成
+
+###### 典型应用场景：
+- **应用服务器监控**（Tomcat、WebLogic 等）
+- **中间件管理**（缓存、消息队列）
+- **性能监控**（线程池、连接池、内存使用）
+- **动态配置**（日志级别、功能开关）
+- **业务指标监控**（QPS、错误率等）
+
+---
+
+##### 总结
+
+**JMX 是 Java 平台的标准化管理和监控框架**，它通过：
+
+1. **MBean** 将资源包装成可管理对象
+2. **MBeanServer** 提供统一的注册和操作中心  
+3. **Connector/Adaptor** 支持远程访问
+
+**核心价值**：让应用程序的监控和管理变得标准化、动态化和可视化。
+
+在实际开发中，JMX 是构建可观测系统的重要工具，特别适合需要运行时管理和监控的企业级应用。
+
+您可以把 JMX 架构想象成一个 **“标准化的管理插座”**：
+
+- **您的应用**：提供了一个**标准插座（MBeanServer + MBean）**
+- **各种管理工具**：都带有**标准插头（JMX 客户端）**
+
+只要插座符合规范，任何带标准插头的电器（工具）都能即插即用。
+
+---
+
+- 外部工具如何“即插即用”
+
+1. **自动发现和连接**
+当您启动应用并开启 JMX 远程访问后（例如使用 `-Dcom.sun.management.jmxremote` 参数），支持 JMX 的工具只需要知道应用的 **主机名** 和 **JMX 端口**，就能自动：
+- **发现**所有已注册的 MBean
+- **读取**它们的属性（getter 方法）
+- **展示**操作方法（非 getter/setter 的方法）
+- **动态调用**这些操作
+
+2. **统一的展示界面**
+工具会根据 MBean 的元数据自动生成管理界面：
+
+- **属性面板**：自动将 `getXXX()` 方法识别为可读属性，将 `setXXX()` 方法识别为可写属性
+- **操作按钮**：将其他公共方法显示为可执行的操作按钮
+- **类型识别**：自动处理基本类型、集合、复合对象等
+
+3. **实时监控和交互**
+- **实时读取**：工具可以定期轮询属性值，显示实时曲线图
+- **动态修改**：用户可以在界面中直接修改属性值（触发 setter 方法）
+- **即时操作**：点击按钮即可调用 MBean 的方法
+
+- 具体工具演示
+
+ **JConsole（Java 自带）**
+当您用 JConsole 连接后，它会自动展示：
+
+1. **MBean 标签页** → 按域名组织所有 MBean
+2. **选择您的 MBean**（如 `com.example:type=ConnectionPool`） →
+   - **属性**：显示 `ActiveConnections`, `IdleConnections`, `MaxPoolSize` 等，可编辑的会有输入框
+   - **操作**：显示 `resetStatistics()` 等方法，点击即可执行
+
+ **JVisualVM（安装 MBean 插件后）**
+提供更丰富的界面：
+- **图表展示**：属性值随时间变化的曲线图
+- **操作日志**：记录所有的属性修改和方法调用
+- **更友好的界面**：表格形式展示属性，大按钮执行操作
+
+**专业监控系统**
+如 **Prometheus + JMX Exporter**：
+```yaml
+# jmx_exporter 配置文件
+rules:
+- pattern: "com.example:type=ConnectionPool,name=DatabasePool"
+  name: "connection_pool_$1"
+  attributes:
+    ActiveConnections: 
+      alias: "active_connections"
+      type: "gauge"
+    MaxPoolSize:
+      alias: "max_pool_size" 
+      type: "gauge"
+```
+
+这样就能将 JMX 数据自动转换为 Prometheus 指标，在 Grafana 中展示漂亮的监控面板。
+## 6.4 Tomcat - 源码分析准备和分析入口
+### 6.4.1 源代码下载和编译
+首先是去官网下载Tomcat的源代码和二进制安装包，我这里分析最新的<a href = 'https://tomcat.apache.org/download-90.cgi'>Tomcat9.0.39稳定版本</a>
+### 6.4.2 下载二进制包和源码
+> 下载二进制包的主要目的在于，让我们回顾一下包中的内容；其次，在我们后面通过源码包编译后，以方便和二进制包进行对比。
+- 下载两个包
+![11.tomcat-x-sourcecode-2.png](../../assets/images/04-主流框架/Servlet容器/11.tomcat-x-sourcecode-2.png)
+- 查看二进制包中主要模块
+![12.tomcat-x-sourcecode-3.png](../../assets/images/04-主流框架/Servlet容器/12.tomcat-x-sourcecode-3.png)
+### 6.4.3 编译源码
+- 导入IDEA
+![13.tomcat-x-sourcecode-4.png](../../assets/images/04-主流框架/Servlet容器/13.tomcat-x-sourcecode-4.png)
+- 使用ant编译
+![14.tomcat-x-sourcecode-1.png](../../assets/images/04-主流框架/Servlet容器/14.tomcat-x-sourcecode-1.png)
+
+### 6.4.4 理解编译后模块
+> 这里有两点要注意下：第一：在编译完之后，编译输出到哪里了呢？第二：编译后的结果是不是和我们下载的二进制文件对的上呢？
+- 编译的输出在哪里
+![15.tomcat-x-sourcecode-5.png](../../assets/images/04-主流框架/Servlet容器/15.tomcat-x-sourcecode-5.png)
+- 编译的输出结果是否对的上，很显然和上面的二进制包一致
+![16.tomcat-x-sourcecode-6.png](../../assets/images/04-主流框架/Servlet容器/16.tomcat-x-sourcecode-6.png)
+### 6.4.5 从启动脚本定位Tomcat源码入口
+#### 6.4.5.1 startup.bat
+> 当我们初学tomcat的时候, 肯定先要学习怎样启动tomcat. 在tomcat的bin目录下有两个启动tomcat的文件, 一个是startup.bat, 它用于windows环境下启动tomcat; 另一个是startup.sh, 它用于linux环境下tomcat的启动. 两个文件中的逻辑是一样的, 我们只分析其中的startup.bat.
+- startup.bat的源码: **startup.bat文件实际上就做了一件事情: 启动catalina.bat.**
+```sh
+@echo off
+rem Licensed to the Apache Software Foundation (ASF) under one or more
+rem contributor license agreements.  See the NOTICE file distributed with
+rem this work for additional information regarding copyright ownership.
+rem The ASF licenses this file to You under the Apache License, Version 2.0
+rem (the "License"); you may not use this file except in compliance with
+rem the License.  You may obtain a copy of the License at
+rem
+rem     http://www.apache.org/licenses/LICENSE-2.0
+rem
+rem Unless required by applicable law or agreed to in writing, software
+rem distributed under the License is distributed on an "AS IS" BASIS,
+rem WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+rem See the License for the specific language governing permissions and
+rem limitations under the License.
+
+rem ---------------------------------------------------------------------------
+rem Start script for the CATALINA Server
+rem ---------------------------------------------------------------------------
+
+setlocal
+
+rem Guess CATALINA_HOME if not defined
+set "CURRENT_DIR=%cd%"
+if not "%CATALINA_HOME%" == "" goto gotHome
+set "CATALINA_HOME=%CURRENT_DIR%"
+if exist "%CATALINA_HOME%\bin\catalina.bat" goto okHome
+cd ..
+set "CATALINA_HOME=%cd%"
+cd "%CURRENT_DIR%"
+:gotHome
+if exist "%CATALINA_HOME%\bin\catalina.bat" goto okHome
+echo The CATALINA_HOME environment variable is not defined correctly
+echo This environment variable is needed to run this program
+goto end
+:okHome
+
+set "EXECUTABLE=%CATALINA_HOME%\bin\catalina.bat"
+
+rem Check that target executable exists
+if exist "%EXECUTABLE%" goto okExec
+echo Cannot find "%EXECUTABLE%"
+echo This file is needed to run this program
+goto end
+:okExec
+
+rem Get remaining unshifted command line arguments and save them in the
+set CMD_LINE_ARGS=
+:setArgs
+if ""%1""=="""" goto doneSetArgs
+set CMD_LINE_ARGS=%CMD_LINE_ARGS% %1
+shift
+goto setArgs
+:doneSetArgs
+
+call "%EXECUTABLE%" start %CMD_LINE_ARGS%
+
+:end
+```
+- 当然如果你感兴趣，不妨也可以看下上面脚本的含义
+  - .bat文件中@echo是打印指令, 用于控制台输出信息, rem是注释符.
+  - 跳过开头的注释, 我们来到配置CATALINA_HOME的代码段, 执行startup.bat文件首先会设置CATALINA_HOME.
+    ```sh
+    set "CURRENT_DIR=%cd%"
+    if not "%CATALINA_HOME%" == "" goto gotHome
+    set "CATALINA_HOME=%CURRENT_DIR%"
+    if exist "%CATALINA_HOME%\bin\catalina.bat" goto okHome
+    cd ..
+    set "CATALINA_HOME=%cd%"
+    cd "%CURRENT_DIR%"
+    :gotHome
+    if exist "%CATALINA_HOME%\bin\catalina.bat" goto okHome
+    echo The CATALINA_HOME environment variable is not defined correctly
+    echo This environment variable is needed to run this program
+    goto end
+    :okHome
+    ```
+  - 先通过set指令把当前目录设置到一个名为CURRENT_DIR的变量中,
+  - 如果系统中配置过CATALINA_HOME则跳到gotHome代码段. 正常情况下我们的电脑都没有配置CATALINA_HOME, 所以往下执行, 把当前目录设置为CATALINA_HOME.
+  - 然后判断CATALINA_HOME目录下是否存在catalina.bat文件, 如果存在就跳到okHome代码块.
+  - 在okHome中, 会把catalina.bat文件的的路径赋给一个叫EXECUTABLE的变量, 然后会进一步判断这个路径是否存在, 存在则跳转到okExec代码块, 不存在的话会在控制台输出一些错误信息.
+  - 在okExec中, 会把setArgs代码块的返回结果赋值给CMD_LINE_ARGS变量, 这个变量用于存储启动参数.
+  - setArgs中首先会判断是否有参数, (if ""%1""==""""判断第一个参数是否为空), 如果没有参数则相当于参数项为空. 如果有参数则循环遍历所有的参数(每次拼接第一个参数).
+  - 最后执行call "%EXECUTABLE%" start %CMD_LINE_ARGS%, 也就是说执行catalina.bat文件, 如果有参数则带上参数.
+> 这样看来, 在windows下启动tomcat未必一定要通过startup.bat, 用catalina.bat start也是可以的.
+#### 6.4.5.2 catalina.bat
+- 跳过开头的注释, 我们来到下面的代码段:
+```sh
+setlocal
+
+rem Suppress Terminate batch job on CTRL+C
+if not ""%1"" == ""run"" goto mainEntry
+if "%TEMP%" == "" goto mainEntry
+if exist "%TEMP%\%~nx0.run" goto mainEntry
+echo Y>"%TEMP%\%~nx0.run"
+if not exist "%TEMP%\%~nx0.run" goto mainEntry
+echo Y>"%TEMP%\%~nx0.Y"
+call "%~f0" %* <"%TEMP%\%~nx0.Y"
+rem Use provided errorlevel
+set RETVAL=%ERRORLEVEL%
+del /Q "%TEMP%\%~nx0.Y" >NUL 2>&1
+exit /B %RETVAL%
+:mainEntry
+del /Q "%TEMP%\%~nx0.run" >NUL 2>&1
+```
+- 大多情况下我们启动tomcat都没有设置参数, 所以直接跳到mainEntry代码段, 删除了一个临时文件后, 继续往下执行.
+```sh
+rem Guess CATALINA_HOME if not defined
+set "CURRENT_DIR=%cd%"
+if not "%CATALINA_HOME%" == "" goto gotHome
+set "CATALINA_HOME=%CURRENT_DIR%"
+if exist "%CATALINA_HOME%\bin\catalina.bat" goto okHome
+cd ..
+set "CATALINA_HOME=%cd%"
+cd "%CURRENT_DIR%"
+:gotHome
+
+if exist "%CATALINA_HOME%\bin\catalina.bat" goto okHome
+echo The CATALINA_HOME environment variable is not defined correctly
+echo This environment variable is needed to run this program
+goto end
+:okHome
+
+rem Copy CATALINA_BASE from CATALINA_HOME if not defined
+if not "%CATALINA_BASE%" == "" goto gotBase
+set "CATALINA_BASE=%CATALINA_HOME%"
+```
+- 可以看到这段代码与startup.bat中开头的代码相似, 在确定CATALINA_HOME下有catalina.bat后把CATALINA_HOME赋给变量CATALINA_BASE.
+```sh
+rem Get standard environment variables
+if not exist "%CATALINA_BASE%\bin\setenv.bat" goto checkSetenvHome
+call "%CATALINA_BASE%\bin\setenv.bat"
+goto setenvDone
+:checkSetenvHome
+if exist "%CATALINA_HOME%\bin\setenv.bat" call "%CATALINA_HOME%\bin\setenv.bat"
+:setenvDone
+
+rem Get standard Java environment variables
+if exist "%CATALINA_HOME%\bin\setclasspath.bat" goto okSetclasspath
+echo Cannot find "%CATALINA_HOME%\bin\setclasspath.bat"
+echo This file is needed to run this program
+goto end
+:okSetclasspath
+call "%CATALINA_HOME%\bin\setclasspath.bat" %1
+if errorlevel 1 goto end
+
+rem Add on extra jar file to CLASSPATH
+rem Note that there are no quotes as we do not want to introduce random
+rem quotes into the CLASSPATH
+if "%CLASSPATH%" == "" goto emptyClasspath
+set "CLASSPATH=%CLASSPATH%;"
+:emptyClasspath
+set "CLASSPATH=%CLASSPATH%%CATALINA_HOME%\bin\bootstrap.jar"
+```
+> 上面这段代码依次执行了setenv.bat和setclasspath.bat文件, 目的是获得CLASSPATH, 相信会Java的同学应该都会在配置环境变量时都配置过classpath, 系统拿到classpath路径后把它和CATALINA_HOME拼接在一起, 最终定位到一个叫bootstrap.jar的文件. 虽然后面还有很多代码, 但是这里必须暂停提示一下: bootstrap.jar将是我们启动tomcat的环境.
+- 接下来从gotTmpdir代码块到noEndorsedVar代码块进行了一些配置, 由于不是主要内容暂且跳过.
+```sh
+echo Using CATALINA_BASE:   "%CATALINA_BASE%"
+echo Using CATALINA_HOME:   "%CATALINA_HOME%"
+echo Using CATALINA_TMPDIR: "%CATALINA_TMPDIR%"
+if ""%1"" == ""debug"" goto use_jdk
+echo Using JRE_HOME:        "%JRE_HOME%"
+goto java_dir_displayed
+:use_jdk
+echo Using JAVA_HOME:       "%JAVA_HOME%"
+:java_dir_displayed
+echo Using CLASSPATH:       "%CLASSPATH%"
+
+set _EXECJAVA=%_RUNJAVA%
+set MAINCLASS=org.apache.catalina.startup.Bootstrap
+set ACTION=start
+set SECURITY_POLICY_FILE=
+set DEBUG_OPTS=
+set JPDA=
+
+if not ""%1"" == ""jpda"" goto noJpda
+set JPDA=jpda
+if not "%JPDA_TRANSPORT%" == "" goto gotJpdaTransport
+set JPDA_TRANSPORT=dt_socket
+:gotJpdaTransport
+if not "%JPDA_ADDRESS%" == "" goto gotJpdaAddress
+set JPDA_ADDRESS=8000
+:gotJpdaAddress
+if not "%JPDA_SUSPEND%" == "" goto gotJpdaSuspend
+set JPDA_SUSPEND=n
+:gotJpdaSuspend
+if not "%JPDA_OPTS%" == "" goto gotJpdaOpts
+set JPDA_OPTS=-agentlib:jdwp=transport=%JPDA_TRANSPORT%,address=%JPDA_ADDRESS%,server=y,suspend=%JPDA_SUSPEND%
+:gotJpdaOpts
+shift
+:noJpda
+
+if ""%1"" == ""debug"" goto doDebug
+if ""%1"" == ""run"" goto doRun
+if ""%1"" == ""start"" goto doStart
+if ""%1"" == ""stop"" goto doStop
+if ""%1"" == ""configtest"" goto doConfigTest
+if ""%1"" == ""version"" goto doVersion
+```
+- 接下来, 我们能看到一些重要的信息, 其中的重点是:
+```sh
+set _EXECJAVA=%_RUNJAVA%, 设置了jdk中bin目录下的java.exe文件路径.
+set MAINCLASS=org.apache.catalina.startup.Bootstrap, 设置了tomcat的启动类为Bootstrap这个类. (后面会分析这个类)
+set ACTION=start设置tomcat启动
+```
+> 大家可以留意这些参数, 最后执行tomcat的启动时会用到.
+
+```sh
+if not ""%1"" == ""jpda"" goto noJpda
+set JPDA=jpda
+if not "%JPDA_TRANSPORT%" == "" goto gotJpdaTransport
+set JPDA_TRANSPORT=dt_socket
+:gotJpdaTransport
+if not "%JPDA_ADDRESS%" == "" goto gotJpdaAddress
+set JPDA_ADDRESS=8000
+:gotJpdaAddress
+if not "%JPDA_SUSPEND%" == "" goto gotJpdaSuspend
+set JPDA_SUSPEND=n
+:gotJpdaSuspend
+if not "%JPDA_OPTS%" == "" goto gotJpdaOpts
+set JPDA_OPTS=-agentlib:jdwp=transport=%JPDA_TRANSPORT%,address=%JPDA_ADDRESS%,server=y,suspend=%JPDA_SUSPEND%
+:gotJpdaOpts
+shift
+:noJpda
+
+if ""%1"" == ""debug"" goto doDebug
+if ""%1"" == ""run"" goto doRun
+if ""%1"" == ""start"" goto doStart
+if ""%1"" == ""stop"" goto doStop
+if ""%1"" == ""configtest"" goto doConfigTest
+if ""%1"" == ""version"" goto doVersion
+```
+- 接着判断第一个参数是否是jpda, 是则进行一些设定. 而正常情况下第一个参数是start, 所以跳过这段代码. 接着会判断第一个参数的内容, 根据判断, 我们会跳到doStart代码段. (有余力的同学不妨看下debug, run等启动方式)
+```sh
+:doStart
+shift
+if "%TITLE%" == "" set TITLE=Tomcat
+set _EXECJAVA=start "%TITLE%" %_RUNJAVA%
+if not ""%1"" == ""-security"" goto execCmd
+shift
+echo Using Security Manager
+set "SECURITY_POLICY_FILE=%CATALINA_BASE%\conf\catalina.policy"
+goto execCmd
+```
+可以看到doStart中无非也是设定一些参数, 最终会跳转到execCmd代码段
+```sh
+:execCmd
+rem Get remaining unshifted command line arguments and save them in the
+set CMD_LINE_ARGS=
+:setArgs
+if ""%1""=="""" goto doneSetArgs
+set CMD_LINE_ARGS=%CMD_LINE_ARGS% %1
+shift
+goto setArgs
+:doneSetArgs
+```
+> 可以看到这段代码也是在拼接参数, 把参数拼接到一个叫CMD_LINE_ARGS的变量中, 接下来就是catalina最后的一段代码了.
+```sh
+rem Execute Java with the applicable properties
+if not "%JPDA%" == "" goto doJpda
+if not "%SECURITY_POLICY_FILE%" == "" goto doSecurity
+%_EXECJAVA% %LOGGING_CONFIG% %LOGGING_MANAGER% %JAVA_OPTS% %CATALINA_OPTS% %DEBUG_OPTS% -D%ENDORSED_PROP%="%JAVA_ENDORSED_DIRS%" -classpath "%CLASSPATH%" -Dcatalina.base="%CATALINA_BASE%" -Dcatalina.home="%CATALINA_HOME%" -Djava.io.tmpdir="%CATALINA_TMPDIR%" %MAINCLASS% %CMD_LINE_ARGS% %ACTION%
+goto end
+:doSecurity
+%_EXECJAVA% %LOGGING_CONFIG% %LOGGING_MANAGER% %JAVA_OPTS% %CATALINA_OPTS% %DEBUG_OPTS% -D%ENDORSED_PROP%="%JAVA_ENDORSED_DIRS%" -classpath "%CLASSPATH%" -Djava.security.manager -Djava.security.policy=="%SECURITY_POLICY_FILE%" -Dcatalina.base="%CATALINA_BASE%" -Dcatalina.home="%CATALINA_HOME%" -Djava.io.tmpdir="%CATALINA_TMPDIR%" %MAINCLASS% %CMD_LINE_ARGS% %ACTION%
+goto end
+:doJpda
+if not "%SECURITY_POLICY_FILE%" == "" goto doSecurityJpda
+%_EXECJAVA% %LOGGING_CONFIG% %LOGGING_MANAGER% %JAVA_OPTS% %JPDA_OPTS% %CATALINA_OPTS% %DEBUG_OPTS% -D%ENDORSED_PROP%="%JAVA_ENDORSED_DIRS%" -classpath "%CLASSPATH%" -Dcatalina.base="%CATALINA_BASE%" -Dcatalina.home="%CATALINA_HOME%" -Djava.io.tmpdir="%CATALINA_TMPDIR%" %MAINCLASS% %CMD_LINE_ARGS% %ACTION%
+goto end
+:doSecurityJpda
+%_EXECJAVA% %LOGGING_CONFIG% %LOGGING_MANAGER% %JAVA_OPTS% %JPDA_OPTS% %CATALINA_OPTS% %DEBUG_OPTS% -D%ENDORSED_PROP%="%JAVA_ENDORSED_DIRS%" -classpath "%CLASSPATH%" -Djava.security.manager -Djava.security.policy=="%SECURITY_POLICY_FILE%" -Dcatalina.base="%CATALINA_BASE%" -Dcatalina.home="%CATALINA_HOME%" -Djava.io.tmpdir="%CATALINA_TMPDIR%" %MAINCLASS% %CMD_LINE_ARGS% %ACTION%
+goto end
+
+:end
+```
+- 跳过前面两行判断后, 来到了关键语句:
+```sh
+%_EXECJAVA% %LOGGING_CONFIG% %LOGGING_MANAGER% %JAVA_OPTS% %CATALINA_OPTS% %DEBUG_OPTS% -D%ENDORSED_PROP%="%JAVA_ENDORSED_DIRS%" -classpath "%CLASSPATH%" -Dcatalina.base="%CATALINA_BASE%" -Dcatalina.home="%CATALINA_HOME%" -Djava.io.tmpdir="%CATALINA_TMPDIR%" %MAINCLASS% %CMD_LINE_ARGS% %ACTION%
+```
+> _EXECJAVA也就是_RUNJAVA, 也就是平时说的java指令, 但在之前的doStart代码块中把_EXECJAVA改为了start "%TITLE%" %_RUNJAVA%, 所以系统会另启一个命令行窗口, 名字叫Tomcat. 在拼接一系列参数后, 我们会看见%MAINCLASS%, 也就是org.apache.catalina.startup.Bootstrap启动类, 拼接完启动参数后, 最后拼接的是%ACTION%, 也就是start.
+#### 6.4.5.3 总结:
+- **catalina.bat最终执行了Bootstrap类中的main方法.**
+- 我们可以通过设定不同的参数让tomcat以不同的方式运行. 在ide中我们是可以选择debug等模式启动tomcat的, 也可以为其配置参数, 在catalina.bat中我们看到了启动tomcat背后的运作流程
+## 6.5 Tomcat - 启动过程：初始化和启动流程
+### 6.5.1 总体流程
+我们看下整体的初始化和启动的流程，在**理解的时候可以直接和Tomcat架构设计中组件关联上**：
+![17.tomcat-x-start-1.png](../../assets/images/04-主流框架/Servlet容器/17.tomcat-x-start-1.png)
+### 6.5.2 Bootstrap主入口？
+Tomcat源码就从它的main方法开始。Tomcat的main方法在org.apache.catalina.startup.Bootstrap 里。 如下代码我们就是创建一个 Bootstrap 对象，调用它的 init 方法初始化，然后根据启动参数，分别调用 Bootstrap 对象的不同方法。
+```java
+public final class Bootstrap {
+    ……
+    
+    /**
+     * Daemon object used by main.
+     */
+    private static final Object daemonLock = new Object();
+    
+    ……
+    
+    
+   /**
+     * Main method and entry point when starting Tomcat via the provided
+     * scripts.
+     *
+     * @param args Command line arguments to be processed
+     */
+    public static void main(String args[]) {
+        // 创建一个 Bootstrap 对象，调用它的 init 方法初始化
+        synchronized (daemonLock) {
+            if (daemon == null) {
+                // Don't set daemon until init() has completed
+                Bootstrap bootstrap = new Bootstrap();
+                try {
+                    bootstrap.init();
+                } catch (Throwable t) {
+                    handleThrowable(t);
+                    t.printStackTrace();
+                    return;
+                }
+                daemon = bootstrap;
+            } else {
+                // When running as a service the call to stop will be on a new
+                // thread so make sure the correct class loader is used to
+                // prevent a range of class not found exceptions.
+                Thread.currentThread().setContextClassLoader(daemon.catalinaLoader);
+            }
+        }
+
+        // 根据启动参数，分别调用 Bootstrap 对象的不同方法
+        try {
+            String command = "start"; // 默认是start
+            if (args.length > 0) {
+                command = args[args.length - 1];
+            }
+
+            if (command.equals("startd")) {
+                args[args.length - 1] = "start";
+                daemon.load(args);
+                daemon.start();
+            } else if (command.equals("stopd")) {
+                args[args.length - 1] = "stop";
+                daemon.stop();
+            } else if (command.equals("start")) {
+                daemon.setAwait(true);
+                daemon.load(args);
+                daemon.start();
+                if (null == daemon.getServer()) {
+                    System.exit(1);
+                }
+            } else if (command.equals("stop")) {
+                daemon.stopServer(args);
+            } else if (command.equals("configtest")) {
+                daemon.load(args);
+                if (null == daemon.getServer()) {
+                    System.exit(1);
+                }
+                System.exit(0);
+            } else {
+                log.warn("Bootstrap: command \"" + command + "\" does not exist.");
+            }
+        } catch (Throwable t) {
+            // Unwrap the Exception for clearer error reporting
+            if (t instanceof InvocationTargetException &&
+                    t.getCause() != null) {
+                t = t.getCause();
+            }
+            handleThrowable(t);
+            t.printStackTrace();
+            System.exit(1);
+        }
+
+    }
+    
+    ……
+}
+```
+### 6.5.3 Bootstrap如何初始化Catalina的？
+我们用`Sequence Diagram`插件来看main方法的时序图，但是可以发现它并没有帮我们画出Bootstrap初始化Catalina的过程，这和上面的组件初始化不符合？
+![18.tomcat-x-start-2.png](../../assets/images/04-主流框架/Servlet容器/18.tomcat-x-start-2.png)
+
+让我们带着这个看下Catalina的初始化的
+```java
+/**
+  * 初始化守护进程
+  * 
+  * @throws Exception Fatal initialization error
+  */
+public void init() throws Exception {
+
+    // 初始化classloader（包括catalinaLoader），下文将具体分析
+    initClassLoaders();
+
+    // 设置当前的线程的contextClassLoader为catalinaLoader
+    Thread.currentThread().setContextClassLoader(catalinaLoader);
+
+    SecurityClassLoad.securityClassLoad(catalinaLoader);
+
+    // 通过catalinaLoader加载Catalina，并初始化startupInstance 对象
+    if (log.isDebugEnabled())
+        log.debug("Loading startup class");
+    Class<?> startupClass = catalinaLoader.loadClass("org.apache.catalina.startup.Catalina");
+    Object startupInstance = startupClass.getConstructor().newInstance();
+
+    // 通过反射调用了setParentClassLoader 方法
+    if (log.isDebugEnabled())
+        log.debug("Setting startup class properties");
+    String methodName = "setParentClassLoader";
+    Class<?> paramTypes[] = new Class[1];
+    paramTypes[0] = Class.forName("java.lang.ClassLoader");
+    Object paramValues[] = new Object[1];
+    paramValues[0] = sharedLoader;
+    Method method =
+        startupInstance.getClass().getMethod(methodName, paramTypes);
+    method.invoke(startupInstance, paramValues);
+
+    catalinaDaemon = startupInstance;
+
+}
+```
+通过上面几行关键代码的注释，我们就可以看出Catalina是如何初始化的。这里还留下一个问题，tomcat为什么要初始化不同的classloader呢？我们将在下文进行详解。
+## 6.6 Tomcat - 启动过程:类加载机制详解
+### 6.6.1 Tomcat初始化了哪些classloader
+在Bootstrap中我们可以看到有如下三个classloader
+```java
+ClassLoader commonLoader = null;
+ClassLoader catalinaLoader = null;
+ClassLoader sharedLoader = null;
+```
+### 6.6.2 如何初始化的呢？
+```java
+private void initClassLoaders() {
+    try {
+        // commonLoader初始化
+        commonLoader = createClassLoader("common", null);
+        if (commonLoader == null) {
+            // no config file, default to this loader - we might be in a 'single' env.
+            commonLoader = this.getClass().getClassLoader();
+        }
+        // catalinaLoader初始化, 父classloader是commonLoader
+        catalinaLoader = createClassLoader("server", commonLoader);
+        // sharedLoader初始化
+        sharedLoader = createClassLoader("shared", commonLoader);
+    } catch (Throwable t) {
+        handleThrowable(t);
+        log.error("Class loader creation threw exception", t);
+        System.exit(1);
+    }
+}
+```
+> 可以看出，catalinaLoader 和 sharedLoader 的 parentClassLoader 是 commonLoader。
+### 6.6.3 如何创建classLoader的？
+不妨再看下如何创建的？
+```java
+private ClassLoader createClassLoader(String name, ClassLoader parent)
+    throws Exception {
+
+    String value = CatalinaProperties.getProperty(name + ".loader");
+    if ((value == null) || (value.equals("")))
+        return parent;
+
+    value = replace(value);
+
+    List<Repository> repositories = new ArrayList<>();
+
+    String[] repositoryPaths = getPaths(value);
+
+    for (String repository : repositoryPaths) {
+        // Check for a JAR URL repository
+        try {
+            @SuppressWarnings("unused")
+            URL url = new URL(repository);
+            repositories.add(new Repository(repository, RepositoryType.URL));
+            continue;
+        } catch (MalformedURLException e) {
+            // Ignore
+        }
+
+        // Local repository
+        if (repository.endsWith("*.jar")) {
+            repository = repository.substring
+                (0, repository.length() - "*.jar".length());
+            repositories.add(new Repository(repository, RepositoryType.GLOB));
+        } else if (repository.endsWith(".jar")) {
+            repositories.add(new Repository(repository, RepositoryType.JAR));
+        } else {
+            repositories.add(new Repository(repository, RepositoryType.DIR));
+        }
+    }
+
+    return ClassLoaderFactory.createClassLoader(repositories, parent);
+}
+```
+方法的逻辑也比较简单就是从 catalina.property文件里找 common.loader, shared.loader, server.loader 对应的值，然后构造成Repository 列表，再将Repository 列表传入ClassLoaderFactory.createClassLoader 方法，ClassLoaderFactory.createClassLoader 返回的是 URLClassLoader，而Repository 列表就是这个URLClassLoader 可以加载的类的路径。 在catalina.property文件里
+```sh
+common.loader="${catalina.base}/lib","${catalina.base}/lib/*.jar","${catalina.home}/lib","${catalina.home}/lib/*.jar"
+server.loader=
+shared.loader=
+```
+其中 shared.loader, server.loader 是没有值的，createClassLoader 方法里如果没有值的话，就返回传入的 parent ClassLoader，也就是说，commonLoader,catalinaLoader,sharedLoader 其实是一个对象。在Tomcat之前的版本里，这三个是不同的URLClassLoader对象。
+```java
+Class<?> startupClass = catalinaLoader.loadClass("org.apache.catalina.startup.Catalina");
+        Object startupInstance = startupClass.getConstructor().newInstance();
+```
+初始化完三个ClassLoader对象后，init() 方法就使用 catalinaClassLoader 加载了org.apache.catalina.startup.Catalina 类，并创建了一个对象，然后通过反射调用这个对象的 setParentClassLoader 方法，传入的参数是 sharedClassLoader。最后吧这个 Catania 对象复制给 catalinaDaemon 属性。
+### 6.6.4 为什么Tomcat的类加载器也不是双亲委派模型
+> 我们知道，Java默认的类加载机制是通过双亲委派模型来实现的，而Tomcat实现的方式又和双亲委派模型有所区别。
+
+**原因在于一个Tomcat容器允许同时运行多个Web程序，每个Web程序依赖的类又必须是相互隔离的。**因此，如果Tomcat使用双亲委派模式来加载类的话，将导致Web程序依赖的类变为共享的。
+
+举个例子，假如我们有两个Web程序，一个依赖A库的1.0版本，另一个依赖A库的2.0版本，他们都使用了类xxx.xx.Clazz，其实现的逻辑因类库版本的不同而结构完全不同。那么这两个Web程序的其中一个必然因为加载的Clazz不是所使用的Clazz而出现问题！而这对于开发来说是非常致命的！
+### 6.6.5 Tomcat类加载机制是怎么样的呢
+> 既然Tomcat的类加载机器不同于双亲委派模式，那么它又是一种怎样的模式呢？
+我们在这里一定要看下官网提供的<a href = 'https://tomcat.apache.org/tomcat-9.0-doc/class-loader-howto.html'>类加载的文档</a>
+![19.tomcat-x-classloader-1.png](../../assets/images/04-主流框架/Servlet容器/19.tomcat-x-classloader-1.png)
+
+结合经典的类加载机制，我们完整的看下Tomcat类加载图
+![20.tomcat-x-classloader-2.png](../../assets/images/04-主流框架/Servlet容器/20.tomcat-x-classloader-2.png)
+
+- Common类加载器，负责加载Tomcat和Web应用都复用的类 
+  - Catalina类加载器，负责加载Tomcat专用的类，而这些被加载的类在Web应用中将不可见
+  - Shared类加载器，负责加载Tomcat下所有的Web应用程序都复用的类，而这些被加载的类在Tomcat中将不可见 
+    - WebApp类加载器，负责加载具体的某个Web应用程序所使用到的类，而这些被加载的类在Tomcat和其他的Web应用程序都将不可见
+    - Jsp类加载器，每个jsp页面一个类加载器，不同的jsp页面有不同的类加载器，方便实现jsp页面的热插拔
+
+同样的，我们可以看到通过ContextClassLoader（上下文类加载器）的setContextClassLoader来传入自己实现的类加载器
+```java
+public void init() throws Exception {
+
+  initClassLoaders();
+
+  // 看这里
+  Thread.currentThread().setContextClassLoader(catalinaLoader);
+
+  SecurityClassLoad.securityClassLoad(catalinaLoader);
+...
+```
+### 6.6.6 WebApp类加载器
+> 到这儿，我们隐隐感觉到少分析了点什么！没错，就是WebApp类加载器。整个启动过程分析下来，我们仍然没有看到这个类加载器。它又是在哪儿出现的呢？
+
+我们知道WebApp类加载器是Web应用私有的，而每个Web应用其实算是一个Context，那么我们通过Context的实现类应该可以发现。在Tomcat中，Context的默认实现为StandardContext，我们看看这个类的startInternal()方法，在这儿我们发现了我们感兴趣的WebApp类加载器。
+```java
+protected synchronized void startInternal() throws LifecycleException {
+    if (getLoader() == null) {
+        WebappLoader webappLoader = new WebappLoader(getParentClassLoader());
+        webappLoader.setDelegate(getDelegate());
+        setLoader(webappLoader);
+    }
+}
+```
+入口代码非常简单，就是webappLoader不存在的时候创建一个，并调用setLoader方法。我们接着分析setLoader
+```java
+public void setLoader(Loader loader) {
+
+    Lock writeLock = loaderLock.writeLock();
+    writeLock.lock();
+    Loader oldLoader = null;
+    try {
+        // Change components if necessary
+        oldLoader = this.loader;
+        if (oldLoader == loader)
+            return;
+        this.loader = loader;
+
+        // Stop the old component if necessary
+        if (getState().isAvailable() && (oldLoader != null) &&
+            (oldLoader instanceof Lifecycle)) {
+            try {
+                ((Lifecycle) oldLoader).stop();
+            } catch (LifecycleException e) {
+                log.error("StandardContext.setLoader: stop: ", e);
+            }
+        }
+
+        // Start the new component if necessary
+        if (loader != null)
+            loader.setContext(this);
+        if (getState().isAvailable() && (loader != null) &&
+            (loader instanceof Lifecycle)) {
+            try {
+                ((Lifecycle) loader).start();
+            } catch (LifecycleException e) {
+                log.error("StandardContext.setLoader: start: ", e);
+            }
+        }
+    } finally {
+        writeLock.unlock();
+    }
+
+    // Report this property change to interested listeners
+    support.firePropertyChange("loader", oldLoader, loader);
+}
+```
+这儿，我们感兴趣的就两行代码：
+```java
+((Lifecycle) oldLoader).stop(); // 旧的加载器停止
+((Lifecycle) loader).start(); // 新的加载器启动
+```
+### 6.6.7 为什么tomcat要打破双亲委派机制
+一个Tomcat实例（Server）可以部署多个独立的Web应用。这个类加载机制是实现"应用隔离"的关键。
+
+- 传统双亲委派模型的问题：
+
+如果使用标准模型，所有Web应用共享同一个类加载器，会导致：
+
+1. 类冲突：应用A需要Library v1.0，应用B需要Library v2.0，后者会覆盖前者
+2. 资源泄漏：一个应用卸载时，如果其他应用还在使用共享库，库无法被GC回收
+3. 安全风险：恶意应用可以覆盖其他应用的关键类
+- Tomcat解决方案的优势：
+
+1. 完美的应用隔离
+
+- 每个Web应用有自己的类加载器，加载自己WEB-INF下的类库
+- 应用A的Library v1.0和应用B的Library v2.0可以共存，互不影响
+- 应用卸载时，其类加载器及加载的所有类都可以被GC回收
+- 灵活的类可见性控制
+
+2. 通过delegate属性控制委托行为：
+- false（默认）：优先从自身加载，实现隔离
+- true：优先委托给父加载器，适合需要严格安全控制的场景
+3. 共享与隔离的平衡
+
+- 需要共享的类（如Servlet API）由父加载器加载，所有应用共用同一份
+- 需要隔离的类（如业务实现）由各自的应用类加载器加载
+
+| 场景 | 主要类加载器 | 父加载器 | 目的 |
+|------|-------------|----------|------|
+| 普通JAR（`java -jar`） | `AppClassLoader` | `PlatformClassLoader` | 加载类路径上的类 |
+| Spring Boot Fat Jar（`java -jar`） | `LaunchedURLClassLoader` | `AppClassLoader` | 解决嵌套JAR加载 |
+| Tomcat Web应用 | `WebappClassLoader` | `Common ClassLoader` | 应用隔离 |
+| IDE中直接运行Spring Boot | `AppClassLoader` | `PlatformClassLoader` | 标准开发环境 |
+## 6.7 Tomcat - 启动过程:Catalina的加载
+### 6.7.1 Catalina的引入
+>通过前两篇文章，我们知道了Tomcat的类加载机制和整体的组件加载流程；我们也知道通过Bootstrap初始化的catalinaClassLoader加载了Catalina，那么进而引入了一个问题就是Catalina是如何加载的呢？加载了什么呢？
+- 先回顾下整个流程，和我们分析的阶段
+![21.tomcat-x-catalina-1.png](../../assets/images/04-主流框架/Servlet容器/21.tomcat-x-catalina-1.png)
+- 看下Bootstrap中Load的过程
+```java
+param = null;
+    } else {
+        paramTypes = new Class[1];
+        paramTypes[0] = arguments.getClass();
+        param = new Object[1];
+        param[0] = arguments;
+    }
+    Method method =
+        catalinaDaemon.getClass().getMethod(methodName, paramTypes); 
+    if (log.isDebugEnabled()) {
+        log.debug("Calling startup class " + method);
+    }
+    method.invoke(catalinaDaemon, param);// 本质上就是调用catalina的load方法
+}
+```
+### 6.7.2 Catalina的加载
+上一步，我们知道catalina load的触发，因为有参数所以是load(String[])方法。我们进而看下这个load方法做了什么？
+
+- load(String[])本质上还是调用了load方法
+```java
+/*
+  * Load using arguments
+  */
+public void load(String args[]) {
+
+    try {
+        if (arguments(args)) { // 处理命令行的参数
+            load();
+        }
+    } catch (Exception e) {
+        e.printStackTrace(System.out);
+    }
+}
+```
+- load加载过程本质上是初始化Server的实例
+```java
+/**
+  * Start a new server instance.
+  */
+public void load() {
+
+    // 如果已经加载则退出
+    if (loaded) {
+        return;
+    }
+    loaded = true;
+
+    long t1 = System.nanoTime();
+
+    // （已经弃用）
+    initDirs();
+
+    // Before digester - it may be needed
+    initNaming();
+
+    // 解析 server.xml
+    parseServerXml(true);
+    Server s = getServer();
+    if (s == null) {
+        return;
+    }
+
+    getServer().setCatalina(this);
+    getServer().setCatalinaHome(Bootstrap.getCatalinaHomeFile());
+    getServer().setCatalinaBase(Bootstrap.getCatalinaBaseFile());
+
+    // Stream redirection
+    initStreams();
+
+    // 启动Server
+    try {
+        getServer().init();
+    } catch (LifecycleException e) {
+        if (Boolean.getBoolean("org.apache.catalina.startup.EXIT_ON_INIT_FAILURE")) {
+            throw new java.lang.Error(e);
+        } else {
+            log.error(sm.getString("catalina.initError"), e);
+        }
+    }
+
+    if(log.isInfoEnabled()) {
+        log.info(sm.getString("catalina.init", Long.toString(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t1))));
+    }
+}
+```
+总体流程如下：
+![22.tomcat-x-catalina-2.png](../../assets/images/04-主流框架/Servlet容器/22.tomcat-x-catalina-2.png)
+- initDirs
+
+已经弃用了，Tomcat10会删除这个方法。
+```java
+/**
+  * @deprecated unused. Will be removed in Tomcat 10 onwards.
+  */
+@Deprecated
+protected void initDirs() {
+}
+```
+- initNaming
+
+设置额外的系统变量
+```java
+protected void initNaming() {
+  // Setting additional variables
+  if (!useNaming) {
+      log.info(sm.getString("catalina.noNaming"));
+      System.setProperty("catalina.useNaming", "false");
+  } else {
+      System.setProperty("catalina.useNaming", "true");
+      String value = "org.apache.naming";
+      String oldValue =
+          System.getProperty(javax.naming.Context.URL_PKG_PREFIXES);
+      if (oldValue != null) {
+          value = value + ":" + oldValue;
+      }
+      System.setProperty(javax.naming.Context.URL_PKG_PREFIXES, value);
+      if( log.isDebugEnabled() ) {
+          log.debug("Setting naming prefix=" + value);
+      }
+      value = System.getProperty
+          (javax.naming.Context.INITIAL_CONTEXT_FACTORY);
+      if (value == null) {
+          System.setProperty
+              (javax.naming.Context.INITIAL_CONTEXT_FACTORY,
+                "org.apache.naming.java.javaURLContextFactory");
+      } else {
+          log.debug("INITIAL_CONTEXT_FACTORY already set " + value );
+      }
+  }
+}
+```
+- Server.xml的解析
+
+分三大块，下面的代码还是很清晰的:
+```java
+protected void parseServerXml(boolean start) {
+    // Set configuration source
+    ConfigFileLoader.setSource(new CatalinaBaseConfigurationSource(Bootstrap.getCatalinaBaseFile(), getConfigFile()));
+    File file = configFile();
+
+    if (useGeneratedCode && !Digester.isGeneratedCodeLoaderSet()) {
+        // Load loader
+        String loaderClassName = generatedCodePackage + ".DigesterGeneratedCodeLoader";
+        try {
+            Digester.GeneratedCodeLoader loader =
+                    (Digester.GeneratedCodeLoader) Catalina.class.getClassLoader().loadClass(loaderClassName).newInstance();
+            Digester.setGeneratedCodeLoader(loader);
+        } catch (Exception e) {
+            if (log.isDebugEnabled()) {
+                log.info(sm.getString("catalina.noLoader", loaderClassName), e);
+            } else {
+                log.info(sm.getString("catalina.noLoader", loaderClassName));
+            }
+            // No loader so don't use generated code
+            useGeneratedCode = false;
+        }
+    }
+
+    // 初始化server.xml的位置
+    File serverXmlLocation = null;
+    String xmlClassName = null;
+    if (generateCode || useGeneratedCode) {
+        xmlClassName = start ? generatedCodePackage + ".ServerXml" : generatedCodePackage + ".ServerXmlStop";
+    }
+    if (generateCode) {
+        if (generatedCodeLocationParameter != null) {
+            generatedCodeLocation = new File(generatedCodeLocationParameter);
+            if (!generatedCodeLocation.isAbsolute()) {
+                generatedCodeLocation = new File(Bootstrap.getCatalinaHomeFile(), generatedCodeLocationParameter);
+            }
+        } else {
+            generatedCodeLocation = new File(Bootstrap.getCatalinaHomeFile(), "work");
+        }
+        serverXmlLocation = new File(generatedCodeLocation, generatedCodePackage);
+        if (!serverXmlLocation.isDirectory() && !serverXmlLocation.mkdirs()) {
+            log.warn(sm.getString("catalina.generatedCodeLocationError", generatedCodeLocation.getAbsolutePath()));
+            // Disable code generation
+            generateCode = false;
+        }
+    }
+
+    // 用 SAXParser 来解析 xml，解析完了之后，xml 里定义的各种标签就有对应的实现类对象了
+    ServerXml serverXml = null;
+    if (useGeneratedCode) {
+        serverXml = (ServerXml) Digester.loadGeneratedClass(xmlClassName);
+    }
+
+    if (serverXml != null) {
+        serverXml.load(this);
+    } else {
+        try (ConfigurationSource.Resource resource = ConfigFileLoader.getSource().getServerXml()) {
+            // Create and execute our Digester
+            Digester digester = start ? createStartDigester() : createStopDigester();
+            InputStream inputStream = resource.getInputStream();
+            InputSource inputSource = new InputSource(resource.getURI().toURL().toString());
+            inputSource.setByteStream(inputStream);
+            digester.push(this);
+            if (generateCode) {
+                digester.startGeneratingCode();
+                generateClassHeader(digester, start);
+            }
+            digester.parse(inputSource);
+            if (generateCode) {
+                generateClassFooter(digester);
+                try (FileWriter writer = new FileWriter(new File(serverXmlLocation,
+                        start ? "ServerXml.java" : "ServerXmlStop.java"))) {
+                    writer.write(digester.getGeneratedCode().toString());
+                }
+                digester.endGeneratingCode();
+                Digester.addGeneratedClass(xmlClassName);
+            }
+        } catch (Exception e) {
+            log.warn(sm.getString("catalina.configFail", file.getAbsolutePath()), e);
+            if (file.exists() && !file.canRead()) {
+                log.warn(sm.getString("catalina.incorrectPermissions"));
+            }
+        }
+    }
+}
+```
+- initStreams
+
+替换掉System.out, System.err为自定义的PrintStream
+```java
+protected void initStreams() {
+    // Replace System.out and System.err with a custom PrintStream
+    System.setOut(new SystemLogHandler(System.out));
+    System.setErr(new SystemLogHandler(System.err));
+}
+```
+### 6.7.3 Catalina 的启动
+在 load 方法之后，Tomcat 就初始化了一系列的组件，接着就可以调用 start 方法进行启动了。
+```java
+/**
+  * Start a new server instance.
+  */
+public void start() {
+
+    if (getServer() == null) {
+        load();
+    }
+
+    if (getServer() == null) {
+        log.fatal(sm.getString("catalina.noServer"));
+        return;
+    }
+
+    long t1 = System.nanoTime();
+
+    // Start the new server
+    try {
+        getServer().start();
+    } catch (LifecycleException e) {
+        log.fatal(sm.getString("catalina.serverStartFail"), e);
+        try {
+            getServer().destroy();
+        } catch (LifecycleException e1) {
+            log.debug("destroy() failed for failed Server ", e1);
+        }
+        return;
+    }
+
+    long t2 = System.nanoTime();
+    if(log.isInfoEnabled()) {
+        log.info(sm.getString("catalina.startup", Long.valueOf((t2 - t1) / 1000000)));
+    }
+
+    // Register shutdown hook
+    if (useShutdownHook) {
+        if (shutdownHook == null) {
+            shutdownHook = new CatalinaShutdownHook();
+        }
+        Runtime.getRuntime().addShutdownHook(shutdownHook);
+
+        // If JULI is being used, disable JULI's shutdown hook since
+        // shutdown hooks run in parallel and log messages may be lost
+        // if JULI's hook completes before the CatalinaShutdownHook()
+        LogManager logManager = LogManager.getLogManager();
+        if (logManager instanceof ClassLoaderLogManager) {
+            ((ClassLoaderLogManager) logManager).setUseShutdownHook(
+                    false);
+        }
+    }
+
+    if (await) {
+        await();
+        stop();
+    }
+}
+```
+上面这段代码，逻辑非常简单，首先确定 getServer() 方法不为 null ，也就是确定 server 属性不为null，而 server 属性是在 load 方法就初始化了。
+
+整段代码的核心就是 try-catch 里的 getServer().start() 方法了，也就是调用 Server 对象的 start() 方法来启动 Tomcat。本篇文章就先不对 Server 的 start() 方法进行解析了，下篇文章会单独讲。
+
+### 6.7.4 Catalina 的关闭
+调用完 Server#start 方法之后，注册了一个ShutDownHook，也就是 CatalinaShutdownHook 对象，
+```java
+/**
+  * Shutdown hook which will perform a clean shutdown of Catalina if needed.
+  */
+protected class CatalinaShutdownHook extends Thread {
+
+  @Override
+  public void run() {
+      try {
+          if (getServer() != null) {
+              Catalina.this.stop();
+          }
+      } catch (Throwable ex) {
+          ExceptionUtils.handleThrowable(ex);
+          log.error(sm.getString("catalina.shutdownHookFail"), ex);
+      } finally {
+          // If JULI is used, shut JULI down *after* the server shuts down
+          // so log messages aren't lost
+          LogManager logManager = LogManager.getLogManager();
+          if (logManager instanceof ClassLoaderLogManager) {
+              ((ClassLoaderLogManager) logManager).shutdown();
+          }
+      }
+  }
+}
+```
+CatalinaShutdownHook 的逻辑也简单，就是调用 Catalina 对象的 stop 方法来停止 tomcat。
+
+最后就进入 if 语句了，await 是在 Bootstrap 里调用的时候设置为 true 的，也就是本文开头的时候提到的三个方法中的一个。await 方法的作用是停住主线程，等待用户输入shutdown 命令之后，停止等待，之后 main 线程就调用 stop 方法来停止Tomcat。
+```java
+/**
+  * Stop an existing server instance.
+  */
+public void stop() {
+
+    try {
+        // Remove the ShutdownHook first so that server.stop()
+        // doesn't get invoked twice
+        if (useShutdownHook) {
+            Runtime.getRuntime().removeShutdownHook(shutdownHook);
+
+            // If JULI is being used, re-enable JULI's shutdown to ensure
+            // log messages are not lost
+            LogManager logManager = LogManager.getLogManager();
+            if (logManager instanceof ClassLoaderLogManager) {
+                ((ClassLoaderLogManager) logManager).setUseShutdownHook(
+                        true);
+            }
+        }
+    } catch (Throwable t) {
+        ExceptionUtils.handleThrowable(t);
+        // This will fail on JDK 1.2. Ignoring, as Tomcat can run
+        // fine without the shutdown hook.
+    }
+
+    // Shut down the server
+    try {
+        Server s = getServer();
+        LifecycleState state = s.getState();
+        if (LifecycleState.STOPPING_PREP.compareTo(state) <= 0
+                && LifecycleState.DESTROYED.compareTo(state) >= 0) {
+            // Nothing to do. stop() was already called
+        } else {
+            s.stop();
+            s.destroy();
+        }
+    } catch (LifecycleException e) {
+        log.error(sm.getString("catalina.stopError"), e);
+    }
+
+}
+```
+Catalina 的 stop 方法主要逻辑是调用 Server 对象的 stop 方法。
+
+### 6.7.5 聊聊关闭钩子
+上面我们看到CatalinaShutdownHook, 这里有必要谈谈JVM的关闭钩子。
+```java
+if (shutdownHook == null) {
+    shutdownHook = new CatalinaShutdownHook();
+}
+Runtime.getRuntime().addShutdownHook(shutdownHook);
+```
+关闭钩子是指通过**Runtime.addShutdownHook注册的但尚未开始的线程**。这些钩子可以用于**实现服务或者应用程序的清理工作**，例如删除临时文件，或者清除无法由操作系统自动清除的资源。
+
+JVM既可以正常关闭，也可以强行关闭。正常关闭的触发方式有多种，包括：当最后一个“正常（非守护）”线程结束时，或者当调用了System.exit时，或者通过其他特定于平台的方法关闭时（例如发送了SIGINT信号或者键入Ctrl-C）。
+
+在**正常关闭中，JVM首先调用所有已注册的关闭钩子**。JVM并不能保证关闭钩子的调用顺序。在关闭应用程序线程时，如果有（守护或者非守护）线程仍然在执行，那么这些线程接下来将与关闭进程并发执行。当所有的关闭钩子都执行结束时，如果runFinalizersOnExit为true【通过Runtime.runFinalizersOnExit(true)设置】，那么JVM将运行这些Finalizer（对象重写的finalize方法），然后再停止。JVM不会停止或中断任何在关闭时仍然运行的应用程序线程。当JVM最终结束时，这些线程将被强行结束。如果关闭钩子或者Finalizer没有执行完成，那么正常关闭进程“挂起”并且JVM必须被强行关闭。**当JVM被强行关闭时，只是关闭JVM，并不会运行关闭钩子**（举个例子，类似于电源都直接拔了，还怎么做其它动作呢？）。
+
+下面是一个简单的示例：
+```java
+public class T {
+	@SuppressWarnings("deprecation")
+	public static void main(String[] args) throws Exception {
+		//启用退出JVM时执行Finalizer
+		Runtime.runFinalizersOnExit(true);
+		MyHook hook1 = new MyHook("Hook1");
+		MyHook hook2 = new MyHook("Hook2");
+		MyHook hook3 = new MyHook("Hook3");
+		
+		//注册关闭钩子
+		Runtime.getRuntime().addShutdownHook(hook1);
+		Runtime.getRuntime().addShutdownHook(hook2);
+		Runtime.getRuntime().addShutdownHook(hook3);
+		
+		//移除关闭钩子
+		Runtime.getRuntime().removeShutdownHook(hook3);
+		
+		//Main线程将在执行这句之后退出
+		System.out.println("Main Thread Ends.");
+	}
+}
+
+class MyHook extends Thread {
+	private String name;
+	public MyHook (String name) {
+		this.name = name;
+		setName(name);
+	}
+	public void run() {
+		System.out.println(name + " Ends.");
+	}
+	//重写Finalizer，将在关闭钩子后调用
+	protected void finalize() throws Throwable {
+		System.out.println(name + " Finalize.");
+	}
+}
+
+```
+和（可能的）执行结果（因为JVM不保证关闭钩子的调用顺序，因此结果中的第二、三行可能出现相反的顺序）：
+```java
+Main Thread Ends.
+Hook2 Ends.
+Hook1 Ends.
+Hook3 Finalize.
+Hook2 Finalize.
+Hook1 Finalize.
+```
+可以看到，main函数执行完成，首先输出的是Main Thread Ends，接下来执行关闭钩子，输出Hook2 Ends和Hook1 Ends。这两行也可以证实：JVM确实不是以注册的顺序来调用关闭钩子的。而由于hook3在调用了addShutdownHook后，接着对其调用了removeShutdownHook将其移除，于是hook3在JVM退出时没有执行，因此没有输出Hook3 Ends。
+
+另外，由于MyHook类实现了finalize方法，而main函数中第一行又通过Runtime.runFinalizersOnExit(true)打开了退出JVM时执行Finalizer的开关，于是3个hook对象的finalize方法被调用，输出了3行Finalize。
+
+注意，多次调用addShutdownHook来注册同一个关闭钩子将会抛出IllegalArgumentException:
+```sh
+Exception in thread "main" java.lang.IllegalArgumentException: Hook previously registered
+	at java.lang.ApplicationShutdownHooks.add(ApplicationShutdownHooks.java:72)
+	at java.lang.Runtime.addShutdownHook(Runtime.java:211)
+	at T.main(T.java:12)
+```
+另外，从JavaDoc中得知：**一旦JVM关闭流程开始，就只能通过调用halt方法来停止该流程，也不可能再注册或移除关闭钩子了，这些操作将导致抛出IllegalStateException。**
+
+如果在关闭钩子中关闭应用程序的公共的组件，如日志服务，或者数据库连接等，像下面这样：
+```java
+Runtime.getRuntime().addShutdownHook(new Thread() {
+	public void run() {
+		try { 
+			LogService.this.stop();
+		} catch (InterruptedException ignored){
+			//ignored
+		}
+	}
+});
+```
+由于**关闭钩子将并发执行，因此在关闭日志时可能导致其他需要日志服务的关闭钩子产生问题。为了避免这种情况，可以使关闭钩子不依赖那些可能被应用程序或其他关闭钩子关闭的服务。**实现这种功能的一种方式是对所有服务使用同一个关闭钩子（而不是每个服务使用一个不同的关闭钩子），并且在该关闭钩子中执行一系列的关闭操作。这确保了关闭操作在单个线程中串行执行，从而避免了在关闭操作之前出现竞态条件或死锁等问题。
+
+- 使用场景
+
+通过Hook实现临时文件清理
+```java
+public class test {
+
+  public static void main(String[] args) {
+      try {
+          Thread.sleep(20000);
+      } catch (InterruptedException e) {
+          e.printStackTrace();
+      }
+
+      Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+          public void run() {
+              System.out.println("auto clean temporary file");
+          }
+      }));
+  }
+}
+```
+## 6.8 Tomcat - 组件生命周期管理:LifeCycle
+> 我从以下几方面，帮助你构建基于上下文的知识体系和理解为什么要理解组件的生命周期管理（LifeCycle）。
+- Server及其它组件
+![23.tomcat-x-lifecycle-1.png](../../assets/images/04-主流框架/Servlet容器/23.tomcat-x-lifecycle-1.png)
+- Server后续组件生命周期及初始化
+![24.tomcat-x-lifecycle-2.png](../../assets/images/04-主流框架/Servlet容器/24.tomcat-x-lifecycle-2.png)
+- Server的依赖结构
+![25.tomcat-x-lifecycle-3.png](../../assets/images/04-主流框架/Servlet容器/25.tomcat-x-lifecycle-3.png)
+### 6.8.1 LifeCycle接口
+> 理解Lifecycle主要有两点：第一是三类接口方法；第二是状态机。
+#### 6.8.1.1 一个标准的LifeCycle有哪些方法？
+
+分三类去看：
+```java
+public interface Lifecycle {
+    /** 第1类：针对监听器 **/
+    // 添加监听器
+    public void addLifecycleListener(LifecycleListener listener);
+    // 获取所以监听器
+    public LifecycleListener[] findLifecycleListeners();
+    // 移除某个监听器
+    public void removeLifecycleListener(LifecycleListener listener);
+    
+    /** 第2类：针对控制流程 **/
+    // 初始化方法
+    public void init() throws LifecycleException;
+    // 启动方法
+    public void start() throws LifecycleException;
+    // 停止方法，和start对应
+    public void stop() throws LifecycleException;
+    // 销毁方法，和init对应
+    public void destroy() throws LifecycleException;
+    
+    /** 第3类：针对状态 **/
+    // 获取生命周期状态
+    public LifecycleState getState();
+    // 获取字符串类型的生命周期状态
+    public String getStateName();
+}
+```
+#### 6.8.1.2 LifeCycle状态机有哪些状态？
+Tomcat 给各个组件定义了一些生命周期中的状态
+- 在枚举类 LifecycleState 里
+```java
+public enum LifecycleState {
+    NEW(false, null),
+    INITIALIZING(false, Lifecycle.BEFORE_INIT_EVENT),
+    INITIALIZED(false, Lifecycle.AFTER_INIT_EVENT),
+    STARTING_PREP(false, Lifecycle.BEFORE_START_EVENT),
+    STARTING(true, Lifecycle.START_EVENT),
+    STARTED(true, Lifecycle.AFTER_START_EVENT),
+    STOPPING_PREP(true, Lifecycle.BEFORE_STOP_EVENT),
+    STOPPING(false, Lifecycle.STOP_EVENT),
+    STOPPED(false, Lifecycle.AFTER_STOP_EVENT),
+    DESTROYING(false, Lifecycle.BEFORE_DESTROY_EVENT),
+    DESTROYED(false, Lifecycle.AFTER_DESTROY_EVENT),
+    FAILED(false, null);
+
+    private final boolean available;
+    private final String lifecycleEvent;
+
+    private LifecycleState(boolean available, String lifecycleEvent) {
+        this.available = available;
+        this.lifecycleEvent = lifecycleEvent;
+    }
+    ……
+}
+```
+- 它们之间的关系是怎么样的呢？
+
+在Lifecycle.java源码中有相关的注释：
+![26.tomcat-x-lifecycle-5.png](../../assets/images/04-主流框架/Servlet容器/26.tomcat-x-lifecycle-5.png)
+
+看不太清楚的可以看下图：
+![27.tomcat-x-lifecycle-4.jpeg](../../assets/images/04-主流框架/Servlet容器/27.tomcat-x-lifecycle-4.jpeg)
+### 6.8.2 LifecycleBase - LifeCycle的基本实现
+> LifecycleBase是Lifecycle的基本实现。Tomcat 组件都实现 LifeCycle(extends LifecycleMBeanBase)
+#### 6.8.2.1 监听器相关
+生命周期监听器保存在一个线程安全的CopyOnWriteArrayList中。所以add和remove都是直接调用此List的相应方法。 findLifecycleListeners返回的是一个数组，为了线程安全，所以这儿会生成一个新数组。
+```java
+private final List<LifecycleListener> lifecycleListeners = new CopyOnWriteArrayList<>();
+
+@Override
+public void addLifecycleListener(LifecycleListener listener) {
+    lifecycleListeners.add(listener);
+}
+@Override
+public LifecycleListener[] findLifecycleListeners() {
+    return lifecycleListeners.toArray(new LifecycleListener[0]);
+}
+@Override
+public void removeLifecycleListener(LifecycleListener listener) {
+    lifecycleListeners.remove(listener);
+}
+```
+#### 6.8.2.2 生命周期相关
+- init
+```java
+@Override
+public final synchronized void init() throws LifecycleException {
+    // 非NEW状态，不允许调用init()方法
+    if (!state.equals(LifecycleState.NEW)) {
+        invalidTransition(Lifecycle.BEFORE_INIT_EVENT);
+    }
+
+    try {
+        // 初始化逻辑之前，先将状态变更为`INITIALIZING`
+        setStateInternal(LifecycleState.INITIALIZING, null, false);
+        // 初始化，该方法为一个abstract方法，需要组件自行实现
+        initInternal();
+        // 初始化完成之后，状态变更为`INITIALIZED`
+        setStateInternal(LifecycleState.INITIALIZED, null, false);
+    } catch (Throwable t) {
+        // 初始化的过程中，可能会有异常抛出，这时需要捕获异常，并将状态变更为`FAILED`
+        ExceptionUtils.handleThrowable(t);
+        setStateInternal(LifecycleState.FAILED, null, false);
+        throw new LifecycleException(
+                sm.getString("lifecycleBase.initFail",toString()), t);
+    }
+}
+```
+我们再来看看invalidTransition方法，该方法直接抛出异常。
+```java
+private void invalidTransition(String type) throws LifecycleException {
+    String msg = sm.getString("lifecycleBase.invalidTransition", type,
+            toString(), state);
+    throw new LifecycleException(msg);
+}
+```
+setStateInternal方法用于维护状态，同时在状态转换成功之后触发事件。为了状态的可见性，所以state声明为volatile类型的。
+```java
+private volatile LifecycleState state = LifecycleState.NEW;。
+
+private synchronized void setStateInternal(LifecycleState state,
+        Object data, boolean check) throws LifecycleException {
+    if (log.isDebugEnabled()) {
+        log.debug(sm.getString("lifecycleBase.setState", this, state));
+    }
+
+    // 是否校验状态
+    if (check) {
+        // Must have been triggered by one of the abstract methods (assume
+        // code in this class is correct)
+        // null is never a valid state
+        // state不允许为null
+        if (state == null) {
+            invalidTransition("null");
+            // Unreachable code - here to stop eclipse complaining about
+            // a possible NPE further down the method
+            return;
+        }
+
+        // Any method can transition to failed
+        // startInternal() permits STARTING_PREP to STARTING
+        // stopInternal() permits STOPPING_PREP to STOPPING and FAILED to
+        // STOPPING
+        if (!(state == LifecycleState.FAILED ||
+                (this.state == LifecycleState.STARTING_PREP &&
+                        state == LifecycleState.STARTING) ||
+                (this.state == LifecycleState.STOPPING_PREP &&
+                        state == LifecycleState.STOPPING) ||
+                (this.state == LifecycleState.FAILED &&
+                        state == LifecycleState.STOPPING))) {
+            // No other transition permitted
+            invalidTransition(state.name());
+        }
+    }
+
+    // 设置状态
+    this.state = state;
+    // 触发事件
+    String lifecycleEvent = state.getLifecycleEvent();
+    if (lifecycleEvent != null) {
+        fireLifecycleEvent(lifecycleEvent, data);
+    }
+}
+```
+设置完 state 的状态之后，就触发该状态的事件了，通知事件监听器
+```java
+/**
+ * The list of registered LifecycleListeners for event notifications.
+ */
+private final List<LifecycleListener> lifecycleListeners = new CopyOnWriteArrayList<>();
+
+
+protected void fireLifecycleEvent(String type, Object data) {
+    LifecycleEvent event = new LifecycleEvent(this, type, data);
+    for (LifecycleListener listener : lifecycleListeners) {
+        listener.lifecycleEvent(event);
+    }
+}
+```
+这里的 LifecycleListener 对象是在 Catalina 对象解析 server.xml 文件时就已经创建好并加到 lifecycleListeners 里的。这个不是特别重要就不细讲了。
+- start
+```java
+@Override
+public final synchronized void start() throws LifecycleException {
+    // `STARTING_PREP`、`STARTING`和`STARTED时，将忽略start()逻辑
+    if (LifecycleState.STARTING_PREP.equals(state) || LifecycleState.STARTING.equals(state) ||
+            LifecycleState.STARTED.equals(state)) {
+
+        if (log.isDebugEnabled()) {
+            Exception e = new LifecycleException();
+            log.debug(sm.getString("lifecycleBase.alreadyStarted", toString()), e);
+        } else if (log.isInfoEnabled()) {
+            log.info(sm.getString("lifecycleBase.alreadyStarted", toString()));
+        }
+
+        return;
+    }
+
+    // `NEW`状态时，执行init()方法
+    if (state.equals(LifecycleState.NEW)) {
+        init();
+    }
+
+    // `FAILED`状态时，执行stop()方法
+    else if (state.equals(LifecycleState.FAILED)) {
+        stop();
+    }
+
+    // 不是`INITIALIZED`和`STOPPED`时，则说明是非法的操作
+    else if (!state.equals(LifecycleState.INITIALIZED) &&
+            !state.equals(LifecycleState.STOPPED)) {
+        invalidTransition(Lifecycle.BEFORE_START_EVENT);
+    }
+
+    try {
+        // start前的状态设置
+        setStateInternal(LifecycleState.STARTING_PREP, null, false);
+        // start逻辑，抽象方法，由组件自行实现
+        startInternal();
+        // start过程中，可能因为某些原因失败，这时需要stop操作
+        if (state.equals(LifecycleState.FAILED)) {
+            // This is a 'controlled' failure. The component put itself into the
+            // FAILED state so call stop() to complete the clean-up.
+            stop();
+        } else if (!state.equals(LifecycleState.STARTING)) {
+            // Shouldn't be necessary but acts as a check that sub-classes are
+            // doing what they are supposed to.
+            invalidTransition(Lifecycle.AFTER_START_EVENT);
+        } else {
+            // 设置状态为STARTED
+            setStateInternal(LifecycleState.STARTED, null, false);
+        }
+    } catch (Throwable t) {
+        // This is an 'uncontrolled' failure so put the component into the
+        // FAILED state and throw an exception.
+        ExceptionUtils.handleThrowable(t);
+        setStateInternal(LifecycleState.FAILED, null, false);
+        throw new LifecycleException(sm.getString("lifecycleBase.startFail", toString()), t);
+    }
+}
+```
+- stop
+```java
+@Override
+public final synchronized void stop() throws LifecycleException {
+    // `STOPPING_PREP`、`STOPPING`和STOPPED时，将忽略stop()的执行
+    if (LifecycleState.STOPPING_PREP.equals(state) || LifecycleState.STOPPING.equals(state) ||
+            LifecycleState.STOPPED.equals(state)) {
+
+        if (log.isDebugEnabled()) {
+            Exception e = new LifecycleException();
+            log.debug(sm.getString("lifecycleBase.alreadyStopped", toString()), e);
+        } else if (log.isInfoEnabled()) {
+            log.info(sm.getString("lifecycleBase.alreadyStopped", toString()));
+        }
+
+        return;
+    }
+
+    // `NEW`状态时，直接将状态变更为`STOPPED`
+    if (state.equals(LifecycleState.NEW)) {
+        state = LifecycleState.STOPPED;
+        return;
+    }
+
+    // stop()的执行，必须要是`STARTED`和`FAILED`
+    if (!state.equals(LifecycleState.STARTED) && !state.equals(LifecycleState.FAILED)) {
+        invalidTransition(Lifecycle.BEFORE_STOP_EVENT);
+    }
+
+    try {
+        // `FAILED`时，直接触发BEFORE_STOP_EVENT事件
+        if (state.equals(LifecycleState.FAILED)) {
+            // Don't transition to STOPPING_PREP as that would briefly mark the
+            // component as available but do ensure the BEFORE_STOP_EVENT is
+            // fired
+            fireLifecycleEvent(BEFORE_STOP_EVENT, null);
+        } else {
+            // 设置状态为STOPPING_PREP
+            setStateInternal(LifecycleState.STOPPING_PREP, null, false);
+        }
+
+        // stop逻辑，抽象方法，组件自行实现
+        stopInternal();
+
+        // Shouldn't be necessary but acts as a check that sub-classes are
+        // doing what they are supposed to.
+        if (!state.equals(LifecycleState.STOPPING) && !state.equals(LifecycleState.FAILED)) {
+            invalidTransition(Lifecycle.AFTER_STOP_EVENT);
+        }
+        // 设置状态为STOPPED
+        setStateInternal(LifecycleState.STOPPED, null, false);
+    } catch (Throwable t) {
+        ExceptionUtils.handleThrowable(t);
+        setStateInternal(LifecycleState.FAILED, null, false);
+        throw new LifecycleException(sm.getString("lifecycleBase.stopFail",toString()), t);
+    } finally {
+        if (this instanceof Lifecycle.SingleUse) {
+            // Complete stop process first
+            setStateInternal(LifecycleState.STOPPED, null, false);
+            destroy();
+        }
+    }
+}
+```
+- destory
+```java
+@Override
+public final synchronized void destroy() throws LifecycleException {
+    // `FAILED`状态时，直接触发stop()逻辑
+    if (LifecycleState.FAILED.equals(state)) {
+        try {
+            // Triggers clean-up
+            stop();
+        } catch (LifecycleException e) {
+            // Just log. Still want to destroy.
+            log.warn(sm.getString(
+                    "lifecycleBase.destroyStopFail", toString()), e);
+        }
+    }
+
+    // `DESTROYING`和`DESTROYED`时，忽略destroy的执行
+    if (LifecycleState.DESTROYING.equals(state) ||
+            LifecycleState.DESTROYED.equals(state)) {
+
+        if (log.isDebugEnabled()) {
+            Exception e = new LifecycleException();
+            log.debug(sm.getString("lifecycleBase.alreadyDestroyed", toString()), e);
+        } else if (log.isInfoEnabled() && !(this instanceof Lifecycle.SingleUse)) {
+            // Rather than have every component that might need to call
+            // destroy() check for SingleUse, don't log an info message if
+            // multiple calls are made to destroy()
+            log.info(sm.getString("lifecycleBase.alreadyDestroyed", toString()));
+        }
+
+        return;
+    }
+
+    // 非法状态判断
+    if (!state.equals(LifecycleState.STOPPED) &&
+            !state.equals(LifecycleState.FAILED) &&
+            !state.equals(LifecycleState.NEW) &&
+            !state.equals(LifecycleState.INITIALIZED)) {
+        invalidTransition(Lifecycle.BEFORE_DESTROY_EVENT);
+    }
+
+    try {
+        // destroy前状态设置
+        setStateInternal(LifecycleState.DESTROYING, null, false);
+       // 抽象方法，组件自行实现
+        destroyInternal();
+        // destroy后状态设置
+        setStateInternal(LifecycleState.DESTROYED, null, false);
+    } catch (Throwable t) {
+        ExceptionUtils.handleThrowable(t);
+        setStateInternal(LifecycleState.FAILED, null, false);
+        throw new LifecycleException(
+                sm.getString("lifecycleBase.destroyFail",toString()), t);
+    }
+}
+```
+#### 6.8.2.3 用了什么设计模式？
+从上述源码看得出来，LifecycleBase是使用了状态机+模板模式来实现的。模板方法有下面这几个：
+```java
+// 初始化方法
+protected abstract void initInternal() throws LifecycleException;
+// 启动方法
+protected abstract void startInternal() throws LifecycleException;
+// 停止方法
+protected abstract void stopInternal() throws LifecycleException;
+// 销毁方法
+protected abstract void destroyInternal() throws LifecycleException;
+```
+## 6.9 Tomcat - 组件拓展管理:JMX和MBean
+### 6.9.1 为什么要了解JMX
+我们在上文中讲Lifecycle和相关组件时，你会发现其实还设计一块就是左侧的JMX和MBean的实现，即LifecycleMBeanBase.
+![28.tomcat-x-jmx-1.jpg](../../assets/images/04-主流框架/Servlet容器/28.tomcat-x-jmx-1.jpg)
+
+### 6.9.2 什么是JMX和MBean
+> JMX是java1.5中引入的新特性。JMX全称为“Java Management Extension”，即Java管理扩展。
+
+JMX(Java Management Extensions)是一个为应用程序植入管理功能的框架。JMX是一套标准的代理和服务，实际上，用户可以在任何Java应用程序中使用这些代理和服务实现管理。它使用了最简单的一类javaBean，使用有名的MBean，其内部包含了数据信息，这些信息可能是程序配置信息、模块信息、系统信息、统计信息等。MBean可以操作可读可写的属性、直接操作某些函数。
+
+**应用场景**：中间件软件WebLogic的管理页面就是基于JMX开发的，而JBoss则整个系统都基于JMX构架，我们今天讲的Tomcat也是基于JMX开发而来的。
+
+我们看下**JMX的结构**
+![29.tomcat-x-jmx-2.png](../../assets/images/04-主流框架/Servlet容器/29.tomcat-x-jmx-2.png)
+- `Probe Level `负责资源的检测（获取信息），包含MBeans，通常也叫做Instrumentation Level。MX管理构件（MBean）分为四种形式，分别是标准管理构件（Standard MBean）、动态管理构件（Dynamic MBean）、开放管理构件(Open Mbean)和模型管理构件(Model MBean)。
+-` The Agent Level `或者叫做MBean Server（代理服务器），是JMX的核心，连接Mbeans和远程监控程序。
+- `Remote Management Level` 通过connectors和adaptors来远程操作MBean Server。
+### 6.9.3 JMX使用案例
+> 上节只是引入和相关概念，这是不够的，你依然需要一个案例来帮助你理解JMX是如何工作的。
+#### 6.9.3.1 基于JMX的监控例子
+- `ServerImpl` - 我们模拟的某个服务器ServerImpl状态
+```java
+public class ServerImpl {
+    public final long startTime;
+    public ServerImpl() {
+        startTime = System.currentTimeMillis();
+    }
+}
+```
+- 由于MXBean规定，标准MBean也要实现一个接口，其所有向外界公开的方法都要在该接口中声明，否则管理系统就不能从中获取信息。此外，该接口的命名有一定的规范：在标准MBean类名后加上MBean后缀。这里的标准MBean类就是ServerMonitor，所以其对应的接口就应该是ServerMonitorMBean。因此ServerMonitorMBean的实现如下
+```java
+public interface ServerMonitorMBean {
+	public long getUpTime();
+}
+```
+- 使用ServerMonitor类来监测ServerImpl的状态，实现如下
+```java
+public class ServerMonitor implements ServerMonitorMBean {
+    private final ServerImpl target;
+    public ServerMonitor(ServerImpl target) {
+        this.target = target;
+    }
+
+    @Override
+    public long getUpTime() {
+        return System.currentTimeMillis() - target.startTime;
+    }
+}
+```
+- 对于管理系统来讲，这些MBean中公开的方法，最终会被JMX转换为属性（Attribute）、监听（Listener）和调用（Invoke）的概念。下面代码中Main类的manage方法就模拟了管理程序是如何获取监测到的属性，并表现监测结果。
+```java
+import javax.management.MBeanServer;
+import javax.management.MBeanServerFactory;
+import javax.management.ObjectName;
+
+public class Main {
+    private static ObjectName objectName;
+    private static MBeanServer mBeanServer;
+
+    public static void main(String[] args) throws Exception {
+        init();
+        manage();
+    }
+
+    private static void init() throws Exception {
+        ServerImpl serverImpl = new ServerImpl();
+        ServerMonitor serverMonitor = new ServerMonitor(serverImpl);
+        mBeanServer = MBeanServerFactory.createMBeanServer();
+        objectName = new ObjectName("objectName:id=ServerMonitor1");
+
+        // 注册到MBeanServer
+        mBeanServer.registerMBean(serverMonitor, objectName);
+    }
+
+    private static void manage() throws Exception {
+        // 获取属性值
+        long upTime = (Long)mBeanServer.getAttribute(objectName, "UpTime");
+        System.out.println(upTime);
+    }
+}
+```
+- 整体流程
+![30.tomcat-x-jmx-3.jpg](../../assets/images/04-主流框架/Servlet容器/30.tomcat-x-jmx-3.jpg)
+> 如上步骤就能让你理解常见的Jconsole是如何通过JMX获取属性，对象等监控信息的了。
+
+#### 6.9.3.2 基于JMX的HTMLAdapter案例
+> 上面例子，还没有体现adapter展示，比如上述信息在HTML页面中展示出来，再看一个例子
+- 我们的管理目标
+```java
+public class ControlTarget {
+	private long width;
+	private long length;
+	
+	public ControlTarget( long width, long length) {
+		this.width = width;
+		this.length = length;
+	}
+	
+	public long getWidth() {
+		return width;
+	}
+	
+	public long getLength() {
+		return length;
+	}
+}
+```
+- 根据标准MBean类抽象出符合规范的MBean类的接口，并修改标准MBean类实现该接口。
+```java
+public interface ControlImplMBean {
+	public long getLength();
+	public long getWidth();
+	public long getArea();
+	public double getLengthWidthRatio();
+}
+```
+- 根据需求，创建管理（目标程序）的类，其中包含操纵和获取（目标程序）特性的方法。这个类就是标准MBean类。
+```java
+public class ControlImpl implements ControlImplMBean {
+	private ControlTarget target;
+	
+	public ControlImpl(ControlTarget target) {
+		this.target = target;
+	}
+	
+	@Override
+	public long getLength() {
+		return target.getLength();
+	}
+	
+	@Override
+	public long getWidth() {
+		return target.getWidth();
+	}
+	
+	@Override
+	public long getArea() {
+		return target.getLength() * target.getWidth();
+	}
+	
+	@Override
+	public double getLengthWidthRatio() {
+		return  target.getLength() * 1.0f / target.getWidth();
+	}
+}
+```
+- 创建MBean的代理类，代理中包含创建MBeanServer、生成ObjectName、注册MBean、表现MBean
+```java
+import com.sun.jdmk.comm.HtmlAdaptorServer;
+
+import javax.management.*;
+
+public class ControlImplAgent {
+
+    public static void main(String[] args) throws MalformedObjectNameException, NullPointerException, InstanceAlreadyExistsException, MBeanRegistrationException, NotCompliantMBeanException {
+
+        // 创建MBeanServer
+        MBeanServer server = MBeanServerFactory.createMBeanServer();
+
+        // 为MBean创建ObjectName
+        ObjectName controlImplName = new ObjectName("controlImpl:name=firstOne");
+
+        // 注册MBean到Server中
+        server.registerMBean(new ControlImpl(new ControlTarget(50, 200)), controlImplName);
+
+        // 表现MBean(一种方式)
+        ObjectName adapterName = new ObjectName("ControlImpl:name=htmladapter,port=8082");
+        HtmlAdaptorServer adapter = new HtmlAdaptorServer();
+        server.registerMBean(adapter, adapterName);
+
+        adapter.start();
+        //adapter.stop();
+    }
+
+}
+```
+- 打开相关页面
+PS：相关Adapter可以通过<a href = 'https://download.csdn.net/download/com_ma/10379741'>这里</a>下载
+![31.tomcat-x-jmx-4.jpg](../../assets/images/04-主流框架/Servlet容器/31.tomcat-x-jmx-4.jpg)
+
+点击最后一个链接
+![32.tomcat-x-jmx-5.jpg](../../assets/images/04-主流框架/Servlet容器/32.tomcat-x-jmx-5.jpg)
+### 6.9.4 Tomcat如何通过JMX实现组件管理
+> 在简单理解了JMX概念和案例之后，我们便可以开始学习Tomcat基于JMX的实现了。
+![28.tomcat-x-jmx-1.jpg](../../assets/images/04-主流框架/Servlet容器/28.tomcat-x-jmx-1.jpg)
+
+上述图中，我们看下相关的类的用途
+- `MBeanRegistration`：Java JMX框架提供的注册MBean的接口，引入此接口是为了便于使用JMX提供的管理功能；
+- `JmxEnabled`: 此接口由组件实现，这些组件在创建时将注册到MBean服务器，在销毁时将注销这些组件。它主要是由实现生命周期的组件来实现的，但并不是专门为它们实现的。
+- `LifecycleMBeanBase`：Tomcat提供的对MBeanRegistration的抽象实现类，运用抽象模板模式将所有容器统一注册到JMX；
+
+此外，ContainerBase、StandardServer、StandardService、WebappLoader、Connector、StandardContext、StandardEngine、StandardHost、StandardWrapper等容器都继承了LifecycleMBeanBase，因此这些容器都具有了同样的生命周期并可以通过JMX进行管理。
+### 6.9.5 MBeanRegistration
+理解MBeanRegistration主要在于:
+- 两块内容：registered 和 unregistered
+- 两类方法：before和after
+```java
+public interface MBeanRegistration   {
+
+    // 在注册之前执行的方法，如果发生异常，MBean不会注册到MBean Server中
+    public ObjectName preRegister(MBeanServer server,
+                                  ObjectName name) throws java.lang.Exception;
+    // 在注册之后执行的方法，比如注册失败提供报错信息
+    public void postRegister(Boolean registrationDone);
+
+
+    // 在卸载前执行的方法
+    public void preDeregister() throws java.lang.Exception ;
+    // 在执行卸载之后的方法
+    public void postDeregister();
+
+ }
+```
 
 
 
