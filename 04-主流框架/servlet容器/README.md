@@ -4342,199 +4342,5227 @@ public interface MBeanRegistration   {
 
  }
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+### 6.9.6 JmxEnabled
+理解JmxEnabled：在设计上它引一个域（Domain）对注册的MBeans进行隔离，这个域类似于MBean上层的命名空间一样。
+```java
+public interface JmxEnabled extends MBeanRegistration {
+
+    // 获取MBean所属于的Domain
+    String getDomain();
+
+    // 设置Domain
+    void setDomain(String domain);
+
+    // 获取MBean的名字
+    ObjectName getObjectName();
+}
+```
+### 6.9.7 LifecycleMBeanBase
+这样理解LifecycleMBeanBase时，你便知道它包含两块，一个是Lifecycle的接口实现，一个是Jmx接口封装实现。
+
+从它实现的类继承和实现关系便能看出：
+```java
+public abstract class LifecycleMBeanBase extends LifecycleBase
+        implements JmxEnabled {
+
+}
+```
+#### 6.9.7.1 JmxEnabled的接口实现
+- Domain和mBeanName相关，代码很简单，不做详解
+```java
+/* Cache components of the MBean registration. */
+private String domain = null;
+private ObjectName oname = null;
+@Deprecated
+protected MBeanServer mserver = null;
+
+/**
+  * Specify the domain under which this component should be registered. Used
+  * with components that cannot (easily) navigate the component hierarchy to
+  * determine the correct domain to use.
+  */
+@Override
+public final void setDomain(String domain) {
+    this.domain = domain;
+}
+
+
+/**
+  * Obtain the domain under which this component will be / has been
+  * registered.
+  */
+@Override
+public final String getDomain() {
+    if (domain == null) {
+        domain = getDomainInternal();
+    }
+
+    if (domain == null) {
+        domain = Globals.DEFAULT_MBEAN_DOMAIN;
+    }
+
+    return domain;
+}
+
+
+/**
+  * Method implemented by sub-classes to identify the domain in which MBeans
+  * should be registered.
+  *
+  * @return  The name of the domain to use to register MBeans.
+  */
+protected abstract String getDomainInternal();
+
+
+/**
+  * Obtain the name under which this component has been registered with JMX.
+  */
+@Override
+public final ObjectName getObjectName() {
+    return oname;
+}
+
+
+/**
+  * Allow sub-classes to specify the key properties component of the
+  * {@link ObjectName} that will be used to register this component.
+  *
+  * @return  The string representation of the key properties component of the
+  *          desired {@link ObjectName}
+  */
+protected abstract String getObjectNameKeyProperties();
+```
+- 注册和卸载的相关方法
+```java
+/**
+  * Utility method to enable sub-classes to easily register additional
+  * components that don't implement {@link JmxEnabled} with an MBean server.
+  * <br>
+  * Note: This method should only be used once {@link #initInternal()} has
+  * been called and before {@link #destroyInternal()} has been called.
+  *
+  * @param obj                       The object the register
+  * @param objectNameKeyProperties   The key properties component of the
+  *                                  object name to use to register the
+  *                                  object
+  *
+  * @return  The name used to register the object
+  */
+protected final ObjectName register(Object obj,
+        String objectNameKeyProperties) {
+
+    // Construct an object name with the right domain
+    StringBuilder name = new StringBuilder(getDomain());
+    name.append(':');
+    name.append(objectNameKeyProperties);
+
+    ObjectName on = null;
+
+    try {
+        on = new ObjectName(name.toString());
+        Registry.getRegistry(null, null).registerComponent(obj, on, null);
+    } catch (MalformedObjectNameException e) {
+        log.warn(sm.getString("lifecycleMBeanBase.registerFail", obj, name),
+                e);
+    } catch (Exception e) {
+        log.warn(sm.getString("lifecycleMBeanBase.registerFail", obj, name),
+                e);
+    }
+
+    return on;
+}
+
+
+/**
+  * Utility method to enable sub-classes to easily unregister additional
+  * components that don't implement {@link JmxEnabled} with an MBean server.
+  * <br>
+  * Note: This method should only be used once {@link #initInternal()} has
+  * been called and before {@link #destroyInternal()} has been called.
+  *
+  * @param objectNameKeyProperties   The key properties component of the
+  *                                  object name to use to unregister the
+  *                                  object
+  */
+protected final void unregister(String objectNameKeyProperties) {
+    // Construct an object name with the right domain
+    StringBuilder name = new StringBuilder(getDomain());
+    name.append(':');
+    name.append(objectNameKeyProperties);
+    Registry.getRegistry(null, null).unregisterComponent(name.toString());
+}
+
+
+/**
+  * Utility method to enable sub-classes to easily unregister additional
+  * components that don't implement {@link JmxEnabled} with an MBean server.
+  * <br>
+  * Note: This method should only be used once {@link #initInternal()} has
+  * been called and before {@link #destroyInternal()} has been called.
+  *
+  * @param on    The name of the component to unregister
+  */
+protected final void unregister(ObjectName on) {
+    Registry.getRegistry(null, null).unregisterComponent(on);
+}
+
+
+/**
+  * Not used - NOOP.
+  */
+@Override
+public final void postDeregister() {
+    // NOOP
+}
+
+
+/**
+  * Not used - NOOP.
+  */
+@Override
+public final void postRegister(Boolean registrationDone) {
+    // NOOP
+}
+
+
+/**
+  * Not used - NOOP.
+  */
+@Override
+public final void preDeregister() throws Exception {
+    // NOOP
+}
+
+
+/**
+  * Allows the object to be registered with an alternative
+  * {@link MBeanServer} and/or {@link ObjectName}.
+  */
+@Override
+public final ObjectName preRegister(MBeanServer server, ObjectName name)
+        throws Exception {
+
+    this.mserver = server;
+    this.oname = name;
+    this.domain = name.getDomain().intern();
+
+    return oname;
+}
+```
+#### 6.9.7.2 LifecycleBase相关接口
+这样你就知道这里抽象出的LifecycleBase如下两个方法的用意，就是为了注册和卸载MBean
+```java
+/**
+注册MBean
+  */
+@Override
+protected void initInternal() throws LifecycleException {
+    // If oname is not null then registration has already happened via
+    // preRegister().
+    if (oname == null) {
+        mserver = Registry.getRegistry(null, null).getMBeanServer();
+
+        oname = register(this, getObjectNameKeyProperties());
+    }
+}
+
+
+/**
+  卸载MBean
+  */
+@Override
+protected void destroyInternal() throws LifecycleException {
+    unregister(oname);
+}
+```
+## 6.10 Tomcat - 事件的监听机制：观察者模式
+### 6.10.1 引入
+> 前几篇文章中，我们经常会涉及到Listener相关的内容，比如如下内容中；我们通过引入这些内容，来具体探讨事件监听机制。
+- Lifecycle中出现的监听器
+
+（老的版本中是LifecycleSupport接口）
+```java
+public interface Lifecycle {
+    /** 第1类：针对监听器 **/
+    // 添加监听器
+    public void addLifecycleListener(LifecycleListener listener);
+    // 获取所以监听器
+    public LifecycleListener[] findLifecycleListeners();
+    // 移除某个监听器
+    public void removeLifecycleListener(LifecycleListener listener);
+    ...
+}
+```
+- 多个组件中出现监听器
+
+对应到整体架构图中
+![33.tomcat-x-listener-1.jpg](../../assets/images/04-主流框架/Servlet容器/33.tomcat-x-listener-1.jpg)
+
+对应到代码中
+![34.tomcat-x-listener-2.jpg](../../assets/images/04-主流框架/Servlet容器/34.tomcat-x-listener-2.jpg)
+### 6.10.2 知识准备
+> 理解上述监听器的需要你有些知识储备，一是设计模式中的观察者模式，另一个是事件监听机制。
+#### 6.10.2.1 观察者模式
+> 观察者模式(observer pattern): 在对象之间定义一对多的依赖, 这样一来, 当一个对象改变状态, 依赖它的对象都会收到通知, 并自动更新
+
+**主题(Subject)**具有注册和移除观察者、并通知所有观察者的功能，主题是通过维护一张观察者列表来实现这些操作的。
+
+**观察者(Observer)**的注册功能需要调用主题的 registerObserver() 方法。
+![35.观察者模式.png](../../assets/images/04-主流框架/Servlet容器/35.观察者模式.png)
+
+**实现** 天气数据布告板会在天气信息发生改变时更新其内容，布告板有多个，并且在将来会继续增加。
+
+- 主题接口定义(被观察的对象)
+```java
+public interface Subject {
+    //注册观察者
+    void resisterObserver(Observer o);
+    //移除观察者
+    void removeObserver(Observer o);
+    //恢复监听
+    void notifyObserver();
+}
+```
+- 具体主题(天气数据)
+```java
+public class WeatherData implements Subject {
+    private List<Observer> observers;
+    private float temperature;
+    private float humidity;
+    private float pressure;
+
+    public WeatherData() {
+        observers = new ArrayList<>();
+    }
+
+    public void setMeasurements(float temperature, float humidity, float pressure) {
+        this.temperature = temperature;
+        this.humidity = humidity;
+        this.pressure = pressure;
+        notifyObserver();
+    }
+
+    @Override
+    public void resisterObserver(Observer o) {
+        observers.add(o);
+    }
+
+    @Override
+    public void removeObserver(Observer o) {
+        int i = observers.indexOf(o);
+        if (i >= 0) {
+            observers.remove(i);
+        }
+    }
+
+    @Override
+    public void notifyObserver() {
+        for (Observer o : observers) {
+            o.update(temperature, humidity, pressure);
+        }
+    }
+}
+```
+- 监听者接口(就收通知并作出动作)
+```java
+public interface Observer {
+    //接收到通知进行动作的方法
+    void update(float temp, float humidity, float pressure);
+}
+```
+- 具体监听者
+```java
+public class StatisticsDisplay implements Observer {
+
+    public StatisticsDisplay(Subject weatherData) {
+        weatherData.resisterObserver(this);
+    }
+
+    @Override
+    public void update(float temp, float humidity, float pressure) {
+        System.out.println("StatisticsDisplay.update: " + temp + " " + humidity + " " + pressure);
+    }
+}
+```
+```java
+public class CurrentConditionsDisplay implements Observer {
+
+    public CurrentConditionsDisplay(Subject weatherData) {
+        weatherData.resisterObserver(this);
+    }
+
+    @Override
+    public void update(float temp, float humidity, float pressure) {
+        System.out.println("CurrentConditionsDisplay.update: " + temp + " " + humidity + " " + pressure);
+    }
+}
+```
+- 主函数
+```java
+public class WeatherStation {
+    public static void main(String[] args) {
+        WeatherData weatherData = new WeatherData();
+        CurrentConditionsDisplay currentConditionsDisplay = new CurrentConditionsDisplay(weatherData);
+        StatisticsDisplay statisticsDisplay = new StatisticsDisplay(weatherData);
+
+        weatherData.setMeasurements(0, 0, 0);
+        weatherData.setMeasurements(1, 1, 1);
+    }
+}
+```
+- 输出
+```java
+CurrentConditionsDisplay.update: 0.0 0.0 0.0
+StatisticsDisplay.update: 0.0 0.0 0.0
+CurrentConditionsDisplay.update: 1.0 1.0 1.0
+StatisticsDisplay.update: 1.0 1.0 1.0
+```
+#### 6.10.2.2 事件监听机制
+> JDK 1.0及更早版本的事件模型基于职责链模式，但是这种模型不适用于复杂的系统，因此在JDK 1.1及以后的各个版本中，事件处理模型采用基于观察者模式的委派事件模型(DelegationEvent Model, DEM)，即一个Java组件所引发的事件并不由引发事件的对象自己来负责处理，而是委派给独立的事件处理对象负责。这并不是说事件模型是基于Observer和Observable的，事件模型与Observer和Observable没有任何关系，Observer和Observable只是观察者模式的一种实现而已。
+
+java中的事件机制的参与者有**3种角色**
+- `Event Eource`：事件源，发起事件的主体。
+- `Event Object`：事件状态对象，传递的信息载体，就好比Watcher的update方法的参数，可以是事件源本身，一般作为参数存在于listerner 的方法之中。
+- `Event Listener`：事件监听器，当它监听到event object产生的时候，它就调用相应的方法，进行处理。
+
+其实还有个东西比较重要：事件环境，在这个环境中，可以添加事件监听器，可以产生事件，可以触发事件监听器。
+![36.tomcat-x-listener-3.png](../../assets/images/04-主流框架/Servlet容器/36.tomcat-x-listener-3.png)
+
+这个和观察者模式大同小异，但要比观察者模式复杂一些。一些逻辑需要手动实现，比如注册监听器，删除监听器，获取监听器数量等等，这里的eventObject也是你自己实现的。
+> 下面我们看下Java中事件机制的实现，理解下面的类结构将帮助你Tomcat中监听机制的实现。
+- 监听器
+```java
+public interface EventListener extends java.util.EventListener {
+    void handleEvent(EventObject event);
+}
+```
+- 监听事件
+```java
+public class EventObject extends java.util.EventObject{
+    private static final long serialVersionUID = 1L;
+    public EventObject(Object source){
+        super(source);
+    }
+    public void doEvent(){
+        System.out.println("通知一个事件源 source :"+ this.getSource());
+    }
+}
+```
+- 事件源：
+```java
+public class EventSource {
+    //监听器列表，监听器的注册则加入此列表
+    private Vector<EventListener> ListenerList = new Vector<>();
+ 
+    //注册监听器
+    public void addListener(EventListener eventListener) {
+        ListenerList.add(eventListener);
+    }
+ 
+    //撤销注册
+    public void removeListener(EventListener eventListener) {
+        ListenerList.remove(eventListener);
+    }
+ 
+    //接受外部事件
+    public void notifyListenerEvents(EventObject event) {
+        for (EventListener eventListener : ListenerList) {
+            eventListener.handleEvent(event);
+        }
+    }
+
+}
+```
+- 测试
+```java
+public static void main(String[] args) {
+    EventSource eventSource = new EventSource();
+    eventSource.addListener(new EventListener() {
+        @Override
+        public void handleEvent(EventObject event) {
+            event.doEvent();
+            if (event.getSource().equals("closeWindows")) {
+                System.out.println("doClose");
+            }
+        }
+    });
+    eventSource.addListener(new EventListener() {
+        @Override
+        public void handleEvent(EventObject event) {
+            System.out.println("gogogo");
+        }
+    });
+    /*
+      * 传入openWindows事件，通知listener，事件监听器，
+      对open事件感兴趣的listener将会执行
+      **/
+    eventSource.notifyListenerEvents(new EventObject("openWindows"));
+}
+```
+### 6.10.3 Tomcat中监听机制（Server部分）
+> 基于上面的事件监听的代码结构，你就能知道Tomcat中事件监听的类结构了。
+- 首先要定义一个监听器，它有一个监听方法，用来接受一个监听事件
+```java
+public interface LifecycleListener {
+    /**
+     * Acknowledge the occurrence of the specified event.
+     *
+     * @param event LifecycleEvent that has occurred
+     */
+    public void lifecycleEvent(LifecycleEvent event);
+}
+```
+- 监听事件, 由于它是lifecycle的监听器，所以它握有一个lifecycle实例
+```java
+/**
+ * General event for notifying listeners of significant changes on a component
+ * that implements the Lifecycle interface.
+ *
+ * @author Craig R. McClanahan
+ */
+public final class LifecycleEvent extends EventObject {
+
+    private static final long serialVersionUID = 1L;
+
+
+    /**
+     * Construct a new LifecycleEvent with the specified parameters.
+     *
+     * @param lifecycle Component on which this event occurred
+     * @param type Event type (required)
+     * @param data Event data (if any)
+     */
+    public LifecycleEvent(Lifecycle lifecycle, String type, Object data) {
+        super(lifecycle);
+        this.type = type;
+        this.data = data;
+    }
+
+
+    /**
+     * The event data associated with this event.
+     */
+    private final Object data;
+
+
+    /**
+     * The event type this instance represents.
+     */
+    private final String type;
+
+
+    /**
+     * @return the event data of this event.
+     */
+    public Object getData() {
+        return data;
+    }
+
+
+    /**
+     * @return the Lifecycle on which this event occurred.
+     */
+    public Lifecycle getLifecycle() {
+        return (Lifecycle) getSource();
+    }
+
+
+    /**
+     * @return the event type of this event.
+     */
+    public String getType() {
+        return this.type;
+    }
+}
+```
+- 事件源的接口和实现
+
+事件源的接口：在Lifecycle中
+```java
+public interface Lifecycle {
+    /** 第1类：针对监听器 **/
+    // 添加监听器
+    public void addLifecycleListener(LifecycleListener listener);
+    // 获取所以监听器
+    public LifecycleListener[] findLifecycleListeners();
+    // 移除某个监听器
+    public void removeLifecycleListener(LifecycleListener listener);
+    ...
+}
+```
+事件源的实现： 在 LifecycleBase 中
+```java
+ /**
+  * The list of registered LifecycleListeners for event notifications.
+  */
+private final List<LifecycleListener> lifecycleListeners = new CopyOnWriteArrayList<>();
+
+/**
+  * {@inheritDoc}
+  */
+@Override
+public void addLifecycleListener(LifecycleListener listener) {
+    lifecycleListeners.add(listener);
+}
+
+
+/**
+  * {@inheritDoc}
+  */
+@Override
+public LifecycleListener[] findLifecycleListeners() {
+    return lifecycleListeners.toArray(new LifecycleListener[0]);
+}
+
+
+/**
+  * {@inheritDoc}
+  */
+@Override
+public void removeLifecycleListener(LifecycleListener listener) {
+    lifecycleListeners.remove(listener);
+}
+
+
+/**
+  * Allow sub classes to fire {@link Lifecycle} events.
+  *
+  * @param type  Event type
+  * @param data  Data associated with event.
+  */
+protected void fireLifecycleEvent(String type, Object data) {
+    LifecycleEvent event = new LifecycleEvent(this, type, data);
+    for (LifecycleListener listener : lifecycleListeners) {
+        listener.lifecycleEvent(event);
+    }
+}
+```
+- 接下来是调用了
+
+比如在LifecycleBase, 停止方法是基于LifecycleState状态改变来触发上面的fireLifecycleEvent方法：
+```java
+@Override
+public final synchronized void stop() throws LifecycleException {
+
+    if (LifecycleState.STOPPING_PREP.equals(state) || LifecycleState.STOPPING.equals(state) ||
+            LifecycleState.STOPPED.equals(state)) {
+
+        if (log.isDebugEnabled()) {
+            Exception e = new LifecycleException();
+            log.debug(sm.getString("lifecycleBase.alreadyStopped", toString()), e);
+        } else if (log.isInfoEnabled()) {
+            log.info(sm.getString("lifecycleBase.alreadyStopped", toString()));
+        }
+
+        return;
+    }
+
+    if (state.equals(LifecycleState.NEW)) {
+        state = LifecycleState.STOPPED;
+        return;
+    }
+
+    if (!state.equals(LifecycleState.STARTED) && !state.equals(LifecycleState.FAILED)) {
+        invalidTransition(Lifecycle.BEFORE_STOP_EVENT);
+    }
+
+    try {
+        if (state.equals(LifecycleState.FAILED)) {
+            // 触发事件
+            fireLifecycleEvent(BEFORE_STOP_EVENT, null);
+        } else {
+            setStateInternal(LifecycleState.STOPPING_PREP, null, false);
+        }
+
+        stopInternal();
+
+        // Shouldn't be necessary but acts as a check that sub-classes are
+        // doing what they are supposed to.
+        if (!state.equals(LifecycleState.STOPPING) && !state.equals(LifecycleState.FAILED)) {
+            invalidTransition(Lifecycle.AFTER_STOP_EVENT);
+        }
+
+        setStateInternal(LifecycleState.STOPPED, null, false);
+    } catch (Throwable t) {
+        handleSubClassException(t, "lifecycleBase.stopFail", toString());
+    } finally {
+        if (this instanceof Lifecycle.SingleUse) {
+            // Complete stop process first
+            setStateInternal(LifecycleState.STOPPED, null, false);
+            destroy();
+        }
+    }
+}
+```
+## 6.11 Tomcat - Server的设计和实现: StandardServer
+### 6.11.1 理解思路
+- **第一：抓住StandardServer整体类依赖结构来理解**
+![37.tomcat-x-server-1.jpg](../../assets/images/04-主流框架/Servlet容器/37.tomcat-x-server-1.jpg)
+
+- **第二：结合server.xml来理解**
+
+见下文具体阐述。
+- **第三：结合Server Config官方配置文档**
+
+http://tomcat.apache.org/tomcat-9.0-doc/config/server.html
+### 6.11.2 Server结构设计
+> 我们需要从高一点的维度去理解Server的结构设计，而不是多少方法多少代码；这里的理解一定是要结合Server.xml对应理解。
+#### 6.11.2.1 server.xml
+- 首先要看下server.xml，这样你便知道了需要了解的四个部分
+```xml
+<Server port="8005" shutdown="SHUTDOWN">
+  <!-- 1.属性说明
+    port:指定一个端口，这个端口负责监听关闭Tomcat的请求
+    shutdown:向以上端口发送的关闭服务器的命令字符串
+  -->
+
+  <!-- 2.Listener 相关 -->
+  <Listener className="org.apache.catalina.core.AprLifecycleListener" />
+  <Listener className="org.apache.catalina.mbeans.ServerLifecycleListener" />
+  <Listener className="org.apache.catalina.mbeans.GlobalResourcesLifecycleListener" />
+  <Listener className="org.apache.catalina.storeconfig.StoreConfigLifecycleListener"/>
+
+  <!-- 3.GlobalNamingResources 相关 -->
+  <GlobalNamingResources>
+
+    <Environment name="simpleValue" type="java.lang.Integer" value="30"/>
+
+    <Resource name="UserDatabase" auth="Container"
+              type="org.apache.catalina.UserDatabase"
+       description="User database that can be updated and saved"
+           factory="org.apache.catalina.users.MemoryUserDatabaseFactory"
+          pathname="conf/tomcat-users.xml" />
+
+  </GlobalNamingResources>
+
+  <!-- 4.service 相关 -->
+  <Service name="Catalina">
+
+  </Service>
+</Server>
+```
+#### 6.11.2.2 Server中的接口设计
+- **公共属性**, 包括上面的port，shutdown, address等
+```java
+/**
+  * @return the port number we listen to for shutdown commands.
+  *
+  * @see #getPortOffset()
+  * @see #getPortWithOffset()
+  */
+public int getPort();
+
+
+/**
+  * Set the port number we listen to for shutdown commands.
+  *
+  * @param port The new port number
+  *
+  * @see #setPortOffset(int)
+  */
+public void setPort(int port);
+
+/**
+  * Get the number that offsets the port used for shutdown commands.
+  * For example, if port is 8005, and portOffset is 1000,
+  * the server listens at 9005.
+  *
+  * @return the port offset
+  */
+public int getPortOffset();
+
+/**
+  * Set the number that offsets the server port used for shutdown commands.
+  * For example, if port is 8005, and you set portOffset to 1000,
+  * connector listens at 9005.
+  *
+  * @param portOffset sets the port offset
+  */
+public void setPortOffset(int portOffset);
+
+/**
+  * Get the actual port on which server is listening for the shutdown commands.
+  * If you do not set port offset, port is returned. If you set
+  * port offset, port offset + port is returned.
+  *
+  * @return the port with offset
+  */
+public int getPortWithOffset();
+
+/**
+  * @return the address on which we listen to for shutdown commands.
+  */
+public String getAddress();
+
+
+/**
+  * Set the address on which we listen to for shutdown commands.
+  *
+  * @param address The new address
+  */
+public void setAddress(String address);
+
+
+/**
+  * @return the shutdown command string we are waiting for.
+  */
+public String getShutdown();
+
+
+/**
+  * Set the shutdown command we are waiting for.
+  *
+  * @param shutdown The new shutdown command
+  */
+public void setShutdown(String shutdown);
+
+/**
+  * Get the utility thread count.
+  * @return the thread count
+  */
+public int getUtilityThreads();
+
+
+/**
+  * Set the utility thread count.
+  * @param utilityThreads the new thread count
+  */
+public void setUtilityThreads(int utilityThreads);
+```
+
+| 属性名 | 描述 |
+|--------|------|
+| className | 使用的Java类名称。此类必须实现org.apache.catalina.Server接口。如果未指定类名，则将使用标准实现。 |
+| address | 该服务器等待关闭命令的TCP / IP地址。如果未指定地址，则使用localhost。 |
+| port | 该服务器等待关闭命令的TCP / IP端口号。设置为-1禁用关闭端口。注意：当使用Apache Commons Daemon启动Tomcat（在Windows上作为服务运行，或者在un * xes上使用jsvc运行）时，禁用关闭端口非常有效。但是，当使用标准shell脚本运行Tomcat时，不能使用它，因为它将阻止shutdown.bat |
+| portOffset | 应用于port和嵌套到任何嵌套连接器的端口的偏移量。它必须是一个非负整数。如果未指定，则使用默认值0。 |
+| shutdown | 为了关闭Tomcat，必须通过与指定端口号的TCP / IP连接接收的命令字符串。 |
+| utilityThreads | 此service中用于各种实用程序任务（包括重复执行的线程）的线程数。特殊值0将导致使用该值 Runtime.getRuntime().availableProcessors()。Runtime.getRuntime().availableProcessors() + value除非小于1，否则将使用负值， 在这种情况下将使用1个线程。预设值是1。 |
+
+- NamingResources
+```java
+/**
+  * @return the global naming resources.
+  */
+public NamingResourcesImpl getGlobalNamingResources();
+
+
+/**
+  * Set the global naming resources.
+  *
+  * @param globalNamingResources The new global naming resources
+  */
+public void setGlobalNamingResources
+    (NamingResourcesImpl globalNamingResources);
+
+
+/**
+  * @return the global naming resources context.
+  */
+public javax.naming.Context getGlobalNamingContext();
+```
+- Service相关， 包括添加Service， 查找Service，删除service等
+```java
+/**
+  * Add a new Service to the set of defined Services.
+  *
+  * @param service The Service to be added
+  */
+public void addService(Service service);
+
+
+/**
+  * Wait until a proper shutdown command is received, then return.
+  */
+public void await();
+
+
+/**
+  * Find the specified Service
+  *
+  * @param name Name of the Service to be returned
+  * @return the specified Service, or <code>null</code> if none exists.
+  */
+public Service findService(String name);
+
+
+/**
+  * @return the set of Services defined within this Server.
+  */
+public Service[] findServices();
+
+
+/**
+  * Remove the specified Service from the set associated from this
+  * Server.
+  *
+  * @param service The Service to be removed
+  */
+public void removeService(Service service);
+```
+### 6.11.3 StandardServer的实现
+#### 6.11.3.1 线程池
+```java
+// 此service中用于各种实用程序任务（包括重复执行的线程）的线程数
+@Override
+public int getUtilityThreads() {
+    return utilityThreads;
+}
+
+
+/**
+  * 获取内部进程数计算逻辑：
+  * > 0时，即utilityThreads的值。
+  * <=0时，Runtime.getRuntime().availableProcessors() + result...
+  */
+private static int getUtilityThreadsInternal(int utilityThreads) {
+    int result = utilityThreads;
+    if (result <= 0) {
+        result = Runtime.getRuntime().availableProcessors() + result;
+        if (result < 2) {
+            result = 2;
+        }
+    }
+    return result;
+}
+
+
+@Override
+public void setUtilityThreads(int utilityThreads) {
+    // Use local copies to ensure thread safety
+    int oldUtilityThreads = this.utilityThreads;
+    if (getUtilityThreadsInternal(utilityThreads) < getUtilityThreadsInternal(oldUtilityThreads)) {
+        return;
+    }
+    this.utilityThreads = utilityThreads;
+    if (oldUtilityThreads != utilityThreads && utilityExecutor != null) {
+        reconfigureUtilityExecutor(getUtilityThreadsInternal(utilityThreads));
+    }
+}
+
+// 线程池
+private synchronized void reconfigureUtilityExecutor(int threads) {
+    // The ScheduledThreadPoolExecutor doesn't use MaximumPoolSize, only CorePoolSize is available
+    if (utilityExecutor != null) {
+        utilityExecutor.setCorePoolSize(threads);
+    } else {
+        ScheduledThreadPoolExecutor scheduledThreadPoolExecutor =
+                new ScheduledThreadPoolExecutor(threads,
+                        new TaskThreadFactory("Catalina-utility-", utilityThreadsAsDaemon, Thread.MIN_PRIORITY));
+        scheduledThreadPoolExecutor.setKeepAliveTime(10, TimeUnit.SECONDS);
+        scheduledThreadPoolExecutor.setRemoveOnCancelPolicy(true);
+        scheduledThreadPoolExecutor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        utilityExecutor = scheduledThreadPoolExecutor;
+        utilityExecutorWrapper = new org.apache.tomcat.util.threads.ScheduledThreadPoolExecutor(utilityExecutor);
+    }
+}
+
+
+/**
+  * Get if the utility threads are daemon threads.
+  * @return the threads daemon flag
+  */
+public boolean getUtilityThreadsAsDaemon() {
+    return utilityThreadsAsDaemon;
+}
+
+
+/**
+  * Set the utility threads daemon flag. The default value is true.
+  * @param utilityThreadsAsDaemon the new thread daemon flag
+  */
+public void setUtilityThreadsAsDaemon(boolean utilityThreadsAsDaemon) {
+    this.utilityThreadsAsDaemon = utilityThreadsAsDaemon;
+}
+```
+#### 6.11.3.2 Service相关方法实现
+里面的方法都很简单。
+```java
+/**
+  * Add a new Service to the set of defined Services.
+  *
+  * @param service The Service to be added
+  */
+@Override
+public void addService(Service service) {
+
+    service.setServer(this);
+
+    synchronized (servicesLock) {
+        Service results[] = new Service[services.length + 1];
+        System.arraycopy(services, 0, results, 0, services.length);
+        results[services.length] = service;
+        services = results;
+
+        if (getState().isAvailable()) {
+            try {
+                service.start();
+            } catch (LifecycleException e) {
+                // Ignore
+            }
+        }
+
+        // Report this property change to interested listeners
+        support.firePropertyChange("service", null, service);
+    }
+
+}
+
+public void stopAwait() {
+    stopAwait=true;
+    Thread t = awaitThread;
+    if (t != null) {
+        ServerSocket s = awaitSocket;
+        if (s != null) {
+            awaitSocket = null;
+            try {
+                s.close();
+            } catch (IOException e) {
+                // Ignored
+            }
+        }
+        t.interrupt();
+        try {
+            t.join(1000);
+        } catch (InterruptedException e) {
+            // Ignored
+        }
+    }
+}
+
+/**
+  * Wait until a proper shutdown command is received, then return.
+  * This keeps the main thread alive - the thread pool listening for http
+  * connections is daemon threads.
+  */
+@Override
+public void await() {
+    // Negative values - don't wait on port - tomcat is embedded or we just don't like ports
+    if (getPortWithOffset() == -2) {
+        // undocumented yet - for embedding apps that are around, alive.
+        return;
+    }
+    if (getPortWithOffset() == -1) {
+        try {
+            awaitThread = Thread.currentThread();
+            while(!stopAwait) {
+                try {
+                    Thread.sleep( 10000 );
+                } catch( InterruptedException ex ) {
+                    // continue and check the flag
+                }
+            }
+        } finally {
+            awaitThread = null;
+        }
+        return;
+    }
+
+    // Set up a server socket to wait on
+    try {
+        awaitSocket = new ServerSocket(getPortWithOffset(), 1,
+                InetAddress.getByName(address));
+    } catch (IOException e) {
+        log.error(sm.getString("standardServer.awaitSocket.fail", address,
+                String.valueOf(getPortWithOffset()), String.valueOf(getPort()),
+                String.valueOf(getPortOffset())), e);
+        return;
+    }
+
+    try {
+        awaitThread = Thread.currentThread();
+
+        // Loop waiting for a connection and a valid command
+        while (!stopAwait) {
+            ServerSocket serverSocket = awaitSocket;
+            if (serverSocket == null) {
+                break;
+            }
+
+            // Wait for the next connection
+            Socket socket = null;
+            StringBuilder command = new StringBuilder();
+            try {
+                InputStream stream;
+                long acceptStartTime = System.currentTimeMillis();
+                try {
+                    socket = serverSocket.accept();
+                    socket.setSoTimeout(10 * 1000);  // Ten seconds
+                    stream = socket.getInputStream();
+                } catch (SocketTimeoutException ste) {
+                    // This should never happen but bug 56684 suggests that
+                    // it does.
+                    log.warn(sm.getString("standardServer.accept.timeout",
+                            Long.valueOf(System.currentTimeMillis() - acceptStartTime)), ste);
+                    continue;
+                } catch (AccessControlException ace) {
+                    log.warn(sm.getString("standardServer.accept.security"), ace);
+                    continue;
+                } catch (IOException e) {
+                    if (stopAwait) {
+                        // Wait was aborted with socket.close()
+                        break;
+                    }
+                    log.error(sm.getString("standardServer.accept.error"), e);
+                    break;
+                }
+
+                // Read a set of characters from the socket
+                int expected = 1024; // Cut off to avoid DoS attack
+                while (expected < shutdown.length()) {
+                    if (random == null)
+                        random = new Random();
+                    expected += (random.nextInt() % 1024);
+                }
+                while (expected > 0) {
+                    int ch = -1;
+                    try {
+                        ch = stream.read();
+                    } catch (IOException e) {
+                        log.warn(sm.getString("standardServer.accept.readError"), e);
+                        ch = -1;
+                    }
+                    // Control character or EOF (-1) terminates loop
+                    if (ch < 32 || ch == 127) {
+                        break;
+                    }
+                    command.append((char) ch);
+                    expected--;
+                }
+            } finally {
+                // Close the socket now that we are done with it
+                try {
+                    if (socket != null) {
+                        socket.close();
+                    }
+                } catch (IOException e) {
+                    // Ignore
+                }
+            }
+
+            // Match against our command string
+            boolean match = command.toString().equals(shutdown);
+            if (match) {
+                log.info(sm.getString("standardServer.shutdownViaPort"));
+                break;
+            } else
+                log.warn(sm.getString("standardServer.invalidShutdownCommand", command.toString()));
+        }
+    } finally {
+        ServerSocket serverSocket = awaitSocket;
+        awaitThread = null;
+        awaitSocket = null;
+
+        // Close the server socket and return
+        if (serverSocket != null) {
+            try {
+                serverSocket.close();
+            } catch (IOException e) {
+                // Ignore
+            }
+        }
+    }
+}
+
+
+/**
+  * @return the specified Service (if it exists); otherwise return
+  * <code>null</code>.
+  *
+  * @param name Name of the Service to be returned
+  */
+@Override
+public Service findService(String name) {
+    if (name == null) {
+        return null;
+    }
+    synchronized (servicesLock) {
+        for (Service service : services) {
+            if (name.equals(service.getName())) {
+                return service;
+            }
+        }
+    }
+    return null;
+}
+
+
+/**
+  * @return the set of Services defined within this Server.
+  */
+@Override
+public Service[] findServices() {
+    return services;
+}
+
+/**
+  * @return the JMX service names.
+  */
+public ObjectName[] getServiceNames() {
+    ObjectName onames[]=new ObjectName[ services.length ];
+    for( int i=0; i<services.length; i++ ) {
+        onames[i]=((StandardService)services[i]).getObjectName();
+    }
+    return onames;
+}
+
+
+/**
+  * Remove the specified Service from the set associated from this
+  * Server.
+  *
+  * @param service The Service to be removed
+  */
+@Override
+public void removeService(Service service) {
+
+    synchronized (servicesLock) {
+        int j = -1;
+        for (int i = 0; i < services.length; i++) {
+            if (service == services[i]) {
+                j = i;
+                break;
+            }
+        }
+        if (j < 0)
+            return;
+        try {
+            services[j].stop();
+        } catch (LifecycleException e) {
+            // Ignore
+        }
+        int k = 0;
+        Service results[] = new Service[services.length - 1];
+        for (int i = 0; i < services.length; i++) {
+            if (i != j)
+                results[k++] = services[i];
+        }
+        services = results;
+
+        // Report this property change to interested listeners
+        support.firePropertyChange("service", service, null);
+    }
+
+}
+```
+#### 6.11.3.3 Lifecycle相关模板方法
+这里只展示startInternal方法
+```java
+/**
+ * Start nested components ({@link Service}s) and implement the requirements
+ * of {@link org.apache.catalina.util.LifecycleBase#startInternal()}.
+ *
+ * @exception LifecycleException if this component detects a fatal error
+ *  that prevents this component from being used
+ */
+@Override
+protected void startInternal() throws LifecycleException {
+
+    fireLifecycleEvent(CONFIGURE_START_EVENT, null);
+    setState(LifecycleState.STARTING);
+
+    globalNamingResources.start();
+
+    // Start our defined Services
+    synchronized (servicesLock) {
+        for (int i = 0; i < services.length; i++) {
+            services[i].start();
+        }
+    }
+
+    if (periodicEventDelay > 0) {
+        monitorFuture = getUtilityExecutor().scheduleWithFixedDelay(
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        startPeriodicLifecycleEvent();
+                    }
+                }, 0, 60, TimeUnit.SECONDS);
+    }
+}
+    
+protected void startPeriodicLifecycleEvent() {
+    if (periodicLifecycleEventFuture == null || (periodicLifecycleEventFuture != null && periodicLifecycleEventFuture.isDone())) {
+        if (periodicLifecycleEventFuture != null && periodicLifecycleEventFuture.isDone()) {
+            // There was an error executing the scheduled task, get it and log it
+            try {
+                periodicLifecycleEventFuture.get();
+            } catch (InterruptedException | ExecutionException e) {
+                log.error(sm.getString("standardServer.periodicEventError"), e);
+            }
+        }
+        periodicLifecycleEventFuture = getUtilityExecutor().scheduleAtFixedRate(
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        fireLifecycleEvent(Lifecycle.PERIODIC_EVENT, null);
+                    }
+                }, periodicEventDelay, periodicEventDelay, TimeUnit.SECONDS);
+    }
+}
+```
+方法的第一行代码先触发 CONFIGURE_START_EVENT 事件，以便执行 StandardServer 的 LifecycleListener 监听器，然后调用 setState 方法设置成 LifecycleBase 的 state 属性为 LifecycleState.STARTING。 接着就 globalNamingResources.start()，跟 initInternal 方法其实是类似的。
+
+再接着就调用 Service 的 start 方法来启动 Service 组件。可以看出，StandardServe 的 startInternal 跟 initInternal 方法类似，都是调用内部的 service 组件的相关方法。
+
+调用完 service.init 方法后，就使用 getUtilityExecutor() 返回的线程池延迟执行startPeriodicLifecycleEvent 方法，而在 startPeriodicLifecycleEvent 方法里，也是使用 getUtilityExecutor() 方法，定期执行 fireLifecycleEvent 方法，处理 Lifecycle.PERIODIC_EVENT 事件，如果有需要定期处理的，可以再 Server 的 LifecycleListener 里处理 Lifecycle.PERIODIC_EVENT 事件。
+## 6.12 Tomcat - Service的设计和实现: StandardService
+### 6.12.1 理解思路
+- **第一：类比StandardServer, 抓住StandardService整体类依赖结构来理解**
+![38.tomcat-x-service-1.jpg](../../assets/images/04-主流框架/Servlet容器/38.tomcat-x-service-1.jpg)
+
+- **第二：结合server.xml中service配置来理解**
+
+见下文具体阐述。
+- **第三：结合Service Config官方配置文档**
+
+http://tomcat.apache.org/tomcat-9.0-doc/config/service.html
+### 6.12.2 Service结构设计
+#### 6.12.2.1 server.xml
+- 首先要看下server.xml中Service的配置，这样你便知道了需要了解的4个部分
+```xml
+<!--
+    每个Service元素只能有一个Engine元素.元素处理在同一个<Service>中所有<Connector>元素接收到的客户请求
+-->
+
+<Service name="Catalina">
+<!-- 1. 属性说明
+	name:Service的名称
+-->
+
+    <!--2. 一个或多个excecutors -->
+    <!--
+    <Executor name="tomcatThreadPool" namePrefix="catalina-exec-"
+        maxThreads="150" minSpareThreads="4"/>
+    -->
+
+    <!--
+		3.Connector元素:
+			由Connector接口定义.<Connector>元素代表与客户程序实际交互的组件,它负责接收客户请求,以及向客户返回响应结果.
+    -->
+    <Connector port="80" maxHttpHeaderSize="8192"
+               maxThreads="150" minSpareThreads="25" maxSpareThreads="75"
+               enableLookups="false" redirectPort="8443" acceptCount="100"
+               connectionTimeout="20000" disableUploadTimeout="true" />
+    <!-- 属性说明
+		port:服务器连接器的端口号,该连接器将在指定端口侦听来自客户端的请求。
+		enableLookups:如果为true，则可以通过调用request.getRemoteHost()进行DNS查询来得到远程客户端的实际主机名；
+					若为false则不进行DNS查询，而是返回其ip地址。
+		redirectPort:服务器正在处理http请求时收到了一个SSL传输请求后重定向的端口号。
+		acceptCount:当所有可以使用的处理请求的线程都被用光时,可以放到处理队列中的请求数,超过这个数的请求将不予处理，而返回Connection refused错误。
+		connectionTimeout:等待超时的时间数（以毫秒为单位）。
+		maxThreads:设定在监听端口的线程的最大数目,这个值也决定了服务器可以同时响应客户请求的最大数目.默认值为200。
+		protocol:必须设定为AJP/1.3协议。
+		address:如果服务器有两个以上IP地址,该属性可以设定端口监听的IP地址,默认情况下,端口会监听服务器上所有IP地址。
+		minProcessors:服务器启动时创建的处理请求的线程数，每个请求由一个线程负责。
+		maxProcessors:最多可以创建的处理请求的线程数。
+		minSpareThreads:最小备用线程 。
+		maxSpareThreads:最大备用线程。
+		debug:日志等级。
+		disableUploadTimeout:禁用上传超时,主要用于大数据上传时。
+    -->
+
+
+    <Connector port="8009" enableLookups="false" redirectPort="8443" protocol="AJP/1.3" />
+    <!-- 负责和其他HTTP服务器建立连接。在把Tomcat与其他HTTP服务器集成时就需要用到这个连接器。 -->
+	
+    <!--
+		4. Engine
+    -->
+    <Engine name="Catalina" defaultHost="localhost">
+    
+    </Engine>
+  </Service>
+```
+#### 6.12.2.2 Service中的接口设计
+- 公共属性, name等
+```java
+/**
+  * @return the name of this Service.
+  */
+public String getName();
+
+/**
+  * Set the name of this Service.
+  *
+  * @param name The new service name
+  */
+public void setName(String name);
+```
+- 父Server相关
+```java
+/**
+  * @return the <code>Server</code> with which we are associated (if any).
+  */
+public Server getServer();
+
+/**
+  * Set the <code>Server</code> with which we are associated (if any).
+  *
+  * @param server The server that owns this Service
+  */
+public void setServer(Server server);
+
+/**
+  * @return the parent class loader for this component. If not set, return
+  * {@link #getServer()} {@link Server#getParentClassLoader()}. If no server
+  * has been set, return the system class loader.
+  */
+public ClassLoader getParentClassLoader();
+
+/**
+  * Set the parent class loader for this service.
+  *
+  * @param parent The new parent class loader
+  */
+public void setParentClassLoader(ClassLoader parent);
+
+/**
+  * @return the domain under which this container will be / has been
+  * registered.
+  */
+public String getDomain();
+```
+- Connector相关
+```java
+/**
+  * Add a new Connector to the set of defined Connectors, and associate it
+  * with this Service's Container.
+  *
+  * @param connector The Connector to be added
+  */
+public void addConnector(Connector connector);
+
+/**
+  * Find and return the set of Connectors associated with this Service.
+  *
+  * @return the set of associated Connectors
+  */
+public Connector[] findConnectors();
+
+/**
+  * Remove the specified Connector from the set associated from this
+  * Service.  The removed Connector will also be disassociated from our
+  * Container.
+  *
+  * @param connector The Connector to be removed
+  */
+public void removeConnector(Connector connector);
+```
+- Engine
+```java
+/**
+  * @return the <code>Engine</code> that handles requests for all
+  * <code>Connectors</code> associated with this Service.
+  */
+public Engine getContainer();
+
+/**
+  * Set the <code>Engine</code> that handles requests for all
+  * <code>Connectors</code> associated with this Service.
+  *
+  * @param engine The new Engine
+  */
+public void setContainer(Engine engine);
+```
+- Excutor相关
+```java
+/**
+  * Adds a named executor to the service
+  * @param ex Executor
+  */
+public void addExecutor(Executor ex);
+
+/**
+  * Retrieves all executors
+  * @return Executor[]
+  */
+public Executor[] findExecutors();
+
+/**
+  * Retrieves executor by name, null if not found
+  * @param name String
+  * @return Executor
+  */
+public Executor getExecutor(String name);
+
+/**
+  * Removes an executor from the service
+  * @param ex Executor
+  */
+public void removeExecutor(Executor ex);
+```
+### 6.12.3 StandardService的实现
+属性和父Server相关比较简单，这里主要看下其它的方法：
+
+#### 6.12.3.1 Engine相关
+```java
+
+private Engine engine = null;
+
+@Override
+public Engine getContainer() {
+    return engine;
+}
+
+@Override
+public void setContainer(Engine engine) {
+    Engine oldEngine = this.engine;
+    if (oldEngine != null) {
+        oldEngine.setService(null);
+    }
+    this.engine = engine;
+    if (this.engine != null) {
+        this.engine.setService(this);
+    }
+    if (getState().isAvailable()) {
+        if (this.engine != null) {
+            try {
+                this.engine.start(); // 启动Engine
+            } catch (LifecycleException e) {
+                log.error(sm.getString("standardService.engine.startFailed"), e);
+            }
+        }
+        // 重启Mapper - Restart MapperListener to pick up new engine.
+        try {
+            mapperListener.stop();
+        } catch (LifecycleException e) {
+            log.error(sm.getString("standardService.mapperListener.stopFailed"), e);
+        }
+        try {
+            mapperListener.start();
+        } catch (LifecycleException e) {
+            log.error(sm.getString("standardService.mapperListener.startFailed"), e);
+        }
+        if (oldEngine != null) {
+            try {
+                oldEngine.stop();
+            } catch (LifecycleException e) {
+                log.error(sm.getString("standardService.engine.stopFailed"), e);
+            }
+        }
+    }
+
+    // 触发container属性变更事件
+    support.firePropertyChange("container", oldEngine, this.engine);
+}
+```
+#### 6.12.3.2 Connectors相关
+```java
+/**
+  * The set of Connectors associated with this Service.
+  */
+protected Connector connectors[] = new Connector[0];
+private final Object connectorsLock = new Object();
+
+/**
+  * Add a new Connector to the set of defined Connectors, and associate it
+  * with this Service's Container.
+  *
+  * @param connector The Connector to be added
+  */
+@Override
+public void addConnector(Connector connector) {
+
+    synchronized (connectorsLock) {
+        connector.setService(this);
+        Connector results[] = new Connector[connectors.length + 1];
+        System.arraycopy(connectors, 0, results, 0, connectors.length);
+        results[connectors.length] = connector;
+        connectors = results;
+    }
+
+    try {
+        if (getState().isAvailable()) {
+            connector.start();
+        }
+    } catch (LifecycleException e) {
+        throw new IllegalArgumentException(
+                sm.getString("standardService.connector.startFailed", connector), e);
+    }
+
+    // Report this property change to interested listeners
+    support.firePropertyChange("connector", null, connector);
+}
+
+
+public ObjectName[] getConnectorNames() {
+    ObjectName results[] = new ObjectName[connectors.length];
+    for (int i=0; i<results.length; i++) {
+        results[i] = connectors[i].getObjectName();
+    }
+    return results;
+}
+
+/**
+  * 当前Service相关的所有Connectors.
+  */
+@Override
+public Connector[] findConnectors() {
+    return connectors;
+}
+
+/**
+  * 删除connector
+  *
+  * @param connector The Connector to be removed
+  */
+@Override
+public void removeConnector(Connector connector) {
+
+    synchronized (connectorsLock) {
+        // 找到conector位置
+        int j = -1;
+        for (int i = 0; i < connectors.length; i++) {
+            if (connector == connectors[i]) {
+                j = i;
+                break;
+            }
+        }
+        if (j < 0)
+            return;
+        if (connectors[j].getState().isAvailable()) {
+            try {
+                connectors[j].stop(); // 停止
+            } catch (LifecycleException e) {
+                log.error(sm.getString(
+                        "standardService.connector.stopFailed",
+                        connectors[j]), e);
+            }
+        }
+        connector.setService(null); // 去除父service绑定
+        int k = 0;
+        Connector results[] = new Connector[connectors.length - 1];
+        for (int i = 0; i < connectors.length; i++) {
+            if (i != j)
+                results[k++] = connectors[i]; // 后续connector向前移位
+        }
+        connectors = results;
+
+        // 触发connector属性变更事件
+        support.firePropertyChange("connector", connector, null);
+    }
+}
+```
+#### 6.12.3.3 Executor相关
+CRUD方法，代码比较简单
+```java
+/**
+  * Adds a named executor to the service
+  * @param ex Executor
+  */
+@Override
+public void addExecutor(Executor ex) {
+    synchronized (executors) {
+        if (!executors.contains(ex)) {
+            executors.add(ex);
+            if (getState().isAvailable()) {
+                try {
+                    ex.start(); // 启动
+                } catch (LifecycleException x) {
+                    log.error(sm.getString("standardService.executor.start"), x);
+                }
+            }
+        }
+    }
+}
+
+/**
+  * Retrieves all executors
+  * @return Executor[]
+  */
+@Override
+public Executor[] findExecutors() {
+    synchronized (executors) {
+        Executor[] arr = new Executor[executors.size()];
+        executors.toArray(arr);
+        return arr;
+    }
+}
+
+
+/**
+  * Retrieves executor by name, null if not found
+  * @param executorName String
+  * @return Executor
+  */
+@Override
+public Executor getExecutor(String executorName) {
+    synchronized (executors) {
+        for (Executor executor: executors) {
+            if (executorName.equals(executor.getName()))
+                return executor;
+        }
+    }
+    return null;
+}
+
+/**
+  * Removes an executor from the service
+  * @param ex Executor
+  */
+@Override
+public void removeExecutor(Executor ex) {
+    synchronized (executors) {
+        if ( executors.remove(ex) && getState().isAvailable() ) {
+            try {
+                ex.stop(); // 停止
+            } catch (LifecycleException e) {
+                log.error(sm.getString("standardService.executor.stop"), e);
+            }
+        }
+    }
+}
+```
+#### 6.12.3.4 Lifecycle相关模板方法
+首先看 initInternal 方法
+```java
+/**
+ * Invoke a pre-startup initialization. This is used to allow connectors
+ * to bind to restricted ports under Unix operating environments.
+ */
+@Override
+protected void initInternal() throws LifecycleException {
+
+    super.initInternal();
+
+    if (engine != null) {
+        engine.init();
+    }
+
+    // Initialize any Executors
+    for (Executor executor : findExecutors()) {
+        if (executor instanceof JmxEnabled) {
+            ((JmxEnabled) executor).setDomain(getDomain());
+        }
+        executor.init();
+    }
+
+    // Initialize mapper listener
+    mapperListener.init();
+
+    // Initialize our defined Connectors
+    synchronized (connectorsLock) {
+        for (Connector connector : connectors) {
+            connector.init();
+        }
+    }
+}
+```
+initInternal 代码很短，思路也很清晰，就是依次调用了这个成员变量的 init 方法
+```java
+engine.init() 
+executor.init 
+mapperListener.init()
+connector.init()
+```
+- startInternal 方法
+```java
+/**
+ * Start nested components ({@link Executor}s, {@link Connector}s and
+ * {@link Container}s) and implement the requirements of
+ * {@link org.apache.catalina.util.LifecycleBase#startInternal()}.
+ *
+ * @exception LifecycleException if this component detects a fatal error
+ *  that prevents this component from being used
+ */
+@Override
+protected void startInternal() throws LifecycleException {
+
+    if(log.isInfoEnabled())
+        log.info(sm.getString("standardService.start.name", this.name));
+    setState(LifecycleState.STARTING);
+
+    // Start our defined Container first
+    if (engine != null) {
+        synchronized (engine) {
+            engine.start();
+        }
+    }
+
+    synchronized (executors) {
+        for (Executor executor: executors) {
+            executor.start();
+        }
+    }
+
+    mapperListener.start();
+
+    // Start our defined Connectors second
+    synchronized (connectorsLock) {
+        for (Connector connector: connectors) {
+            // If it has already failed, don't try and start it
+            if (connector.getState() != LifecycleState.FAILED) {
+                connector.start();
+            }
+        }
+    }
+}
+```
+startInternal 跟 initInternal 方法一样，也是依次调用
+```java
+engine.start();
+executor.start();
+mapperListener.start();
+connector.start();
+```
+#### 6.12.3.5 补充下MapperListener
+mapperListener 的作用是在 start 的时候将容器类对象注册到 Mapper 对象中。
+```java
+/**
+ * Create mapper listener.
+ *
+ * @param service The service this listener is associated with
+ */
+public MapperListener(Service service) {
+    this.service = service;
+    this.mapper = service.getMapper();
+}
+service.getMapper() 返回的是 StandardService 对象的 mapper 成员变量。
+
+/**
+ * Mapper.
+ */
+protected final Mapper mapper = new Mapper();
+```
+Mapper是 Tomcat 处理 Http 请求时非常重要的组件。Tomcat 使用 Mapper 来处理一个 Request 到 Host、Context 的映射关系，从而决定使用哪个 Service 来处理请求。
+
+MapperListener 也是继承自 LifecycleMBeanBase，不过没有重载 initInternal 方法。
+- startInternal 方法
+```java
+@Override
+public void startInternal() throws LifecycleException {
+
+    setState(LifecycleState.STARTING);
+
+    Engine engine = service.getContainer();
+    if (engine == null) {
+        return;
+    }
+
+    findDefaultHost();
+
+    addListeners(engine);
+
+    Container[] conHosts = engine.findChildren();
+    for (Container conHost : conHosts) {
+        Host host = (Host) conHost;
+        if (!LifecycleState.NEW.equals(host.getState())) {
+            // Registering the host will register the context and wrappers
+            registerHost(host);
+        }
+    }
+}
+```
+- findDefaultHost() 方法
+
+首先看 findDefaultHost() 方法
+```java
+private void findDefaultHost() {
+
+    Engine engine = service.getContainer();
+    String defaultHost = engine.getDefaultHost();
+
+    boolean found = false;
+
+    if (defaultHost != null && defaultHost.length() > 0) {
+        Container[] containers = engine.findChildren();
+
+        for (Container container : containers) {
+            Host host = (Host) container;
+            if (defaultHost.equalsIgnoreCase(host.getName())) {
+                found = true;
+                break;
+            }
+
+            String[] aliases = host.findAliases();
+            for (String alias : aliases) {
+                if (defaultHost.equalsIgnoreCase(alias)) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (found) {
+        mapper.setDefaultHostName(defaultHost);
+    } else {
+        log.error(sm.getString("mapperListener.unknownDefaultHost", defaultHost, service));
+    }
+}
+```
+findDefaultHost() 是主要是找出 defaultHost ，并调用 mapper.setDefaultHostName(defaultHost); 这个 defaultHost 是 server.xml 的 \<Engine> 标签的属性，一般都是 "localHost"。从上面代码 for 代码块里可以看出，Host 是 Engine 的子 Container。for 语句就是找出一个名字跟 defaultHost 指定的名字相同的 Host 对象。
+- addListeners(engine) 方法
+```java
+/**
+ * Add this mapper to the container and all child containers
+ *
+ * @param container
+ */
+private void addListeners(Container container) {
+    container.addContainerListener(this);
+    container.addLifecycleListener(this);
+    for (Container child : container.findChildren()) {
+        addListeners(child);
+    }
+}
+```
+这个方法的作用是，将 MapperListener 这个监听器添加到 Engine 及其子容器中
+- registerHost 调用 registerHost方法来注册 Engine 的字容器 Host。
+```java
+/**
+ * Register host.
+ */
+private void registerHost(Host host) {
+
+    String[] aliases = host.findAliases();
+    mapper.addHost(host.getName(), aliases, host);
+
+    for (Container container : host.findChildren()) {
+        if (container.getState().isAvailable()) {
+            registerContext((Context) container);
+        }
+    }
+
+    // Default host may have changed
+    findDefaultHost();
+
+    if(log.isDebugEnabled()) {
+        log.debug(sm.getString("mapperListener.registerHost",
+                host.getName(), domain, service));
+    }
+}
+```
+registerHost 方法先调用 mapper.addHost，然后调用 registerContext 方法注册 Host 的子容器 Context。 mapper.addHost 方法是将 Host 加入的 Mapper 类的的成员变量MappedHost[] hosts 中。
+- 接着看 registerContext 方法
+```java
+/**
+ * Register context.
+ */
+private void registerContext(Context context) {
+
+    String contextPath = context.getPath();
+    if ("/".equals(contextPath)) {
+        contextPath = "";
+    }
+    Host host = (Host)context.getParent();
+
+    WebResourceRoot resources = context.getResources();
+    String[] welcomeFiles = context.findWelcomeFiles();
+    List<WrapperMappingInfo> wrappers = new ArrayList<>();
+
+    for (Container container : context.findChildren()) {
+        prepareWrapperMappingInfo(context, (Wrapper) container, wrappers);
+
+        if(log.isDebugEnabled()) {
+            log.debug(sm.getString("mapperListener.registerWrapper",
+                    container.getName(), contextPath, service));
+        }
+    }
+
+    mapper.addContextVersion(host.getName(), host, contextPath,
+            context.getWebappVersion(), context, welcomeFiles, resources,
+            wrappers);
+
+    if(log.isDebugEnabled()) {
+        log.debug(sm.getString("mapperListener.registerContext",
+                contextPath, service));
+    }
+}
+```
+registerContext 里先获取一些对象，比如 WebResourceRoot 对象、WrapperMappingInfo 对象，然后调用 mapper.addContextVersion。
+
+Mapper#addContextVersion 方法比较琐细，就不细讲了。
+
+其主要逻辑是将 Context 对象，以及 Context 的子容器 Wrapper 对象，每一个都分别构建一个对应的 MappedContext 和 MappedWrapper 对象，
+
+然后把 MappedContext 和 MappedWrapper 塞进 ContextVersion 对象中，
+
+最后把 Context 和 ContextVersion 的对应关系放在 Mapper 对象的一个 Map 里。
+
+这里的 MappedContext 和 MappedWrapper 在 Tomcat 处理 Http 请求的时候是比较关键的。
+
+registerHost 最后再更新了一下可能发生改变里的的 defaultHost。
+## 6.13 Tomcat - 线程池的设计与实现：StandardThreadExecutor
+### 6.13.1 理解思路
+> 我们如下几个方面开始引入线程池的，这里主要从上文Service引入，保持上下文之间的衔接，会很好的构筑你的知识体系。
+- 上文中我们了解到，Executor是包含在Service中的，Service中关于Executor的配置和相关代码如下：
+
+server.xml中service里包含Executor的配置
+```xml
+<Service name="Catalina">
+<!-- 1. 属性说明
+	name:Service的名称
+-->
+
+    <!--2. 一个或多个excecutors --> // 看这里
+    <!--
+    <Executor name="tomcatThreadPool" namePrefix="catalina-exec-"
+        maxThreads="150" minSpareThreads="4"/>
+    -->
+</Service>    
+```
+Service中executors相关方法
+```java
+/**
+  * Adds a named executor to the service
+  * @param ex Executor
+  */
+@Override
+public void addExecutor(Executor ex) {
+    synchronized (executors) {
+        if (!executors.contains(ex)) {
+            executors.add(ex);
+            if (getState().isAvailable()) {
+                try {
+                    ex.start(); // 启动
+                } catch (LifecycleException x) {
+                    log.error(sm.getString("standardService.executor.start"), x);
+                }
+            }
+        }
+    }
+}
+
+/**
+  * Retrieves all executors
+  * @return Executor[]
+  */
+@Override
+public Executor[] findExecutors() {
+    synchronized (executors) {
+        Executor[] arr = new Executor[executors.size()];
+        executors.toArray(arr);
+        return arr;
+    }
+}
+
+
+/**
+  * Retrieves executor by name, null if not found
+  * @param executorName String
+  * @return Executor
+  */
+@Override
+public Executor getExecutor(String executorName) {
+    synchronized (executors) {
+        for (Executor executor: executors) {
+            if (executorName.equals(executor.getName()))
+                return executor;
+        }
+    }
+    return null;
+}
+
+/**
+  * Removes an executor from the service
+  * @param ex Executor
+  */
+@Override
+public void removeExecutor(Executor ex) {
+    synchronized (executors) {
+        if ( executors.remove(ex) && getState().isAvailable() ) {
+            try {
+                ex.stop(); // 停止
+            } catch (LifecycleException e) {
+                log.error(sm.getString("standardService.executor.stop"), e);
+            }
+        }
+    }
+}
+```
+- 和Server、Service实现一样，StandardThreadExecutor也是继承LifecycleMBeanBase；然后实现Executor的接口。
+![39.tomcat-x-executor-1.jpg](../../assets/images/04-主流框架/Servlet容器/39.tomcat-x-executor-1.jpg)
+- Tomcat关于Executor相关的配置文档
+
+http://tomcat.apache.org/tomcat-9.0-doc/config/executor.html
+
+### 16.3.2 Executor接口设计
+> Executor的设计很简单，在理解的时候需要理解两点：
+1. Tomcat希望将Executor也纳入Lifecycle生命周期管理，所以让它实现了Lifecycle接口
+2. **引入超时机制**：也就是说当work queue满时，会等待指定的时间，如果超时将抛出RejectedExecutionException，所以这里增加了一个void execute(Runnable command, long timeout, TimeUnit unit)方法; 其实本质上，它构造了JUC中ThreadPoolExecutor，通过它调用ThreadPoolExecutor的void execute(Runnable command, long timeout, TimeUnit unit)方法。
+```java
+public interface Executor extends java.util.concurrent.Executor, Lifecycle {
+
+    public String getName();
+
+    /**
+     * Executes the given command at some time in the future.  The command
+     * may execute in a new thread, in a pooled thread, or in the calling
+     * thread, at the discretion of the <code>Executor</code> implementation.
+     * If no threads are available, it will be added to the work queue.
+     * If the work queue is full, the system will wait for the specified
+     * time until it throws a RejectedExecutionException
+     *
+     * @param command the runnable task
+     * @param timeout the length of time to wait for the task to complete
+     * @param unit    the units in which timeout is expressed
+     *
+     * @throws java.util.concurrent.RejectedExecutionException if this task
+     * cannot be accepted for execution - the queue is full
+     * @throws NullPointerException if command or unit is null
+     */
+    void execute(Runnable command, long timeout, TimeUnit unit);
+}
+```
+找到Executor的实现类
+![40.tomcat-x-executor-2.jpg](../../assets/images/04-主流框架/Servlet容器/40.tomcat-x-executor-2.jpg)
+### 16.3.3 StandardThreadExecutor的实现
+> 接下来我们看下具体的实现类StandardThreadExecutor。
+#### 16.3.3.1  理解<a href ='https://tomcat.apache.org/tomcat-9.0-doc/config/executor.html'>相关配置参数</a>
+- 公共属性
+
+Executor的所有实现都 支持以下属性：
+
+| 属性名 | 描述 |
+|--------|------|
+| className | 实现的类。实现必须实现 org.apache.catalina.Executor接口。此接口确保可以通过其name属性引用对象并实现Lifecycle，以便可以使用容器启动和停止对象。className的默认值是org.apache.catalina.core.StandardThreadExecutor|
+| name | 用于在server.xml中的其他位置引用此池的名称。该名称是必需的，必须是唯一的。|
+- StandardThreadExecutor属性
+
+默认实现支持以下属性：
+
+| 属性名 | 描述 |
+|--------|------|
+| threadPriority（int） | 执行程序中线程的线程优先级，默认为 5（Thread.NORM_PRIORITY常量的值） |
+| daemon（boolean） | 线程是否应该是守护程序线程，默认为 true |
+| namePrefix（字符串） | 执行程序创建的每个线程的名称前缀。单个线程的线程名称将是namePrefix+threadNumber |
+| maxThreads（int） | 此池中活动线程的最大数量，默认为 200 |
+| minSpareThreads（int） | 最小线程数（空闲和活动）始终保持活动状态，默认为 25 |
+| maxIdleTime（int） | 空闲线程关闭之前的毫秒数，除非活动线程数小于或等于minSpareThreads。默认值为60000（1分钟） |
+| maxQueueSize（int） | 在我们拒绝之前可以排队等待执行的可运行任务的最大数量。默认值是Integer.MAX_VALUE |
+| prestartminSpareThreads（boolean） | 是否应该在启动Executor时启动minSpareThreads，默认值为 false |
+| threadRenewalDelay（long） | 如果配置了ThreadLocalLeakPreventionListener，它将通知此执行程序有关已停止的上下文。上下文停止后，池中的线程将被更新。为避免同时更新所有线程，此选项在任意2个线程的续订之间设置延迟。该值以ms为单位，默认值为1000ms。如果值为负，则不会续订线程。 |
+
+
+#### 16.3.3.2 Lifecycle模板方法
+先看核心变量：
+```java
+// 任务队列
+private TaskQueue taskqueue = null;
+
+// 包装了一个ThreadPoolExecutor
+protected ThreadPoolExecutor executor = null;
+```
+- initInternal和destroyInternal默认父类实现
+```java
+@Override
+protected void initInternal() throws LifecycleException {
+    super.initInternal();
+}
+@Override
+protected void destroyInternal() throws LifecycleException {
+    super.destroyInternal();
+}
+```
+- startInternal方法
+
+这个方法中，我们不难看出，就是初始化taskqueue，同时构造ThreadPoolExecutor的实例，后面Tomcat的StandardThreadExecutor的实现本质上通过ThreadPoolExecutor实现的。
+```java
+/**
+  * Start the component and implement the requirements
+  * of {@link org.apache.catalina.util.LifecycleBase#startInternal()}.
+  *
+  * @exception LifecycleException if this component detects a fatal error
+  *  that prevents this component from being used
+  */
+@Override
+protected void startInternal() throws LifecycleException {
+
+    taskqueue = new TaskQueue(maxQueueSize);
+    TaskThreadFactory tf = new TaskThreadFactory(namePrefix,daemon,getThreadPriority());
+    executor = new ThreadPoolExecutor(getMinSpareThreads(), getMaxThreads(), maxIdleTime, TimeUnit.MILLISECONDS,taskqueue, tf);
+    executor.setThreadRenewalDelay(threadRenewalDelay);
+    if (prestartminSpareThreads) {
+        executor.prestartAllCoreThreads();
+    }
+    taskqueue.setParent(executor);
+
+    setState(LifecycleState.STARTING);
+}
+```
+- stopInternal方法
+
+代码很简单，关闭线程池后置null, 方便GC回收。
+```java
+/**
+  * Stop the component and implement the requirements
+  * of {@link org.apache.catalina.util.LifecycleBase#stopInternal()}.
+  *
+  * @exception LifecycleException if this component detects a fatal error
+  *  that needs to be reported
+  */
+@Override
+protected void stopInternal() throws LifecycleException {
+
+    setState(LifecycleState.STOPPING);
+    if (executor != null) {
+        executor.shutdownNow();
+    }
+    executor = null;
+    taskqueue = null;
+}
+```
+#### 16.3.3.3 核心executor方法
+本质上就是调用ThreadPoolExecutor的实例的相关方法。
+```java
+@Override
+public void execute(Runnable command, long timeout, TimeUnit unit) {
+    if (executor != null) {
+        executor.execute(command,timeout,unit);
+    } else {
+        throw new IllegalStateException(sm.getString("standardThreadExecutor.notStarted"));
+    }
+}
+
+
+@Override
+public void execute(Runnable command) {
+    if (executor != null) {
+        try {
+            executor.execute(command);
+        } catch (RejectedExecutionException rx) {
+            //there could have been contention around the queue
+            if (!((TaskQueue) executor.getQueue()).force(command)) {
+                throw new RejectedExecutionException(sm.getString("standardThreadExecutor.queueFull"));
+            }
+        }
+    } else {
+        throw new IllegalStateException(sm.getString("standardThreadExecutor.notStarted"));
+    }
+}
+```
+### 16.3.4 动态调整线程池
+我们还注意到StandardThreadExecutor还实现了ResizeableExecutor，从名称上我们就可知道它是希望实现对线程池的动态调整，所以呢，它封装了一个ResizeableExecutor的接口，看下接口。
+```java
+public interface ResizableExecutor extends Executor {
+
+    /**
+     * Returns the current number of threads in the pool.
+     *
+     * @return the number of threads
+     */
+    public int getPoolSize();
+
+    public int getMaxThreads();
+
+    /**
+     * Returns the approximate number of threads that are actively executing
+     * tasks.
+     *
+     * @return the number of threads
+     */
+    public int getActiveCount();
+
+    public boolean resizePool(int corePoolSize, int maximumPoolSize);
+
+    public boolean resizeQueue(int capacity);
+
+}
+```
+前三个方法比较简单，我们看下后两个方法是如何实现的, 其实也很简单。
+
+```java
+@Override
+public boolean resizePool(int corePoolSize, int maximumPoolSize) {
+    if (executor == null)
+        return false;
+
+    executor.setCorePoolSize(corePoolSize);
+    executor.setMaximumPoolSize(maximumPoolSize);
+    return true;
+}
+
+// 默认没有实现
+@Override
+public boolean resizeQueue(int capacity) {
+    return false;
+}
+```
+### 16.3.5 补充TaskQueue
+我们知道工作队列是有TaskQueue保障的，它集成自LinkedBlockingQueue（一个阻塞的链表队列），来看下源代码吧。
+```java
+/**
+ * As task queue specifically designed to run with a thread pool executor. The
+ * task queue is optimised to properly utilize threads within a thread pool
+ * executor. If you use a normal queue, the executor will spawn threads when
+ * there are idle threads and you wont be able to force items onto the queue
+ * itself.
+ */
+public class TaskQueue extends LinkedBlockingQueue<Runnable> {
+
+    private static final long serialVersionUID = 1L;
+    protected static final StringManager sm = StringManager
+            .getManager("org.apache.tomcat.util.threads.res");
+    private static final int DEFAULT_FORCED_REMAINING_CAPACITY = -1;
+
+    private transient volatile ThreadPoolExecutor parent = null;
+
+    // No need to be volatile. This is written and read in a single thread
+    // (when stopping a context and firing the listeners)
+    private int forcedRemainingCapacity = -1;
+
+    public TaskQueue() {
+        super();
+    }
+
+    public TaskQueue(int capacity) {
+        super(capacity);
+    }
+
+    public TaskQueue(Collection<? extends Runnable> c) {
+        super(c);
+    }
+
+    public void setParent(ThreadPoolExecutor tp) {
+        parent = tp;
+    }
+
+    public boolean force(Runnable o) {
+        if (parent == null || parent.isShutdown()) throw new RejectedExecutionException(sm.getString("taskQueue.notRunning"));
+        return super.offer(o); //forces the item onto the queue, to be used if the task is rejected
+    }
+
+    public boolean force(Runnable o, long timeout, TimeUnit unit) throws InterruptedException {
+        if (parent == null || parent.isShutdown()) throw new RejectedExecutionException(sm.getString("taskQueue.notRunning"));
+        return super.offer(o,timeout,unit); //forces the item onto the queue, to be used if the task is rejected
+    }
+
+    @Override
+    public boolean offer(Runnable o) {
+      //we can't do any checks
+        if (parent==null) return super.offer(o);
+        //we are maxed out on threads, simply queue the object
+        if (parent.getPoolSize() == parent.getMaximumPoolSize()) return super.offer(o);
+        //we have idle threads, just add it to the queue
+        if (parent.getSubmittedCount()<=(parent.getPoolSize())) return super.offer(o);
+        //if we have less threads than maximum force creation of a new thread
+        if (parent.getPoolSize()<parent.getMaximumPoolSize()) return false;
+        //if we reached here, we need to add it to the queue
+        return super.offer(o);
+    }
+
+
+    @Override
+    public Runnable poll(long timeout, TimeUnit unit)
+            throws InterruptedException {
+        Runnable runnable = super.poll(timeout, unit);
+        if (runnable == null && parent != null) {
+            // the poll timed out, it gives an opportunity to stop the current
+            // thread if needed to avoid memory leaks.
+            parent.stopCurrentThreadIfNeeded();
+        }
+        return runnable;
+    }
+
+    @Override
+    public Runnable take() throws InterruptedException {
+        if (parent != null && parent.currentThreadShouldBeStopped()) {
+            return poll(parent.getKeepAliveTime(TimeUnit.MILLISECONDS),
+                    TimeUnit.MILLISECONDS);
+            // yes, this may return null (in case of timeout) which normally
+            // does not occur with take()
+            // but the ThreadPoolExecutor implementation allows this
+        }
+        return super.take();
+    }
+
+    @Override
+    public int remainingCapacity() {
+        if (forcedRemainingCapacity > DEFAULT_FORCED_REMAINING_CAPACITY) {
+            // ThreadPoolExecutor.setCorePoolSize checks that
+            // remainingCapacity==0 to allow to interrupt idle threads
+            // I don't see why, but this hack allows to conform to this
+            // "requirement"
+            return forcedRemainingCapacity;
+        }
+        return super.remainingCapacity();
+    }
+
+    public void setForcedRemainingCapacity(int forcedRemainingCapacity) {
+        this.forcedRemainingCapacity = forcedRemainingCapacity;
+    }
+
+    void resetForcedRemainingCapacity() {
+        this.forcedRemainingCapacity = DEFAULT_FORCED_REMAINING_CAPACITY;
+    }
+
+}
+```
+TaskQueue这个任务队列是专门为线程池而设计的。优化任务队列以适当地利用线程池执行器内的线程。
+
+如果你使用一个普通的队列，当有空闲线程executor将产生线程并且你不能强制将任务添加到队列。
+### 16.3.6 为什么不是直接使用ThreadPoolExecutor
+这里你是否考虑过一个问题，为什么Tomcat会自己构造一个StandardThreadExecutor而不是直接使用ThreadPoolExecutor？
+
+从上面的代码，你会发现这里只是使用executor只是使用了execute的两个主要方法，它希望让调用层屏蔽掉ThreadPoolExecutor的其它方法：
+- 它体现的原则：**最少知识原则**: 只和你的密友谈话。也就是说客户对象所需要交互的对象应当尽可能少
+- 它体现的设计模式：结构型 - 外观(Facade)
+    - 外观模式(Facade pattern)，它提供了一个统一的接口，用来访问子系统中的一群接口，从而让子系统更容易使用
+## 6.14 Tomcat - Request请求处理: Container设计
+### 6.14.1 内容引入
+- 到目前我们研究到了哪里？
+![41.tomcat-x-container-2.png](../../assets/images/04-主流框架/Servlet容器/41.tomcat-x-container-2.png)
+### 6.14.2 理解思路
+- 为什么我们说上面的是Container呢？我们看下几个Container之间的关系：
+![42.tomcat-x-container-1.jpg](../../assets/images/04-主流框架/Servlet容器/42.tomcat-x-container-1.jpg)
+
+从上图上，我们也可以看出Container顶层也是基于Lifecycle的组件设计的。
+- 在设计Container组件层次组件时，上述4个组件分别做什么的呢？为什么要四种组件呢？
+
+如下是Container接口类的相关注释
+```html
+ * <li><b>Engine</b> - Representation of the entire Catalina servlet engine,
+ *     most likely containing one or more subcontainers that are either Host
+ *     or Context implementations, or other custom groups.
+ * <li><b>Host</b> - Representation of a virtual host containing a number
+ *     of Contexts.
+ * <li><b>Context</b> - Representation of a single ServletContext, which will
+ *     typically contain one or more Wrappers for the supported servlets.
+ * <li><b>Wrapper</b> - Representation of an individual servlet definition
+ *     (which may support multiple servlet instances if the servlet itself
+ *     implements SingleThreadModel).
+ * </ul>
+
+```
+-
+  - `Engine` - 表示整个catalina的servlet引擎，多数情况下包含**一个或多个**子容器，这些子容器要么是Host，要么是Context实现，或者是其他自定义组。
+  - `Host` - 表示包含多个Context的虚拟主机的。
+  - `Context` — 表示一个ServletContext，表示一个webapp，它通常包含一个或多个wrapper。
+  - `Wrapper` - 表示一个servlet定义的（如果servlet本身实现了SingleThreadModel，则可能支持多个servlet实例）。
+
+- 结合整体的框架图中上述组件部分，我们看下包含了什么？
+![43.tomcat-x-container-3.png](../../assets/images/04-主流框架/Servlet容器/43.tomcat-x-container-3.png)
+
+很明显，除了四个组件的嵌套关系，Container中还包含了Realm，Cluster，Listeners, Pipleline等支持组件。
+
+这一点，还可以通过相关注释可以看出：
+```html
+**Loader** - Class loader to use for integrating new Java classes for this Container into the JVM in which Catalina is running.
+
+**Logger** - Implementation of the log() method signatures of the ServletContext interface.
+
+**Manager** - Manager for the pool of Sessions associated with this Container.
+
+**Realm** - Read-only interface to a security domain, for authenticating user identities and their corresponding roles.
+
+**Resources** - JNDI directory context enabling access to static resources, enabling custom linkages to existing server components when Catalina is embedded in a larger server.
+```
+
+- **Loader**：类加载器，用于将该容器（如Web应用程序）的新Java类集成到Catalina运行的JVM中。它负责加载和隔离应用程序的类文件。
+  
+- **Logger**：日志记录器，实现ServletContext接口的日志方法签名，用于记录应用程序的日志信息，如错误或调试消息。
+
+- **Manager**：会话管理器，管理与该容器关联的会话池（HTTP会话），负责会话的创建、维护和销毁，以支持用户状态管理。
+
+- **Realm**：安全域接口，提供一个只读的安全域，用于认证用户身份（如用户名和密码）及其对应的角色，实现访问控制。
+
+- **Resources**：资源访问组件，通过JNDI目录上下文启用对静态资源（如文件或目录）的访问，当Catalina嵌入到更大的服务器中时，它还支持自定义链接到现有服务器组件。
+### 6.14.3 Container的设计
+> 这container应该包含哪些接口呢？如果你看源代码它包含二十多个接口，这里理解的时候一定要分组去理解。
+#### 6.14.3.1 Container的层次结构方法
+查找父容器的方法：
+```java
+/**
+  * Get the parent container.
+  *
+  * @return Return the Container for which this Container is a child, if
+  *         there is one. If there is no defined parent, return
+  *         <code>null</code>.
+  */
+public Container getParent();
+
+
+/**
+  * Set the parent Container to which this Container is being added as a
+  * child.  This Container may refuse to become attached to the specified
+  * Container by throwing an exception.
+  *
+  * @param container Container to which this Container is being added
+  *  as a child
+  *
+  * @exception IllegalArgumentException if this Container refuses to become
+  *  attached to the specified Container
+  */
+public void setParent(Container container);
+```
+由于Engine显然上层是Service，所以里面加了一个getService的方法
+```java
+/**
+  * Return the Service to which this container belongs.
+  * @param container The container to start from
+  * @return the Service, or null if not found
+  */
+public static Service getService(Container container) {
+    while (container != null && !(container instanceof Engine)) {
+        container = container.getParent();
+    }
+    if (container == null) {
+        return null;
+    }
+    return ((Engine) container).getService();
+}
+```
+类比树接口，有Parent方法，那肯定也child方法：
+```java
+/**
+  * Add a new child Container to those associated with this Container,
+  * if supported.  Prior to adding this Container to the set of children,
+  * the child's <code>setParent()</code> method must be called, with this
+  * Container as an argument.  This method may thrown an
+  * <code>IllegalArgumentException</code> if this Container chooses not
+  * to be attached to the specified Container, in which case it is not added
+  *
+  * @param child New child Container to be added
+  *
+  * @exception IllegalArgumentException if this exception is thrown by
+  *  the <code>setParent()</code> method of the child Container
+  * @exception IllegalArgumentException if the new child does not have
+  *  a name unique from that of existing children of this Container
+  * @exception IllegalStateException if this Container does not support
+  *  child Containers
+  */
+public void addChild(Container child);
+
+/**
+  * Obtain the child Containers associated with this Container.
+  *
+  * @return An array containing all children of this container. If this
+  *         Container has no children, a zero-length array is returned.
+  */
+public Container[] findChildren();
+
+/**
+  * Remove an existing child Container from association with this parent
+  * Container.
+  *
+  * @param child Existing child Container to be removed
+  */
+public void removeChild(Container child);
+```
+#### 6.14.3.2 Container事件监听相关方法
+前文我们也分析过Tomcat的事件监听机制，Container也是一样， 比如如下的ContainerListener
+```java
+/**
+  * Add a container event listener to this component.
+  *
+  * @param listener The listener to add
+  */
+public void addContainerListener(ContainerListener listener);
+
+/**
+  * Obtain the container listeners associated with this Container.
+  *
+  * @return An array containing the container listeners associated with this
+  *         Container. If this Container has no registered container
+  *         listeners, a zero-length array is returned.
+  */
+public ContainerListener[] findContainerListeners();
+
+/**
+  * Remove a container event listener from this component.
+  *
+  * @param listener The listener to remove
+  */
+public void removeContainerListener(ContainerListener listener);
+```
+除了Container级别的，和前文我们理解的一样，还有属性相关的Listener, 显然就增删属性的监听方法
+```java
+/**
+  * Remove a property change listener from this component.
+  *
+  * @param listener The listener to remove
+  */
+public void removePropertyChangeListener(PropertyChangeListener listener);
+
+/**
+  * Add a property change listener to this component.
+  *
+  * @param listener The listener to add
+  */
+public void addPropertyChangeListener(PropertyChangeListener listener);
+```
+最后显然还有事件的触发方法
+```java
+/**
+  * Notify all container event listeners that a particular event has
+  * occurred for this Container.  The default implementation performs
+  * this notification synchronously using the calling thread.
+  *
+  * @param type Event type
+  * @param data Event data
+  */
+public void fireContainerEvent(String type, Object data);
+```
+#### 6.14.3.3 Container功能支撑方法
+前面我们知道，Loader, Logger, Manager, Realm, Resources等支撑功能。这里简单看下接口定义，相关基本实现看下节ContainerBase的实现。
+- Loader
+```java
+/**
+  * Get the parent class loader.
+  *
+  * @return the parent class loader for this component. If not set, return
+  *         {@link #getParent()}.{@link #getParentClassLoader()}. If no
+  *         parent has been set, return the system class loader.
+  */
+public ClassLoader getParentClassLoader();
+
+
+/**
+  * Set the parent class loader for this component. For {@link Context}s
+  * this call is meaningful only <strong>before</strong> a Loader has
+  * been configured, and the specified value (if non-null) should be
+  * passed as an argument to the class loader constructor.
+  *
+  * @param parent The new parent class loader
+  */
+public void setParentClassLoader(ClassLoader parent);
+```
+- Logger
+```java
+/**
+  * Obtain the log to which events for this container should be logged.
+  *
+  * @return The Logger with which this Container is associated.  If there is
+  *         no associated Logger, return the Logger associated with the
+  *         parent Container (if any); otherwise return <code>null</code>.
+  */
+public Log getLogger();
+
+
+/**
+  * Return the logger name that the container will use.
+  * @return the abbreviated name of this container for logging messages
+  */
+public String getLogName();
+```
+- Manager
+
+体现在我们之前分析的JMX管理
+```java
+/**
+  * Obtain the JMX name for this container.
+  *
+  * @return the JMX name associated with this container.
+  */
+public ObjectName getObjectName();
+
+
+/**
+  * Obtain the JMX domain under which this container will be / has been
+  * registered.
+  *
+  * @return The JMX domain name
+  */
+public String getDomain();
+
+
+/**
+  * Calculate the key properties string to be added to an object's
+  * {@link ObjectName} to indicate that it is associated with this container.
+  *
+  * @return          A string suitable for appending to the ObjectName
+  *
+  */
+public String getMBeanKeyProperties();
+
+/**
+  * Obtain the number of threads available for starting and stopping any
+  * children associated with this container. This allows start/stop calls to
+  * children to be processed in parallel.
+  *
+  * @return The currently configured number of threads used to start/stop
+  *         children associated with this container
+  */
+public int getStartStopThreads();
+```
+- Realm
+```java
+/**
+  * Obtain the Realm with which this Container is associated.
+  *
+  * @return The associated Realm; if there is no associated Realm, the
+  *         Realm associated with the parent Container (if any); otherwise
+  *         return <code>null</code>.
+  */
+public Realm getRealm();
+
+
+/**
+  * Set the Realm with which this Container is associated.
+  *
+  * @param realm The newly associated Realm
+  */
+public void setRealm(Realm realm);
+```
+- Cluster
+```java
+/**
+  * Get the Cluster for this container.
+  *
+  * @return The Cluster with which this Container is associated. If there is
+  *         no associated Cluster, return the Cluster associated with our
+  *         parent Container (if any); otherwise return <code>null</code>.
+  */
+public Cluster getCluster();
+
+
+/**
+  * Set the Cluster with which this Container is associated.
+  *
+  * @param cluster the Cluster with which this Container is associated.
+  */
+public void setCluster(Cluster cluster);
+```
+- 其它
+```java
+/**
+  * Return a name string (suitable for use by humans) that describes this
+  * Container.  Within the set of child containers belonging to a particular
+  * parent, Container names must be unique.
+  *
+  * @return The human readable name of this container.
+  */
+public String getName();
+
+
+/**
+  * Set a name string (suitable for use by humans) that describes this
+  * Container.  Within the set of child containers belonging to a particular
+  * parent, Container names must be unique.
+  *
+  * @param name New name of this container
+  *
+  * @exception IllegalStateException if this Container has already been
+  *  added to the children of a parent Container (after which the name
+  *  may not be changed)
+  */
+public void setName(String name);
+
+/**
+  * Sets the number of threads available for starting and stopping any
+  * children associated with this container. This allows start/stop calls to
+  * children to be processed in parallel.
+  * @param   startStopThreads    The new number of threads to be used
+  */
+public void setStartStopThreads(int startStopThreads);
+
+
+/**
+  * Obtain the location of CATALINA_BASE.
+  *
+  * @return  The location of CATALINA_BASE.
+  */
+public File getCatalinaBase();
+
+
+/**
+  * Obtain the location of CATALINA_HOME.
+  *
+  * @return The location of CATALINA_HOME.
+  */
+public File getCatalinaHome();
+```
+### 6.14.4 Container基本实现：ContainerBase
+#### 6.14.4.1 Logger
+日志记录器，比较简单，直接看代码
+```java
+/**
+  * Return the Logger for this Container.
+  */
+@Override
+public Log getLogger() {
+    if (logger != null)
+        return logger;
+    logger = LogFactory.getLog(getLogName());
+    return logger;
+}
+
+
+/**
+  * @return the abbreviated name of this container for logging messages
+  */
+@Override
+public String getLogName() {
+
+    if (logName != null) {
+        return logName;
+    }
+    String loggerName = null;
+    Container current = this;
+    while (current != null) {
+        String name = current.getName();
+        if ((name == null) || (name.equals(""))) {
+            name = "/";
+        } else if (name.startsWith("##")) {
+            name = "/" + name;
+        }
+        loggerName = "[" + name + "]"
+            + ((loggerName != null) ? ("." + loggerName) : "");
+        current = current.getParent();
+    }
+    logName = ContainerBase.class.getName() + "." + loggerName;
+    return logName;
+
+}
+```
+#### 6.14.4.2 Cluster
+- `getCluster`：读锁，获取子类的cluster，如果没有则返回父类的cluster；
+- `getClusterInternal`: 读锁，获取子类的cluster
+- `setCluster`: 写锁，设置container的cluster；由于cluster具备生命周期，所以需要对停止旧的cluster，启动新的cluster；设置成功后，再触发cluster变更事件。
+```java
+/**
+  * The cluster with which this Container is associated.
+  */
+protected Cluster cluster = null;
+private final ReadWriteLock clusterLock = new ReentrantReadWriteLock();
+
+/**
+  * The parent Container to which this Container is a child.
+  */
+protected Container parent = null;
+
+/**
+  * Return the Cluster with which this Container is associated.  If there is
+  * no associated Cluster, return the Cluster associated with our parent
+  * Container (if any); otherwise return <code>null</code>.
+  */
+@Override
+public Cluster getCluster() {
+    Lock readLock = clusterLock.readLock();
+    readLock.lock();
+    try {
+        if (cluster != null)
+            return cluster;
+
+        if (parent != null)
+            return parent.getCluster();
+
+        return null;
+    } finally {
+        readLock.unlock();
+    }
+}
+
+
+/*
+  * Provide access to just the cluster component attached to this container.
+  */
+protected Cluster getClusterInternal() {
+    Lock readLock = clusterLock.readLock();
+    readLock.lock();
+    try {
+        return cluster;
+    } finally {
+        readLock.unlock();
+    }
+}
+
+
+/**
+  * Set the Cluster with which this Container is associated.
+  *
+  * @param cluster The newly associated Cluster
+  */
+@Override
+public void setCluster(Cluster cluster) {
+
+    Cluster oldCluster = null;
+    Lock writeLock = clusterLock.writeLock();
+    writeLock.lock();
+    try {
+        // Change components if necessary
+        oldCluster = this.cluster;
+        if (oldCluster == cluster)
+            return;
+        this.cluster = cluster;
+
+        // Stop the old component if necessary
+        if (getState().isAvailable() && (oldCluster != null) &&
+            (oldCluster instanceof Lifecycle)) {
+            try {
+                ((Lifecycle) oldCluster).stop();
+            } catch (LifecycleException e) {
+                log.error(sm.getString("containerBase.cluster.stop"), e);
+            }
+        }
+
+        // Start the new component if necessary
+        if (cluster != null)
+            cluster.setContainer(this);
+
+        if (getState().isAvailable() && (cluster != null) &&
+            (cluster instanceof Lifecycle)) {
+            try {
+                ((Lifecycle) cluster).start();
+            } catch (LifecycleException e) {
+                log.error(sm.getString("containerBase.cluster.start"), e);
+            }
+        }
+    } finally {
+        writeLock.unlock();
+    }
+
+    // Report this property change to interested listeners
+    support.firePropertyChange("cluster", oldCluster, cluster);
+}
+```
+#### 6.14.4.3 Realm
+
+Realm和上面的Cluster方法基本一致。
+```java
+/**
+ * Return the Realm with which this Container is associated.  If there is
+ * no associated Realm, return the Realm associated with our parent
+ * Container (if any); otherwise return <code>null</code>.
+ */
+@Override
+public Realm getRealm() {
+
+    Lock l = realmLock.readLock();
+    l.lock();
+    try {
+        if (realm != null)
+            return realm;
+        if (parent != null)
+            return parent.getRealm();
+        return null;
+    } finally {
+        l.unlock();
+    }
+}
+
+
+protected Realm getRealmInternal() {
+    Lock l = realmLock.readLock();
+    l.lock();
+    try {
+        return realm;
+    } finally {
+        l.unlock();
+    }
+}
+
+/**
+ * Set the Realm with which this Container is associated.
+ *
+ * @param realm The newly associated Realm
+ */
+@Override
+public void setRealm(Realm realm) {
+
+    Lock l = realmLock.writeLock();
+    l.lock();
+    try {
+        // Change components if necessary
+        Realm oldRealm = this.realm;
+        if (oldRealm == realm)
+            return;
+        this.realm = realm;
+
+        // Stop the old component if necessary
+        if (getState().isAvailable() && (oldRealm != null) &&
+            (oldRealm instanceof Lifecycle)) {
+            try {
+                ((Lifecycle) oldRealm).stop();
+            } catch (LifecycleException e) {
+                log.error(sm.getString("containerBase.realm.stop"), e);
+            }
+        }
+
+        // Start the new component if necessary
+        if (realm != null)
+            realm.setContainer(this);
+        if (getState().isAvailable() && (realm != null) &&
+            (realm instanceof Lifecycle)) {
+            try {
+                ((Lifecycle) realm).start();
+            } catch (LifecycleException e) {
+                log.error(sm.getString("containerBase.realm.start"), e);
+            }
+        }
+
+        // Report this property change to interested listeners
+        support.firePropertyChange("realm", oldRealm, this.realm);
+    } finally {
+        l.unlock();
+    }
+}
+```
+#### 6.14.4.4 name等属性
+
+此类属性改变时触发属性变更事件，比如name是容器的名字，name变更会触发name变更事件。
+```java
+/**
+  * The human-readable name of this Container.
+  */
+protected String name = null;
+
+
+/**
+  * Return a name string (suitable for use by humans) that describes this
+  * Container.  Within the set of child containers belonging to a particular
+  * parent, Container names must be unique.
+  */
+@Override
+public String getName() {
+    return name;
+}
+
+
+/**
+  * Set a name string (suitable for use by humans) that describes this
+  * Container.  Within the set of child containers belonging to a particular
+  * parent, Container names must be unique.
+  *
+  * @param name New name of this container
+  *
+  * @exception IllegalStateException if this Container has already been
+  *  added to the children of a parent Container (after which the name
+  *  may not be changed)
+  */
+@Override
+public void setName(String name) {
+    if (name == null) {
+        throw new IllegalArgumentException(sm.getString("containerBase.nullName"));
+    }
+    String oldName = this.name;
+    this.name = name;
+    support.firePropertyChange("name", oldName, this.name);
+}
+```
+#### 6.14.4.5 child相关
+
+- 添加子容器
+```java
+/**
+  * Add a new child Container to those associated with this Container,
+  * if supported.  Prior to adding this Container to the set of children,
+  * the child's <code>setParent()</code> method must be called, with this
+  * Container as an argument.  This method may thrown an
+  * <code>IllegalArgumentException</code> if this Container chooses not
+  * to be attached to the specified Container, in which case it is not added
+  *
+  * @param child New child Container to be added
+  *
+  * @exception IllegalArgumentException if this exception is thrown by
+  *  the <code>setParent()</code> method of the child Container
+  * @exception IllegalArgumentException if the new child does not have
+  *  a name unique from that of existing children of this Container
+  * @exception IllegalStateException if this Container does not support
+  *  child Containers
+  */
+@Override
+public void addChild(Container child) {
+    if (Globals.IS_SECURITY_ENABLED) {
+        PrivilegedAction<Void> dp =
+            new PrivilegedAddChild(child);
+        AccessController.doPrivileged(dp);
+    } else {
+        addChildInternal(child);
+    }
+}
+
+private void addChildInternal(Container child) {
+
+    if (log.isDebugEnabled()) {
+        log.debug("Add child " + child + " " + this);
+    }
+
+    synchronized(children) {
+        if (children.get(child.getName()) != null)
+            throw new IllegalArgumentException(
+                    sm.getString("containerBase.child.notUnique", child.getName()));
+        child.setParent(this);  // May throw IAE 设置父容器
+        children.put(child.getName(), child); // 使用map,方便通过name查找子容器
+    }
+
+    fireContainerEvent(ADD_CHILD_EVENT, child); // 触发添加子容器的事件
+
+    // Start child // 注意下这里，没有将start方法放到synchronized的原因
+    // Don't do this inside sync block - start can be a slow process and
+    // locking the children object can cause problems elsewhere
+    try {
+        if ((getState().isAvailable() ||
+                LifecycleState.STARTING_PREP.equals(getState())) &&
+                startChildren) {
+            child.start();
+        }
+    } catch (LifecycleException e) {
+        throw new IllegalStateException(sm.getString("containerBase.child.start"), e);
+    }
+}
+```
+- 查找子容器
+```java
+/**
+  * Return the child Container, associated with this Container, with
+  * the specified name (if any); otherwise, return <code>null</code>
+  *
+  * @param name Name of the child Container to be retrieved
+  */
+@Override
+public Container findChild(String name) {
+    if (name == null) {
+        return null;
+    }
+    synchronized (children) {
+        return children.get(name);
+    }
+}
+/**
+  * Return the set of children Containers associated with this Container.
+  * If this Container has no children, a zero-length array is returned.
+  */
+@Override
+public Container[] findChildren() {
+    synchronized (children) {
+        Container results[] = new Container[children.size()];
+        return children.values().toArray(results);
+    }
+}
+```
+- 删除子容器
+
+子容器有生命周期，所以应该是先停止，然后销毁（distroy), 再触发删除事件，最后将children中子容器删除。
+```java
+/**
+  * Remove an existing child Container from association with this parent
+  * Container.
+  *
+  * @param child Existing child Container to be removed
+  */
+@Override
+public void removeChild(Container child) {
+
+    if (child == null) {
+        return;
+    }
+
+    try {
+        if (child.getState().isAvailable()) {
+            child.stop();
+        }
+    } catch (LifecycleException e) {
+        log.error(sm.getString("containerBase.child.stop"), e);
+    }
+
+    boolean destroy = false;
+    try {
+        // child.destroy() may have already been called which would have
+        // triggered this call. If that is the case, no need to destroy the
+        // child again.
+        if (!LifecycleState.DESTROYING.equals(child.getState())) {
+            child.destroy();
+            destroy = true;
+        }
+    } catch (LifecycleException e) {
+        log.error(sm.getString("containerBase.child.destroy"), e);
+    }
+
+    if (!destroy) {
+        fireContainerEvent(REMOVE_CHILD_EVENT, child);
+    }
+
+    synchronized(children) {
+        if (children.get(child.getName()) == null)
+            return;
+        children.remove(child.getName());
+    }
+
+}
+```
+#### 6.14.4.6 Lifecycle的模板方法
+- initInternal
+
+startStopThreads 默认为 1 ，所以 reconfigureStartStopExecutor 方法会走 if 语句，而 startStopExecutor 最开始是没有赋值的，startStopExecutor instanceof InlineExecutorService 会返回 false，因此最终会执行 startStopExecutor = new InlineExecutorService()，InlineExecutorService 只是简单地实现了 java.util.concurrent.AbstractExecutorService 类。 最终 reconfigureStartStopExecutor 给 startStopExecutor 这个成员变量设置了，startStopExecutor。
+```java
+/**
+  * The number of threads available to process start and stop events for any
+  * children associated with this container.
+  */
+private int startStopThreads = 1;
+protected ExecutorService startStopExecutor;
+
+
+@Override
+protected void initInternal() throws LifecycleException {
+    reconfigureStartStopExecutor(getStartStopThreads()); // 设置一个线程池来处理子容器启动和关闭事件
+    super.initInternal(); // 调用LifecycleMBeanBase的方法
+}
+
+
+private void reconfigureStartStopExecutor(int threads) {
+    if (threads == 1) {
+        // Use a fake executor
+        if (!(startStopExecutor instanceof InlineExecutorService)) {
+            startStopExecutor = new InlineExecutorService(); // 执行这里
+        }
+    } else {
+        // Delegate utility execution to the Service
+        Server server = Container.getService(this).getServer();
+        server.setUtilityThreads(threads);
+        startStopExecutor = server.getUtilityExecutor();
+    }
+}
+```
+- startInternal
+
+试想，container中有很多组件，而且属于Lifecycle生命周期管理；那么启动容器的时候，必然是逐个将这些子组件（包括子容器）启动起来。
+```java
+/**
+  * Start this component and implement the requirements
+  * of {@link org.apache.catalina.util.LifecycleBase#startInternal()}.
+  *
+  * @exception LifecycleException if this component detects a fatal error
+  *  that prevents this component from being used
+  */
+@Override
+protected synchronized void startInternal() throws LifecycleException {
+
+    // Start our subordinate components, if any
+    logger = null;
+    getLogger();
+    Cluster cluster = getClusterInternal();
+    if (cluster instanceof Lifecycle) {
+        ((Lifecycle) cluster).start();
+    }
+    Realm realm = getRealmInternal();
+    if (realm instanceof Lifecycle) {
+        ((Lifecycle) realm).start();
+    }
+
+    // Start our child containers, if any
+    Container children[] = findChildren();
+    List<Future<Void>> results = new ArrayList<>();
+    for (Container child : children) {
+        results.add(startStopExecutor.submit(new StartChild(child)));
+    }
+
+    MultiThrowable multiThrowable = null; // 引入一个MultiThrowable，来收集多个异常
+
+    for (Future<Void> result : results) {
+        try {
+            result.get();
+        } catch (Throwable e) {
+            log.error(sm.getString("containerBase.threadedStartFailed"), e);
+            if (multiThrowable == null) {
+                multiThrowable = new MultiThrowable();
+            }
+            multiThrowable.add(e);
+        }
+
+    }
+    if (multiThrowable != null) {
+        throw new LifecycleException(sm.getString("containerBase.threadedStartFailed"),
+                multiThrowable.getThrowable());
+    }
+
+    // Start the Valves in our pipeline (including the basic), if any
+    if (pipeline instanceof Lifecycle) {
+        ((Lifecycle) pipeline).start();
+    }
+
+    setState(LifecycleState.STARTING);
+
+    // 看这个，本质是调用最上层server的utilityExecutorWrapper 线程池去执行 ContainerBackgroundProcessorMonitor 任务
+    if (backgroundProcessorDelay > 0) {
+        monitorFuture = Container.getService(ContainerBase.this).getServer()
+                .getUtilityExecutor().scheduleWithFixedDelay(
+                        new ContainerBackgroundProcessorMonitor(), 0, 60, TimeUnit.SECONDS);
+    }
+}
+```
+- stopInternal
+
+和initInternal初始化子组件方式倒过来，逐一停止子组件，并触发相关事件。
+```java
+/**
+  * Stop this component and implement the requirements
+  * of {@link org.apache.catalina.util.LifecycleBase#stopInternal()}.
+  *
+  * @exception LifecycleException if this component detects a fatal error
+  *  that prevents this component from being used
+  */
+@Override
+protected synchronized void stopInternal() throws LifecycleException {
+
+    // Stop our thread
+    if (monitorFuture != null) {
+        monitorFuture.cancel(true);
+        monitorFuture = null;
+    }
+    threadStop();
+
+    setState(LifecycleState.STOPPING);
+
+    // Stop the Valves in our pipeline (including the basic), if any
+    if (pipeline instanceof Lifecycle &&
+            ((Lifecycle) pipeline).getState().isAvailable()) {
+        ((Lifecycle) pipeline).stop();
+    }
+
+    // Stop our child containers, if any
+    Container children[] = findChildren();
+    List<Future<Void>> results = new ArrayList<>();
+    for (Container child : children) {
+        results.add(startStopExecutor.submit(new StopChild(child)));
+    }
+
+    boolean fail = false;
+    for (Future<Void> result : results) {
+        try {
+            result.get();
+        } catch (Exception e) {
+            log.error(sm.getString("containerBase.threadedStopFailed"), e);
+            fail = true;
+        }
+    }
+    if (fail) {
+        throw new LifecycleException(
+                sm.getString("containerBase.threadedStopFailed"));
+    }
+
+    // Stop our subordinate components, if any
+    Realm realm = getRealmInternal();
+    if (realm instanceof Lifecycle) {
+        ((Lifecycle) realm).stop();
+    }
+    Cluster cluster = getClusterInternal();
+    if (cluster instanceof Lifecycle) {
+        ((Lifecycle) cluster).stop();
+    }
+}
+```
+- destroyInternal
+
+对比下initInternal，它初始化了什么就destory什么
+```java
+@Override
+protected void destroyInternal() throws LifecycleException {
+
+    Realm realm = getRealmInternal();
+    if (realm instanceof Lifecycle) {
+        ((Lifecycle) realm).destroy();
+    }
+    Cluster cluster = getClusterInternal();
+    if (cluster instanceof Lifecycle) {
+        ((Lifecycle) cluster).destroy();
+    }
+
+    // Stop the Valves in our pipeline (including the basic), if any
+    if (pipeline instanceof Lifecycle) {
+        ((Lifecycle) pipeline).destroy();
+    }
+
+    // Remove children now this container is being destroyed
+    for (Container child : findChildren()) {
+        removeChild(child);
+    }
+
+    // Required if the child is destroyed directly.
+    if (parent != null) {
+        parent.removeChild(this);
+    }
+
+    // If init fails, this may be null
+    if (startStopExecutor != null) {
+        startStopExecutor.shutdownNow();
+    }
+
+    super.destroyInternal(); // 调用LifecycleMBeanBase的方法
+}
+```
+## 6.15 Tomcat - Container容器之Engine：StandardEngine
+### 6.15.1 理解思路
+- 第一：抓住StandardEngine整体类依赖结构来理解
+![44.tomcat-x-container-engine-1.jpg](../../assets/images/04-主流框架/Servlet容器/44.tomcat-x-container-engine-1.jpg)
+- 第二：结合server.xml中Engine配置来理解
+
+见下文具体阐述。
+- 第三：结合Engine Config官方配置文档
+
+http://tomcat.apache.org/tomcat-9.0-doc/config/engine.html
+### 6.15.2 Engine接口设计
+- 支持设置的属性列表
+
+
+| 属性名 | 描述 |
+|--------|------|
+| backgroundProcessorDelay | 此值表示在此引擎及其子容器（包括所有Host和Context）上调用backgroundProcess方法之间的延迟（以秒为单位）。如果子容器的延迟值不为负（则表示它们正在使用自己的处理线程），则不会调用它们。将此值设置为正值将导致产生线程。等待指定的时间后，线程将在此引擎及其所有子容器上调用backgroundProcess方法。如果未指定，则此属性的默认值为10，表示10秒的延迟。 |
+| className | 使用的Java类名称。此类必须实现org.apache.catalina.Engine接口。如果未指定，将使用标准值（定义如下）。 |
+| defaultHost | 默认的主机名，它标识Host将处理针对主机名此服务器上的请求，但在此配置文件中没有配置。此名称必须与嵌套在name 其中的Host元素之一的属性匹配。 |
+| jvmRoute | 必须在负载平衡方案中使用的标识符才能启用会话亲缘关系。标识符（在参与集群的所有Tomcat服务器之间必须是唯一的）将附加到生成的会话标识符上，因此允许前端代理始终将特定会话转发到同一Tomcat实例。注意，jvmRoute也可以使用jvmRoutesystem属性设置 。属性中的jvmRoute set<Engine>将覆盖任何jvmRoute系统属性。 |
+| name | 此引擎的逻辑名称，用于日志和错误消息。在同一台Server中使用多个Service元素时 ，必须为每个引擎分配一个唯一的名称。 |
+| startStopThreads | 该引擎将用来并行启动子Host元素的线程数。特殊值0将导致使用该值 Runtime.getRuntime().availableProcessors()。Runtime.getRuntime().availableProcessors() + value除非小于1，否则将使用负值， 在这种情况下将使用1个线程。如果未指定，将使用默认值1。如果使用了1个线程，那么ExecutorService将使用当前线程，而不是使用。 |
+
+- Engine的接口设计
+
+这里你会发现，如下接口中包含上述defaultHost和jvmRoute属性设置；同时还有Service，因为Engine的上层是service。
+```java
+/**
+ * An <b>Engine</b> is a Container that represents the entire Catalina servlet
+ * engine.  It is useful in the following types of scenarios:
+ * <ul>
+ * <li>You wish to use Interceptors that see every single request processed
+ *     by the entire engine.
+ * <li>You wish to run Catalina in with a standalone HTTP connector, but still
+ *     want support for multiple virtual hosts.
+ * </ul>
+ * In general, you would not use an Engine when deploying Catalina connected
+ * to a web server (such as Apache), because the Connector will have
+ * utilized the web server's facilities to determine which Context (or
+ * perhaps even which Wrapper) should be utilized to process this request.
+ * <p>
+ * The child containers attached to an Engine are generally implementations
+ * of Host (representing a virtual host) or Context (representing individual
+ * an individual servlet context), depending upon the Engine implementation.
+ * <p>
+ * If used, an Engine is always the top level Container in a Catalina
+ * hierarchy. Therefore, the implementation's <code>setParent()</code> method
+ * should throw <code>IllegalArgumentException</code>.
+ *
+ * @author Craig R. McClanahan
+ */
+public interface Engine extends Container {
+
+    /**
+     * @return the default host name for this Engine.
+     */
+    public String getDefaultHost();
+
+
+    /**
+     * Set the default hostname for this Engine.
+     *
+     * @param defaultHost The new default host
+     */
+    public void setDefaultHost(String defaultHost);
+
+
+    /**
+     * @return the JvmRouteId for this engine.
+     */
+    public String getJvmRoute();
+
+
+    /**
+     * Set the JvmRouteId for this engine.
+     *
+     * @param jvmRouteId the (new) JVM Route ID. Each Engine within a cluster
+     *        must have a unique JVM Route ID.
+     */
+    public void setJvmRoute(String jvmRouteId);
+
+
+    /**
+     * @return the <code>Service</code> with which we are associated (if any).
+     */
+    public Service getService();
+
+
+    /**
+     * Set the <code>Service</code> with which we are associated (if any).
+     *
+     * @param service The service that owns this Engine
+     */
+    public void setService(Service service);
+}
+```
+- 其它属性支持都包含在我们上文分析的ContainerBase中
+```java
+/**
+  * The processor delay for this component.
+  */
+protected int backgroundProcessorDelay = -1;
+/**
+  * The number of threads available to process start and stop events for any
+  * children associated with this container.
+  */
+private int startStopThreads = 1;
+
+...
+```
+### 6.15.3 Engine接口实现：StandardEngine
+#### 6.15.3.1 接口中简单方法实现
+上述接口里面的defaultHost, JvmRoute, service 很简单
+```java
+/**
+  * Return the default host.
+  */
+@Override
+public String getDefaultHost() {
+    return defaultHost;
+}
+
+
+/**
+  * Set the default host.
+  *
+  * @param host The new default host
+  */
+@Override
+public void setDefaultHost(String host) {
+
+    String oldDefaultHost = this.defaultHost;
+    if (host == null) {
+        this.defaultHost = null;
+    } else {
+        this.defaultHost = host.toLowerCase(Locale.ENGLISH);
+    }
+    if (getState().isAvailable()) {
+        service.getMapper().setDefaultHostName(host);
+    }
+    support.firePropertyChange("defaultHost", oldDefaultHost,
+                                this.defaultHost);
+
+}
+
+
+/**
+  * Set the cluster-wide unique identifier for this Engine.
+  * This value is only useful in a load-balancing scenario.
+  * <p>
+  * This property should not be changed once it is set.
+  */
+@Override
+public void setJvmRoute(String routeId) {
+    jvmRouteId = routeId;
+}
+
+
+/**
+  * Retrieve the cluster-wide unique identifier for this Engine.
+  * This value is only useful in a load-balancing scenario.
+  */
+@Override
+public String getJvmRoute() {
+    return jvmRouteId;
+}
+
+/**
+  * Return the <code>Service</code> with which we are associated (if any).
+  */
+@Override
+public Service getService() {
+    return this.service;
+}
+
+
+/**
+  * Set the <code>Service</code> with which we are associated (if any).
+  *
+  * @param service The service that owns this Engine
+  */
+@Override
+public void setService(Service service) {
+    this.service = service;
+}
+```
+#### 6.15.3.2 child, parent
+- addChild重载方法，限制只能添加Host作为子容器；
+
+- setParent直接抛出异常，因为Engine接口中已经包含了setService方法作为它的上层，而Engine的上层没有容器的概念。
+```java
+/**
+  * Add a child Container, only if the proposed child is an implementation
+  * of Host.
+  *
+  * @param child Child container to be added
+  */
+@Override
+public void addChild(Container child) {
+
+    if (!(child instanceof Host))
+        throw new IllegalArgumentException
+            (sm.getString("standardEngine.notHost"));
+    super.addChild(child);
+
+}
+
+
+/**
+  * Disallow any attempt to set a parent for this Container, since an
+  * Engine is supposed to be at the top of the Container hierarchy.
+  *
+  * @param container Proposed parent Container
+  */
+@Override
+public void setParent(Container container) {
+
+    throw new IllegalArgumentException
+        (sm.getString("standardEngine.notParent"));
+
+}
+```
+#### 6.15.3.3 Lifecycle的模板方法
+
+无非就是调用上文中我们介绍ContainerBase中的方法
+```java
+@Override
+protected void initInternal() throws LifecycleException {
+    // Ensure that a Realm is present before any attempt is made to start
+    // one. This will create the default NullRealm if necessary.
+    getRealm();
+    super.initInternal();
+}
+
+
+/**
+  * Start this component and implement the requirements
+  * of {@link org.apache.catalina.util.LifecycleBase#startInternal()}.
+  *
+  * @exception LifecycleException if this component detects a fatal error
+  *  that prevents this component from being used
+  */
+@Override
+protected synchronized void startInternal() throws LifecycleException {
+
+    // Log our server identification information
+    if (log.isInfoEnabled()) {
+        log.info(sm.getString("standardEngine.start", ServerInfo.getServerInfo()));
+    }
+
+    // Standard container startup
+    super.startInternal();
+}
+```
+#### 6.15.3.4 LogAccess
+> 这里需要补充下之前没有介绍的日志访问，这里介绍下。
+
+运行Web服务器时，正常生成的输出文件之一是访问日志，该访问日志以标准格式为服务器处理的每个请求生成一行信息。Catalina包括一个可选的Valve实现，该实现可以创建与Web服务器创建的标准格式相同的访问日志，也可以创建任意数量的自定义格式。
+
+需要先看下xml配置; 您可以通过嵌套如下所示的Valve元素，要求Catalina为Engine， Host或Context处理的所有请求创建访问日志：
+```xml
+<Engine name="Standalone" ...>
+  ...
+  <Valve className="org.apache.catalina.valves.AccessLogValve"
+         prefix="catalina_access_log" suffix=".txt"
+         pattern="common"/>
+  ...
+</Engine>
+```
+好了看下具体的实现，使用适配器模式获取AccessLog类型的Valve：(适配器模式)
+```java
+@Override
+public AccessLog getAccessLog() {
+
+    if (accessLogScanComplete) {
+        return accessLog;
+    }
+
+    AccessLogAdapter adapter = null;
+    Valve valves[] = getPipeline().getValves();
+    for (Valve valve : valves) {
+        if (valve instanceof AccessLog) { // 看这里
+            if (adapter == null) {
+                adapter = new AccessLogAdapter((AccessLog) valve);
+            } else {
+                adapter.add((AccessLog) valve);
+            }
+        }
+    }
+    if (adapter != null) {
+        accessLog = adapter;
+    }
+    accessLogScanComplete = true;
+    return accessLog;
+}
+```
+AccessLog(日志记录器)主要的作用就是记录日志，这个记录的方法就是logAccess()方法
+```java
+/**
+  * Override the default implementation. If no access log is defined for the
+  * Engine, look for one in the Engine's default host and then the default
+  * host's ROOT context. If still none is found, return the default NoOp
+  * access log.
+  */
+@Override
+public void logAccess(Request request, Response response, long time,
+        boolean useDefault) {
+
+    boolean logged = false;
+
+     // 如果有accessLog，则记录日志
+    if (getAccessLog() != null) {
+        accessLog.log(request, response, time);
+        logged = true;
+    }
+
+    // 没找到且使用useDefault，表示从下层容器中获取accessLog
+    if (!logged && useDefault) {
+        AccessLog newDefaultAccessLog = defaultAccessLog.get();
+        if (newDefaultAccessLog == null) {
+            // If we reached this point, this Engine can't have an AccessLog
+            // Look in the defaultHost
+            Host host = (Host) findChild(getDefaultHost()); // 如果没有默认的accessLog，则获取默认Host的accessLog
+            Context context = null;
+            if (host != null && host.getState().isAvailable()) {
+                newDefaultAccessLog = host.getAccessLog();
+
+                if (newDefaultAccessLog != null) {
+                    if (defaultAccessLog.compareAndSet(null,
+                            newDefaultAccessLog)) {
+                        AccessLogListener l = new AccessLogListener(this,
+                                host, null);
+                        l.install(); // 注册AccessLog监听器至当前Engine
+                    }
+                } else {
+                    // Try the ROOT context of default host
+                    context = (Context) host.findChild(""); // 如果仍然没有找到，则获取默认host的ROOT Context的accessLog
+                    if (context != null &&
+                            context.getState().isAvailable()) {
+                        newDefaultAccessLog = context.getAccessLog();
+                        if (newDefaultAccessLog != null) {
+                            if (defaultAccessLog.compareAndSet(null,
+                                    newDefaultAccessLog)) {
+                                AccessLogListener l = new AccessLogListener(
+                                        this, null, context);
+                                l.install();
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (newDefaultAccessLog == null) { 
+                newDefaultAccessLog = new NoopAccessLog(); // 这个其实是一个空模式，以便采用统一方式调用（不用判空了）
+                if (defaultAccessLog.compareAndSet(null,
+                        newDefaultAccessLog)) {
+                    AccessLogListener l = new AccessLogListener(this, host,
+                            context);
+                    l.install();
+                }
+            }
+        }
+
+        // 最后记录日志，（上面最后有空模式实现，所以可以直接调用，不用判空）
+        newDefaultAccessLog.log(request, response, time);
+    }
+}
+```
+其中涉及的相关内部类如下：
+```java
+protected static final class NoopAccessLog implements AccessLog {
+
+    @Override
+    public void log(Request request, Response response, long time) {
+        // NOOP
+    }
+
+    @Override
+    public void setRequestAttributesEnabled(
+            boolean requestAttributesEnabled) {
+        // NOOP
+
+    }
+
+    @Override
+    public boolean getRequestAttributesEnabled() {
+        // NOOP
+        return false;
+    }
+}
+
+protected static final class AccessLogListener
+        implements PropertyChangeListener, LifecycleListener,
+        ContainerListener {
+
+    private final StandardEngine engine;
+    private final Host host;
+    private final Context context;
+    private volatile boolean disabled = false;
+
+    public AccessLogListener(StandardEngine engine, Host host,
+            Context context) {
+        this.engine = engine;
+        this.host = host;
+        this.context = context;
+    }
+
+    public void install() {
+        engine.addPropertyChangeListener(this);
+        if (host != null) { // 同时注册至host和context
+            host.addContainerListener(this);
+            host.addLifecycleListener(this);
+        }
+        if (context != null) {
+            context.addLifecycleListener(this);
+        }
+    }
+
+    private void uninstall() {
+        disabled = true;
+        if (context != null) {
+            context.removeLifecycleListener(this);
+        }
+        if (host != null) {
+            host.removeLifecycleListener(this);
+            host.removeContainerListener(this);
+        }
+        engine.removePropertyChangeListener(this);
+    }
+
+    @Override
+    public void lifecycleEvent(LifecycleEvent event) {
+        if (disabled) return;
+
+        String type = event.getType();
+        if (Lifecycle.AFTER_START_EVENT.equals(type) ||
+                Lifecycle.BEFORE_STOP_EVENT.equals(type) ||
+                Lifecycle.BEFORE_DESTROY_EVENT.equals(type)) {
+            // Container is being started/stopped/removed
+            // Force re-calculation and disable listener since it won't
+            // be re-used
+            engine.defaultAccessLog.set(null);
+            uninstall();
+        }
+    }
+
+    @Override
+    public void propertyChange(PropertyChangeEvent evt) {
+        if (disabled) return;
+        if ("defaultHost".equals(evt.getPropertyName())) {
+            // Force re-calculation and disable listener since it won't
+            // be re-used
+            engine.defaultAccessLog.set(null);
+            uninstall();
+        }
+    }
+
+    @Override
+    public void containerEvent(ContainerEvent event) {
+        // Only useful for hosts
+        if (disabled) return;
+        if (Container.ADD_CHILD_EVENT.equals(event.getType())) {
+            Context context = (Context) event.getData();
+            if (context.getPath().isEmpty()) {
+                // Force re-calculation and disable listener since it won't
+                // be re-used
+                engine.defaultAccessLog.set(null);
+                uninstall();
+            }
+        }
+    }
+}
+```
+#### 6.15.3.5 JMX相关
+之前已经有过相关介绍，这里不再介绍相关方法，只列出相关方法：
+```java
+@Override
+protected String getObjectNameKeyProperties() {
+    return "type=Engine";
+}
+
+
+@Override
+protected String getDomainInternal() {
+    return getName();
+}
+```
+## 6.16 Tomcat - Container的管道机制：责任链模式
+### 6.16.1 内容引入
+> 承接上文Engine的设计，从以下几个方面，我将向你解释为什么要理解Tomcat中管道机制，它要解决什么问题？
+- Tomcat总计架构图中Pipeline和Vavle
+![45.tomcat-x-pipline-3.jpg](../../assets/images/04-主流框架/Servlet容器/45.tomcat-x-pipline-3.jpg)
+- 我们在上文Engine中有一块Pipline没有解释：
+![46.tomcat-x-pipline-1.jpg](../../assets/images/04-主流框架/Servlet容器/46.tomcat-x-pipline-1.jpg)
+- 为什么Tomcat要引入Pipline呢？它要解决什么问题呢？
+### 6.16.2 知识准备
+#### 6.16.2.1 责任链模式
+管道机制在设计模式上属于**责任链模式**,
+
+责任链模式(Chain of responsibility pattern): 通过责任链模式, 你可以为某个请求创建一个对象链. 每个对象依序检查此请求并对其进行处理或者将它传给链中的下一个对象。
+#### 6.16.2.2 FilterChain
+在软件开发的常接触的责任链模式是FilterChain，它体现在很多软件设计中：
+- 比如Spring Security框架中
+![47.tomcat-x-pipline-6.jpg](../../assets/images/04-主流框架/Servlet容器/47.tomcat-x-pipline-6.jpg)
+- 比如HttpServletRequest处理的过滤器中
+
+当一个request过来的时候，需要对这个request做一系列的加工，使用责任链模式可以使每个加工组件化，减少耦合。也可以使用在当一个request过来的时候，需要找到合适的加工方式。当一个加工方式不适合这个request的时候，传递到下一个加工方法，该加工方式再尝试对request加工。
+
+网上找了图，这里我们后文将通过Tomcat请求处理向你阐述。
+![48.tomcat-x-pipline-5.jpg](../../assets/images/04-主流框架/Servlet容器/48.tomcat-x-pipline-5.jpg)
+### 6.16.3 Pipline机制
+> 为什么要有管道机制？
+
+在一个比较复杂的大型系统中，如果一个对象或数据流需要进行繁杂的逻辑处理，我们可以选择在一个大的组件中直接处理这些繁杂的业务逻辑， 这个方式虽然达到目的，但扩展性和可重用性较差， 因为可能牵一发而动全身。更好的解决方案是采用管道机制，**用一条管道把多个对象(阀门部件)连接起来，整体看起来就像若干个阀门嵌套在管道中一样，而处理逻辑放在阀门上。**
+#### 6.16.3.1 Vavle接口设计
+理解它的设计，第一步就是阀门设计
+```java
+public interface Valve {
+
+
+    // 因为需要传递给下个Valve处理，所以有next
+    public Valve getNext();
+    public void setNext(Valve valve);
+
+
+    // 设计这个方法，便于执行周期任务，比如重新加载组件。此方法将在该容器的类加载上下文中调用。
+    public void backgroundProcess();
+
+
+    // 这个方法很容易理解，阀门中处理的执行方法，传入Request和Response进行处理
+    public void invoke(Request request, Response response)
+        throws IOException, ServletException;
+
+    // 此阀门是否支持Servlet 3+ 异步的请求
+    public boolean isAsyncSupported();
+}
+```
+#### 6.16.3.2 Pipline接口设计
+由于Pipline是为容器设计的，所以它在设计时加入了一个Containerd接口, 就是为了制定当前Pipline所属的容器：
+```java
+public interface Contained {
+
+    Container getContainer();
+
+    void setContainer(Container container);
+}
+```
+我们接着看下Pipline接口设计
+```java
+public interface Pipeline extends Contained {
+
+    // 基础的处理阀
+    public Valve getBasic();
+    public void setBasic(Valve valve);
+
+
+    // 对节点（阀门）增删查
+    public void addValve(Valve valve);
+    public Valve[] getValves();
+    public void removeValve(Valve valve);
+
+
+    // 获取第一个节点，遍历的起点，所以需要有这方法
+    public Valve getFirst();
+
+
+    // 是否所有节点（阀门）都支持处理Servlet3异步处理
+    public boolean isAsyncSupported();
+
+
+    // 找到所有不支持Servlet3异步处理的阀门
+    public void findNonAsyncValves(Set<String> result);
+}
+```
+#### 6.16.3.3 BaseVavle设计
+由于Valve也是组件，需要生命周期管理，所以实现LifecycleMBeanBase，同时集成Contained和Valve
+```java
+public abstract class ValveBase extends LifecycleMBeanBase implements Contained, Valve {
+
+    protected static final StringManager sm = StringManager.getManager(ValveBase.class);
+
+
+    //------------------------------------------------------ Constructor
+
+    public ValveBase() {
+        this(false);
+    }
+
+
+    public ValveBase(boolean asyncSupported) {
+        this.asyncSupported = asyncSupported;
+    }
+
+
+    //------------------------------------------------------ Instance Variables
+
+    /**
+     * Does this valve support Servlet 3+ async requests?
+     */
+    protected boolean asyncSupported;
+
+
+    /**
+     * The Container whose pipeline this Valve is a component of.
+     */
+    protected Container container = null;
+
+
+    /**
+     * Container log
+     */
+    protected Log containerLog = null;
+
+
+    /**
+     * The next Valve in the pipeline this Valve is a component of.
+     */
+    protected Valve next = null;
+
+
+    //-------------------------------------------------------------- Properties
+
+    /**
+     * Return the Container with which this Valve is associated, if any.
+     */
+    @Override
+    public Container getContainer() {
+        return container;
+    }
+
+
+    /**
+     * Set the Container with which this Valve is associated, if any.
+     *
+     * @param container The new associated container
+     */
+    @Override
+    public void setContainer(Container container) {
+        this.container = container;
+    }
+
+
+    @Override
+    public boolean isAsyncSupported() {
+        return asyncSupported;
+    }
+
+
+    public void setAsyncSupported(boolean asyncSupported) {
+        this.asyncSupported = asyncSupported;
+    }
+
+
+    /**
+     * Return the next Valve in this pipeline, or <code>null</code> if this
+     * is the last Valve in the pipeline.
+     */
+    @Override
+    public Valve getNext() {
+        return next;
+    }
+
+
+    /**
+     * Set the Valve that follows this one in the pipeline it is part of.
+     *
+     * @param valve The new next valve
+     */
+    @Override
+    public void setNext(Valve valve) {
+        this.next = valve;
+    }
+
+
+    //---------------------------------------------------------- Public Methods
+
+    /**
+     * Execute a periodic task, such as reloading, etc. This method will be
+     * invoked inside the classloading context of this container. Unexpected
+     * throwables will be caught and logged.
+     */
+    @Override
+    public void backgroundProcess() {
+        // NOOP by default
+    }
+
+
+    @Override
+    protected void initInternal() throws LifecycleException {
+        super.initInternal();
+        containerLog = getContainer().getLogger();
+    }
+
+
+    /**
+     * Start this component and implement the requirements
+     * of {@link org.apache.catalina.util.LifecycleBase#startInternal()}.
+     *
+     * @exception LifecycleException if this component detects a fatal error
+     *  that prevents this component from being used
+     */
+    @Override
+    protected synchronized void startInternal() throws LifecycleException {
+        setState(LifecycleState.STARTING);
+    }
+
+
+    /**
+     * Stop this component and implement the requirements
+     * of {@link org.apache.catalina.util.LifecycleBase#stopInternal()}.
+     *
+     * @exception LifecycleException if this component detects a fatal error
+     *  that prevents this component from being used
+     */
+    @Override
+    protected synchronized void stopInternal() throws LifecycleException {
+        setState(LifecycleState.STOPPING);
+    }
+
+
+    /**
+     * Return a String rendering of this object.
+     */
+    @Override
+    public String toString() {
+        return ToStringUtil.toString(this);
+    }
+
+
+    // -------------------- JMX and Registration  --------------------
+
+    @Override
+    public String getObjectNameKeyProperties() {
+        StringBuilder name = new StringBuilder("type=Valve");
+
+        Container container = getContainer();
+
+        name.append(container.getMBeanKeyProperties());
+
+        int seq = 0;
+
+        // Pipeline may not be present in unit testing
+        Pipeline p = container.getPipeline();
+        if (p != null) {
+            for (Valve valve : p.getValves()) {
+                // Skip null valves
+                if (valve == null) {
+                    continue;
+                }
+                // Only compare valves in pipeline until we find this valve
+                if (valve == this) {
+                    break;
+                }
+                if (valve.getClass() == this.getClass()) {
+                    // Duplicate valve earlier in pipeline
+                    // increment sequence number
+                    seq ++;
+                }
+            }
+        }
+
+        if (seq > 0) {
+            name.append(",seq=");
+            name.append(seq);
+        }
+
+        String className = this.getClass().getName();
+        int period = className.lastIndexOf('.');
+        if (period >= 0) {
+            className = className.substring(period + 1);
+        }
+        name.append(",name=");
+        name.append(className);
+
+        return name.toString();
+    }
+
+
+    @Override
+    public String getDomainInternal() {
+        Container c = getContainer();
+        if (c == null) {
+            return null;
+        } else {
+            return c.getDomain();
+        }
+    }
+}
+```
+### 6.16.4 StandardPipline实现
+
+里面方法很简单，就直接贴代码了。它必然是继承LifecycleBase同时实现Pipline.
+
+贴个图方面你理解
+![49.tomcat-x-pipline-7.jpg](../../assets/images/04-主流框架/Servlet容器/49.tomcat-x-pipline-7.jpg)
+
+```java
+public class StandardPipeline extends LifecycleBase implements Pipeline {
+
+    private static final Log log = LogFactory.getLog(StandardPipeline.class);
+    private static final StringManager sm = StringManager.getManager(Constants.Package);
+
+    // ----------------------------------------------------------- Constructors
+
+
+    /**
+     * Construct a new StandardPipeline instance with no associated Container.
+     */
+    public StandardPipeline() {
+
+        this(null);
+
+    }
+
+
+    /**
+     * Construct a new StandardPipeline instance that is associated with the
+     * specified Container.
+     *
+     * @param container The container we should be associated with
+     */
+    public StandardPipeline(Container container) {
+
+        super();
+        setContainer(container);
+
+    }
+
+
+    // ----------------------------------------------------- Instance Variables
+
+
+    /**
+     * The basic Valve (if any) associated with this Pipeline.
+     */
+    protected Valve basic = null;
+
+
+    /**
+     * The Container with which this Pipeline is associated.
+     */
+    protected Container container = null;
+
+
+    /**
+     * The first valve associated with this Pipeline.
+     */
+    protected Valve first = null;
+
+
+    // --------------------------------------------------------- Public Methods
+
+    @Override
+    public boolean isAsyncSupported() {
+        Valve valve = (first!=null)?first:basic;
+        boolean supported = true;
+        while (supported && valve!=null) {
+            supported = supported & valve.isAsyncSupported();
+            valve = valve.getNext();
+        }
+        return supported;
+    }
+
+
+    @Override
+    public void findNonAsyncValves(Set<String> result) {
+        Valve valve = (first!=null) ? first : basic;
+        while (valve != null) {
+            if (!valve.isAsyncSupported()) {
+                result.add(valve.getClass().getName());
+            }
+            valve = valve.getNext();
+        }
+    }
+
+
+    // ------------------------------------------------------ Contained Methods
+
+    /**
+     * Return the Container with which this Pipeline is associated.
+     */
+    @Override
+    public Container getContainer() {
+        return this.container;
+    }
+
+
+    /**
+     * Set the Container with which this Pipeline is associated.
+     *
+     * @param container The new associated container
+     */
+    @Override
+    public void setContainer(Container container) {
+        this.container = container;
+    }
+
+
+    @Override
+    protected void initInternal() {
+        // NOOP
+    }
+
+
+    /**
+     * Start {@link Valve}s) in this pipeline and implement the requirements
+     * of {@link LifecycleBase#startInternal()}.
+     *
+     * @exception LifecycleException if this component detects a fatal error
+     *  that prevents this component from being used
+     */
+    @Override
+    protected synchronized void startInternal() throws LifecycleException {
+
+        // Start the Valves in our pipeline (including the basic), if any
+        Valve current = first;
+        if (current == null) {
+            current = basic;
+        }
+        while (current != null) {
+            if (current instanceof Lifecycle)
+                ((Lifecycle) current).start();
+            current = current.getNext();
+        }
+
+        setState(LifecycleState.STARTING);
+    }
+
+
+    /**
+     * Stop {@link Valve}s) in this pipeline and implement the requirements
+     * of {@link LifecycleBase#stopInternal()}.
+     *
+     * @exception LifecycleException if this component detects a fatal error
+     *  that prevents this component from being used
+     */
+    @Override
+    protected synchronized void stopInternal() throws LifecycleException {
+
+        setState(LifecycleState.STOPPING);
+
+        // Stop the Valves in our pipeline (including the basic), if any
+        Valve current = first;
+        if (current == null) {
+            current = basic;
+        }
+        while (current != null) {
+            if (current instanceof Lifecycle)
+                ((Lifecycle) current).stop();
+            current = current.getNext();
+        }
+    }
+
+
+    @Override
+    protected void destroyInternal() {
+        Valve[] valves = getValves();
+        for (Valve valve : valves) {
+            removeValve(valve);
+        }
+    }
+
+
+    /**
+     * Return a String representation of this component.
+     */
+    @Override
+    public String toString() {
+        return ToStringUtil.toString(this);
+    }
+
+
+    // ------------------------------------------------------- Pipeline Methods
+
+
+    /**
+     * <p>Return the Valve instance that has been distinguished as the basic
+     * Valve for this Pipeline (if any).
+     */
+    @Override
+    public Valve getBasic() {
+        return this.basic;
+    }
+
+
+    /**
+     * <p>Set the Valve instance that has been distinguished as the basic
+     * Valve for this Pipeline (if any).  Prior to setting the basic Valve,
+     * the Valve's <code>setContainer()</code> will be called, if it
+     * implements <code>Contained</code>, with the owning Container as an
+     * argument.  The method may throw an <code>IllegalArgumentException</code>
+     * if this Valve chooses not to be associated with this Container, or
+     * <code>IllegalStateException</code> if it is already associated with
+     * a different Container.</p>
+     *
+     * @param valve Valve to be distinguished as the basic Valve
+     */
+    @Override
+    public void setBasic(Valve valve) {
+
+        // Change components if necessary
+        Valve oldBasic = this.basic;
+        if (oldBasic == valve)
+            return;
+
+        // Stop the old component if necessary
+        if (oldBasic != null) {
+            if (getState().isAvailable() && (oldBasic instanceof Lifecycle)) {
+                try {
+                    ((Lifecycle) oldBasic).stop();
+                } catch (LifecycleException e) {
+                    log.error(sm.getString("standardPipeline.basic.stop"), e);
+                }
+            }
+            if (oldBasic instanceof Contained) {
+                try {
+                    ((Contained) oldBasic).setContainer(null);
+                } catch (Throwable t) {
+                    ExceptionUtils.handleThrowable(t);
+                }
+            }
+        }
+
+        // Start the new component if necessary
+        if (valve == null)
+            return;
+        if (valve instanceof Contained) {
+            ((Contained) valve).setContainer(this.container);
+        }
+        if (getState().isAvailable() && valve instanceof Lifecycle) {
+            try {
+                ((Lifecycle) valve).start();
+            } catch (LifecycleException e) {
+                log.error(sm.getString("standardPipeline.basic.start"), e);
+                return;
+            }
+        }
+
+        // Update the pipeline
+        Valve current = first;
+        while (current != null) {
+            if (current.getNext() == oldBasic) {
+                current.setNext(valve);
+                break;
+            }
+            current = current.getNext();
+        }
+
+        this.basic = valve;
+
+    }
+
+
+    /**
+     * <p>Add a new Valve to the end of the pipeline associated with this
+     * Container.  Prior to adding the Valve, the Valve's
+     * <code>setContainer()</code> method will be called, if it implements
+     * <code>Contained</code>, with the owning Container as an argument.
+     * The method may throw an
+     * <code>IllegalArgumentException</code> if this Valve chooses not to
+     * be associated with this Container, or <code>IllegalStateException</code>
+     * if it is already associated with a different Container.</p>
+     *
+     * @param valve Valve to be added
+     *
+     * @exception IllegalArgumentException if this Container refused to
+     *  accept the specified Valve
+     * @exception IllegalArgumentException if the specified Valve refuses to be
+     *  associated with this Container
+     * @exception IllegalStateException if the specified Valve is already
+     *  associated with a different Container
+     */
+    @Override
+    public void addValve(Valve valve) {
+
+        // Validate that we can add this Valve
+        if (valve instanceof Contained)
+            ((Contained) valve).setContainer(this.container);
+
+        // Start the new component if necessary
+        if (getState().isAvailable()) {
+            if (valve instanceof Lifecycle) {
+                try {
+                    ((Lifecycle) valve).start();
+                } catch (LifecycleException e) {
+                    log.error(sm.getString("standardPipeline.valve.start"), e);
+                }
+            }
+        }
+
+        // Add this Valve to the set associated with this Pipeline
+        if (first == null) {
+            first = valve;
+            valve.setNext(basic);
+        } else {
+            Valve current = first;
+            while (current != null) {
+                if (current.getNext() == basic) {
+                    current.setNext(valve);
+                    valve.setNext(basic);
+                    break;
+                }
+                current = current.getNext();
+            }
+        }
+
+        container.fireContainerEvent(Container.ADD_VALVE_EVENT, valve);
+    }
+
+
+    /**
+     * Return the set of Valves in the pipeline associated with this
+     * Container, including the basic Valve (if any).  If there are no
+     * such Valves, a zero-length array is returned.
+     */
+    @Override
+    public Valve[] getValves() {
+
+        List<Valve> valveList = new ArrayList<>();
+        Valve current = first;
+        if (current == null) {
+            current = basic;
+        }
+        while (current != null) {
+            valveList.add(current);
+            current = current.getNext();
+        }
+
+        return valveList.toArray(new Valve[0]);
+
+    }
+
+    public ObjectName[] getValveObjectNames() {
+
+        List<ObjectName> valveList = new ArrayList<>();
+        Valve current = first;
+        if (current == null) {
+            current = basic;
+        }
+        while (current != null) {
+            if (current instanceof JmxEnabled) {
+                valveList.add(((JmxEnabled) current).getObjectName());
+            }
+            current = current.getNext();
+        }
+
+        return valveList.toArray(new ObjectName[0]);
+
+    }
+
+    /**
+     * Remove the specified Valve from the pipeline associated with this
+     * Container, if it is found; otherwise, do nothing.  If the Valve is
+     * found and removed, the Valve's <code>setContainer(null)</code> method
+     * will be called if it implements <code>Contained</code>.
+     *
+     * @param valve Valve to be removed
+     */
+    @Override
+    public void removeValve(Valve valve) {
+
+        Valve current;
+        if(first == valve) {
+            first = first.getNext();
+            current = null;
+        } else {
+            current = first;
+        }
+        while (current != null) {
+            if (current.getNext() == valve) {
+                current.setNext(valve.getNext());
+                break;
+            }
+            current = current.getNext();
+        }
+
+        if (first == basic) first = null;
+
+        if (valve instanceof Contained)
+            ((Contained) valve).setContainer(null);
+
+        if (valve instanceof Lifecycle) {
+            // Stop this valve if necessary
+            if (getState().isAvailable()) {
+                try {
+                    ((Lifecycle) valve).stop();
+                } catch (LifecycleException e) {
+                    log.error(sm.getString("standardPipeline.valve.stop"), e);
+                }
+            }
+            try {
+                ((Lifecycle) valve).destroy();
+            } catch (LifecycleException e) {
+                log.error(sm.getString("standardPipeline.valve.destroy"), e);
+            }
+        }
+
+        container.fireContainerEvent(Container.REMOVE_VALVE_EVENT, valve);
+    }
+
+
+    @Override
+    public Valve getFirst() {
+        if (first != null) {
+            return first;
+        }
+
+        return basic;
+    }
+}
+```
+### 6.15.5 ContainerBase中运用Pipline
+> 那么容器中是如何运用Pipline的呢？
+- 容器中是如何运用Pipline的？
+
+由于Container中都有涉及，实现方法肯定是在抽象的实现类中，所以肯定是在ContainerBase中实现。
+
+- 初始化
+```java
+/**
+  * The Pipeline object with which this Container is associated.
+  */
+protected final Pipeline pipeline = new StandardPipeline(this);
+/**
+  * Return the Pipeline object that manages the Valves associated with
+  * this Container.
+  */
+@Override
+public Pipeline getPipeline() {
+    return this.pipeline;
+}
+```
+- Lifecycle模板方法
+```java
+@Override
+protected synchronized void startInternal() throws LifecycleException {
+...
+    // Start the Valves in our pipeline (including the basic), if any
+    if (pipeline instanceof Lifecycle) {
+        ((Lifecycle) pipeline).start();
+    }
+...
+}
+
+@Override
+protected synchronized void stopInternal() throws LifecycleException {
+  ...
+
+    // Stop the Valves in our pipeline (including the basic), if any
+    if (pipeline instanceof Lifecycle &&
+            ((Lifecycle) pipeline).getState().isAvailable()) {
+        ((Lifecycle) pipeline).stop();
+    }
+  ...
+}
+
+@Override
+protected void destroyInternal() throws LifecycleException {
+...
+
+    // Stop the Valves in our pipeline (including the basic), if any
+    if (pipeline instanceof Lifecycle) {
+        ((Lifecycle) pipeline).destroy();
+    }
+...
+    super.destroyInternal();
+}
+```
+- 重点是backgroundProcess方法
+```java
+@Override
+public void backgroundProcess() {
+
+    if (!getState().isAvailable())
+        return;
+
+    Cluster cluster = getClusterInternal();
+    if (cluster != null) {
+        try {
+            cluster.backgroundProcess();
+        } catch (Exception e) {
+            log.warn(sm.getString("containerBase.backgroundProcess.cluster",
+                    cluster), e);
+        }
+    }
+    Realm realm = getRealmInternal();
+    if (realm != null) {
+        try {
+            realm.backgroundProcess();
+        } catch (Exception e) {
+            log.warn(sm.getString("containerBase.backgroundProcess.realm", realm), e);
+        }
+    }
+    // 看这里
+    Valve current = pipeline.getFirst();
+    while (current != null) {
+        try {
+            current.backgroundProcess();
+        } catch (Exception e) {
+            log.warn(sm.getString("containerBase.backgroundProcess.valve", current), e);
+        }
+        current = current.getNext();
+    }
+    fireLifecycleEvent(Lifecycle.PERIODIC_EVENT, null);
+}
+```
+看下相关链路
+![50.tomcat-x-pipline-2.jpg](../../assets/images/04-主流框架/Servlet容器/50.tomcat-x-pipline-2.jpg)
+### 6.15.6 对比下两种责任链模式
+| 管道/阀门 | 过滤器链/过滤器 |
+|--------|------|
+|管道（Pipeline）|过滤器链（FilterChain）|
+|阀门（Valve）|过滤器（Filter）|
+|底层实现为具有头（first）、尾（basic）指针的单向链表|底层实现为数组|
+|Valve的核心方法invoke(request,response)|Filter核心方法doFilter(request,response,chain)|
+|pipeline.getFirst().invoke(request,response)|filterchain.doFilter(request,response)|
+## 6.17 Tomcat - Request请求处理过程：Connector
+### 6.17.1 引入
+- 线程池Executor是在哪里启动的？
+
+- Request是如何处理并交个Container处理的？
+
+- Tomcat支持哪些协议？这些协议是处理的？协议层次结构如何设计的？
+### 6.17.2 Connector
+#### 6.17.2.1 Connector构造
+本质是初始化了ProtocolHandler，默认是HTTP/1.1 NIO实现。
+```java
+/**
+  * Defaults to using HTTP/1.1 NIO implementation.
+  */
+public Connector() {
+    this("HTTP/1.1");
+}
+
+public Connector(String protocol) {
+    boolean apr = AprStatus.isAprAvailable() &&
+        AprStatus.getUseAprConnector();
+    ProtocolHandler p = null;
+    try {
+        p = ProtocolHandler.create(protocol, apr);
+    } catch (Exception e) {
+        log.error(sm.getString(
+                "coyoteConnector.protocolHandlerInstantiationFailed"), e);
+    }
+    if (p != null) {
+        protocolHandler = p;
+        protocolHandlerClassName = protocolHandler.getClass().getName();
+    } else {
+        protocolHandler = null;
+        protocolHandlerClassName = protocol;
+    }
+    // Default for Connector depends on this system property
+    setThrowOnFailure(Boolean.getBoolean("org.apache.catalina.startup.EXIT_ON_INIT_FAILURE"));
+}
+```
+ProtocolHandler是怎么通过protocol初始化实现的呢？我们看下ProtocolHandler.create(protocol, apr)
+```java
+public static ProtocolHandler create(String protocol, boolean apr)
+        throws ClassNotFoundException, InstantiationException, IllegalAccessException,
+        IllegalArgumentException, InvocationTargetException, NoSuchMethodException, SecurityException {
+    if (protocol == null || "HTTP/1.1".equals(protocol)
+            || (!apr && org.apache.coyote.http11.Http11NioProtocol.class.getName().equals(protocol))
+            || (apr && org.apache.coyote.http11.Http11AprProtocol.class.getName().equals(protocol))) {
+        if (apr) {
+            return new org.apache.coyote.http11.Http11AprProtocol();
+        } else {
+            return new org.apache.coyote.http11.Http11NioProtocol();
+        }
+    } else if ("AJP/1.3".equals(protocol)
+            || (!apr && org.apache.coyote.ajp.AjpNioProtocol.class.getName().equals(protocol))
+            || (apr && org.apache.coyote.ajp.AjpAprProtocol.class.getName().equals(protocol))) {
+        if (apr) {
+            return new org.apache.coyote.ajp.AjpAprProtocol();
+        } else {
+            return new org.apache.coyote.ajp.AjpNioProtocol();
+        }
+    } else {
+        // Instantiate protocol handler
+        Class<?> clazz = Class.forName(protocol);
+        return (ProtocolHandler) clazz.getConstructor().newInstance();
+    }
+}
+```
+我们看到上述方法实际通过Protocol初始化了ProtocolHandler, 我们看下它所支持的HTTP1.1，Ajp协议的处理，我们通过它的类层次结构来看协议支持处理类
+![51.tomcat-x-connector-1.jpg](../../assets/images/04-主流框架/Servlet容器/51.tomcat-x-connector-1.jpg)
+#### 6.17.2.2 Connector初始化
+在JMX的初始化模板方法`initInternal`中，进行了Connector的初始化，它做了哪些事呢？
+- 给protocolHandler初始化了adapter //这adapter是真正衔接Container处理的适配器，后文我们会有详解。
+- 设置parseBody的方法，默认为POST方法
+- 一些校验
+- 调用protocolHandler的init
+```java
+@Override
+protected void initInternal() throws LifecycleException {
+
+    super.initInternal();
+
+    if (protocolHandler == null) {
+        throw new LifecycleException(
+                sm.getString("coyoteConnector.protocolHandlerInstantiationFailed"));
+    }
+
+    // 初始化 adapter
+    adapter = new CoyoteAdapter(this);
+    protocolHandler.setAdapter(adapter); // 交给protocolHandler
+    if (service != null) {
+        protocolHandler.setUtilityExecutor(service.getServer().getUtilityExecutor());
+    }
+
+    // 设置parseBody的方法，默认为POST
+    if (null == parseBodyMethodsSet) {
+        setParseBodyMethods(getParseBodyMethods());
+    }
+
+    // 校验
+    if (protocolHandler.isAprRequired() && !AprStatus.isInstanceCreated()) {
+        throw new LifecycleException(sm.getString("coyoteConnector.protocolHandlerNoAprListener",
+                getProtocolHandlerClassName()));
+    }
+    if (protocolHandler.isAprRequired() && !AprStatus.isAprAvailable()) {
+        throw new LifecycleException(sm.getString("coyoteConnector.protocolHandlerNoAprLibrary",
+                getProtocolHandlerClassName()));
+    }
+    if (AprStatus.isAprAvailable() && AprStatus.getUseOpenSSL() &&
+            protocolHandler instanceof AbstractHttp11JsseProtocol) {
+        AbstractHttp11JsseProtocol<?> jsseProtocolHandler =
+                (AbstractHttp11JsseProtocol<?>) protocolHandler;
+        if (jsseProtocolHandler.isSSLEnabled() &&
+                jsseProtocolHandler.getSslImplementationName() == null) {
+            // OpenSSL is compatible with the JSSE configuration, so use it if APR is available
+            jsseProtocolHandler.setSslImplementationName(OpenSSLImplementation.class.getName());
+        }
+    }
+
+    try {
+        // 调用protocolHandler的init
+        protocolHandler.init(); 
+    } catch (Exception e) {
+        throw new LifecycleException(
+                sm.getString("coyoteConnector.protocolHandlerInitializationFailed"), e);
+    }
+}
+```
+protocolHandler的init做了什么？本质上调用了AbstractEndpoint的init方法
+```java
+/**
+  * Endpoint that provides low-level network I/O - must be matched to the
+  * ProtocolHandler implementation (ProtocolHandler using NIO, requires NIO
+  * Endpoint etc.).
+  */
+private final AbstractEndpoint<S,?> endpoint;
+
+@Override
+public void init() throws Exception {
+    if (getLog().isInfoEnabled()) {
+        getLog().info(sm.getString("abstractProtocolHandler.init", getName()));
+        logPortOffset();
+    }
+
+    if (oname == null) {
+        // Component not pre-registered so register it
+        oname = createObjectName();
+        if (oname != null) {
+            Registry.getRegistry(null, null).registerComponent(this, oname, null);
+        }
+    }
+
+    if (this.domain != null) {
+        rgOname = new ObjectName(domain + ":type=GlobalRequestProcessor,name=" + getName());
+        Registry.getRegistry(null, null).registerComponent(
+                getHandler().getGlobal(), rgOname, null);
+    }
+
+    String endpointName = getName();
+    endpoint.setName(endpointName.substring(1, endpointName.length()-1));
+    endpoint.setDomain(domain);
+
+    endpoint.init();
+}
+```
+endpoint.init()做了什么呢？之前的版本中是直接调用bind方法，这里改成了bindWithCleanup, 变化点在于失败后的清理操作。
+```java
+public final void init() throws Exception {
+    if (bindOnInit) {
+        bindWithCleanup(); // 看这里
+        bindState = BindState.BOUND_ON_INIT;
+    }
+
+    // 下面就是注册JMX，前文我们有讲
+    if (this.domain != null) {
+        // Register endpoint (as ThreadPool - historical name)
+        oname = new ObjectName(domain + ":type=ThreadPool,name=\"" + getName() + "\"");
+        Registry.getRegistry(null, null).registerComponent(this, oname, null);
+
+        ObjectName socketPropertiesOname = new ObjectName(domain +
+                ":type=SocketProperties,name=\"" + getName() + "\"");
+        socketProperties.setObjectName(socketPropertiesOname);
+        Registry.getRegistry(null, null).registerComponent(socketProperties, socketPropertiesOname, null);
+
+        for (SSLHostConfig sslHostConfig : findSslHostConfigs()) {
+            registerJmx(sslHostConfig);
+        }
+    }
+}
+```
+bindWithCleanup()做了bind方法，如果绑定失败就回调unbind方法。
+```java
+private void bindWithCleanup() throws Exception {
+    try {
+        bind();
+    } catch (Throwable t) {
+        // Ensure open sockets etc. are cleaned up if something goes
+        // wrong during bind
+        ExceptionUtils.handleThrowable(t);
+        unbind();
+        throw t;
+    }
+}
+```
+bind()方法做了初始化ServerSocket和初始化ssl
+```java
+/**
+  * Initialize the endpoint.
+  */
+@Override
+public void bind() throws Exception {
+    initServerSocket();
+
+    setStopLatch(new CountDownLatch(1));
+
+    // Initialize SSL if needed
+    initialiseSsl();
+
+    selectorPool.open(getName());
+}
+
+// Separated out to make it easier for folks that extend NioEndpoint to
+// implement custom [server]sockets
+protected void initServerSocket() throws Exception {
+    if (!getUseInheritedChannel()) {
+        serverSock = ServerSocketChannel.open(); // 打开ServerSocket通道
+        socketProperties.setProperties(serverSock.socket());
+        InetSocketAddress addr = new InetSocketAddress(getAddress(), getPortWithOffset());
+        serverSock.socket().bind(addr,getAcceptCount()); // 绑定到指定服务地址和端口，这样你才可以通过这个访问服务（处理请求）
+    } else {
+        // Retrieve the channel provided by the OS
+        Channel ic = System.inheritedChannel();
+        if (ic instanceof ServerSocketChannel) {
+            serverSock = (ServerSocketChannel) ic;
+        }
+        if (serverSock == null) {
+            throw new IllegalArgumentException(sm.getString("endpoint.init.bind.inherited"));
+        }
+    }
+    serverSock.configureBlocking(true); //mimic APR behavior
+}
+```
+#### 6.17.2.3 Connector的启动
+这里依然是调用JMX的模板方法startInternal方法, start方法本质就是委托给protocolHandler处理，调用它的start方法
+```java
+/**
+  * Begin processing requests via this Connector.
+  *
+  * @exception LifecycleException if a fatal startup error occurs
+  */
+@Override
+protected void startInternal() throws LifecycleException {
+
+    // Validate settings before starting
+    if (getPortWithOffset() < 0) {
+        throw new LifecycleException(sm.getString(
+                "coyoteConnector.invalidPort", Integer.valueOf(getPortWithOffset())));
+    }
+
+    setState(LifecycleState.STARTING);
+
+    try {
+        protocolHandler.start();
+    } catch (Exception e) {
+        throw new LifecycleException(
+                sm.getString("coyoteConnector.protocolHandlerStartFailed"), e);
+    }
+}
+```
+protocolHandler.start()方法如下，它又交给endpoint进行start处理
+```java
+@Override
+public void start() throws Exception {
+    if (getLog().isInfoEnabled()) {
+        getLog().info(sm.getString("abstractProtocolHandler.start", getName()));
+        logPortOffset();
+    }
+
+    // 本质是调用endpoint的start方法
+    endpoint.start();
+
+    // 启动一个异步的线程，处理startAsyncTimeout方法，每隔60秒执行一次
+    monitorFuture = getUtilityExecutor().scheduleWithFixedDelay(
+            new Runnable() {
+                @Override
+                public void run() {
+                    if (!isPaused()) {
+                        startAsyncTimeout();
+                    }
+                }
+            }, 0, 60, TimeUnit.SECONDS);
+}
+```
+endpoint.start()就是调用startInternal方法。当然它会先检查是否绑定端口，没有绑定便执行bindWithCleanup方法
+```java
+public final void start() throws Exception {
+    if (bindState == BindState.UNBOUND) {
+        bindWithCleanup();
+        bindState = BindState.BOUND_ON_START;
+    }
+    startInternal();
+}
+```
+看下NIOEndPoint的startInternal方法做了啥
+```java
+/**
+  * Start the NIO endpoint, creating acceptor, poller threads.
+  */
+@Override
+public void startInternal() throws Exception {
+
+    if (!running) {
+        running = true;
+        paused = false;
+
+        if (socketProperties.getProcessorCache() != 0) {
+            processorCache = new SynchronizedStack<>(SynchronizedStack.DEFAULT_SIZE,
+                    socketProperties.getProcessorCache());
+        }
+        if (socketProperties.getEventCache() != 0) {
+            eventCache = new SynchronizedStack<>(SynchronizedStack.DEFAULT_SIZE,
+                    socketProperties.getEventCache());
+        }
+        if (socketProperties.getBufferPool() != 0) {
+            nioChannels = new SynchronizedStack<>(SynchronizedStack.DEFAULT_SIZE,
+                    socketProperties.getBufferPool());
+        }
+
+        // 重点：创建了Executor
+        if (getExecutor() == null) {
+            createExecutor();
+        }
+
+        initializeConnectionLatch();
+
+        // Start poller thread
+        poller = new Poller();
+        Thread pollerThread = new Thread(poller, getName() + "-ClientPoller");
+        pollerThread.setPriority(threadPriority);
+        pollerThread.setDaemon(true);
+        pollerThread.start();
+
+        startAcceptorThread();
+    }
+}
+```
+eateExecutor()方法如下，本质是创建一个ThreadPoolExecutor
+
+```java
+public void createExecutor() {
+    internalExecutor = true;
+    TaskQueue taskqueue = new TaskQueue();
+    TaskThreadFactory tf = new TaskThreadFactory(getName() + "-exec-", daemon, getThreadPriority());
+    executor = new ThreadPoolExecutor(getMinSpareThreads(), getMaxThreads(), 60, TimeUnit.SECONDS,taskqueue, tf);
+    taskqueue.setParent( (ThreadPoolExecutor) executor);
+}
+```
+# 七、三大Servlet容器的简单讲解
+
+### 一、 核心定位与概述（电梯演讲）
+
+面试时，首先要用简洁的语言概括三者。
+
+*   **Tomcat**： **业界标准，应用最广泛的Servlet/JSP容器**。由Apache基金会开发，成熟稳定，文档和社区生态极其完善。它是大多数Java Web项目的默认选择，经过了无数生产环境的考验。
+*   **Jetty**： **轻量级、高可嵌入性的容器**。由Eclipse基金会管理。它的核心优势是模块化设计，可以轻松地以库的形式嵌入到任何Java应用程序中（如Spring Boot内嵌版本），特别适合微服务、嵌入式设备和快速启动的场景。
+*   **Undertow**： **高性能、非阻塞的现代化Web服务器**。由JBoss（Red Hat）开发，是WildFly应用服务器的默认Web容器。它基于NIO（非阻塞I/O），设计初衷就是为了提供极致的性能和低内存开销，特别适用于高并发、低延迟的云原生和微服务架构。
+
+---
+
+### 二、 架构设计与核心特点（深入理解）
+
+这是面试的核心，你需要讲出它们内在的“灵魂”。
+
+#### 1. Apache Tomcat
+
+*   **连接器（Connector）模型**：这是理解Tomcat性能的关键。
+    *   **BIO (Blocking I/O)**： 早期默认，一个请求一个线程。在并发高时线程上下文切换开销大，已淘汰。
+    *   **NIO (Non-Blocking I/O)**： **目前的主流模式**。使用Java NIO技术，通过少量的Selector线程处理大量的连接请求，只有在数据准备好进行读写时，才使用工作线程处理，大大提高了并发能力。
+    *   **APR/AJP**： APR使用本地库（Apache Portable Runtime）实现更高性能，但需要额外安装。AJP主要用于与前端Apache HTTP Server集成。
+*   **容器层级结构**：`Server -> Service -> Connector(s) & Engine -> Host -> Context`。结构清晰，易于理解和配置。
+*   **特点总结**：**成熟、稳定、配置丰富、生态强大**。缺点是相对“重”一点，内存占用和启动速度不如另外两者。
+
+#### 2. Eclipse Jetty
+
+*   **模块化与可嵌入性**：Jetty的核心设计思想。你可以只引入你需要的模块（如`jetty-servlet`， `jetty-webapp`），将其作为一个小巧的JAR包嵌入你的应用，然后用几行代码启动一个Web服务器。**这是它与Tomcat最本质的区别**。
+*   **基于Handler的架构**：Jetty的处理管道由一系列`Handler`组成（如`ServletHandler`， `ResourceHandler`）。这种设计非常灵活，可以轻松定制请求处理流程。
+*   **异步处理支持**：Jetty对Servlet异步I/O和WebSocket有非常原生和高效的支持。
+*   **特点总结**：**轻量、快速启动、易于嵌入、异步支持好**。非常适合做开发测试服务器、微服务和应用内嵌的HTTP服务器。
+
+#### 3. Undertow
+
+*   **基于XNIO的底层架构**：XNIO是JBoss提供的一个高性能NIO框架。Undertow构建在XNIO之上，提供了更底层的、灵活的非阻塞I/O操作能力。
+*   **组合式架构**：它的核心是`HttpHandler`，你可以像搭积木一样组合多个`HttpHandler`来构建处理链。这种设计使得它非常灵活且性能损耗极低。
+*   **低内存占用**：Undertow在设计上极力优化内存使用，一个空的Undertow服务器可能只占用**4MB左右的堆内存**。
+*   **特点总结**：**高性能、低内存、非阻塞、灵活性极高**。是追求极致性能和高并发场景的优选。
+
+---
+
+### 三、 性能与适用场景对比
+
+| 特性 | Tomcat | Jetty | Undertow |
+| :--- | :--- | :--- | :--- |
+| **市场占有率** | **最高，事实标准** | 较高，尤其在嵌入式领域 | 新兴，增长迅速（尤其在Spring Boot生态中） |
+| **架构设计** | 连接器+容器，结构严谨 | 模块化Handler，灵活可嵌入 | 基于XNIO的组合式Handler，高性能非阻塞 |
+| **性能** | 良好，NIO模式下表现不错 | 优秀，尤其擅长处理大量长连接（WebSocket） | **极佳**，尤其在高压下的吞吐量和延迟表现 |
+| **内存占用** | 较高 | 较低 | **极低** |
+| **启动速度** | 较慢 | 快 | **非常快** |
+| **适用场景** | 传统单体Web应用、Spring MVC项目 | **微服务**、**嵌入式应用**、开发环境、WebSocket应用 | **高并发微服务**、云原生应用、需要极致性能的场景 |
+
+**重要结论**：对于绝大多数常规应用，三者的性能差异并不明显。选型的决定性因素往往是**架构需求**（是否需要嵌入？）和**技术栈偏好**（如Spring Boot默认使用Tomcat，但可以轻松切换为Jetty或Undertow）。
+
+---
+
+### 四、 经典面试问答模拟
+
+**Q1： “说说你对Tomcat， Jetty， Undertow的理解，它们之间最主要的区别是什么？”**
+
+**A1：** （采用总分总结构）
+“好的。这三者都是优秀的Servlet容器实现。
+*   **首先，Tomcat**是业界应用最广泛的标准，以稳定性和丰富的功能著称，适合传统的单体Web项目。
+*   **其次，Jetty**最大的特点是轻量化和可嵌入性，它可以作为一个库集成到应用中，启动速度快，非常适合微服务和嵌入式场景。
+*   **最后，Undertow**是JBoss出品的高性能选手，基于非阻塞I/O，内存占用极低，专为高并发和低延迟需求设计。
+*   **它们最主要的区别在于设计目标和架构**：Tomcat追求通用和稳定，Jetty追求轻量和嵌入，Undertow追求极致的性能。因此，如果项目是传统的War包部署，Tomcat是安全的选择；如果是需要内嵌的微服务，Jetty和Undertow更有优势，其中Undertow在性能上更胜一筹。”
+
+**Q2： “为什么Spring Boot默认使用Tomcat，但我们又经常把它换成Undertow？”**
+
+**A2：**
+“这是一个很好的实践问题。
+*   **Spring Boot默认使用Tomcat**是因为它的普及度最高、最稳定，能保证绝大多数用户开箱即用，避免因容器兼容性问题带来门槛。
+*   **而我们会换成Undertow**通常是出于对**性能优化**的考虑。特别是在微服务架构下，服务实例多，对内存和启动速度敏感。Undertow在内存占用和并发吞吐量上的优势明显，替换后可以有效降低系统整体资源消耗，提升响应速度。这种切换在Spring Boot中非常简单，只需排除`spring-boot-starter-tomcat`并引入`spring-boot-starter-undertow`即可，这本身也体现了Spring Boot设计上的灵活性。”
+
+**Q3： “能简单解释一下Tomcat的NIO连接器是如何工作的吗？”**
+
+**A3：**
+“当然。Tomcat的NIO连接器核心是使用了Java的NIO API。
+1.  它有一个或多个**Acceptor线程**，专门负责接收新的TCP连接。
+2.  接收到的连接会被注册到一个或多个**Poller线程**的Selector上。Poller线程不断轮询这些连接，看是否有数据可读或可写（I/O就绪）。
+3.  当Poller发现某个连接的请求数据已经就绪，它并不会自己处理业务逻辑，而是将该请求封装成一个任务，提交给**工作线程池（Executor）**。
+4.  工作线程池中的线程负责从Socket中读取数据、执行Servlet中的业务代码、并生成响应。
+
+这样设计的**好处**是：用少量的Poller线程（通常1-2个CPU核心一个）管理成千上万的网络连接，只在数据真正准备好时才会占用宝贵的工作线程，极大地提升了高并发连接下的处理能力，避免了传统BIO模式下‘一个连接一个线程’带来的线程资源耗尽的问题。”
+
+---
+
+### 总结与建议
+
+*   **理解设计哲学**：不要死记硬背配置参数，要理解每个容器背后的设计思想（Tomcat的稳健、Jetty的嵌入、Undertow的性能）。
+*   **联系实际场景**：将技术特点与微服务、云原生等现代架构趋势结合起来思考。
+*   **动手实践**：最好在本地用Spring Boot分别集成这三个容器，感受一下启动速度、内存占用和简单的性能测试，这样你的回答会更有底气。
+# 八、三大Servlet容器的进一步讲解
+
+### 一、 Apache Tomcat： 稳健的“标准模块化”架构
+
+Tomcat的设计哲学是**清晰、分层、可扩展**。它的架构像一个组织严谨的公司，部门分工明确。
+
+#### 1. 整体架构：两大核心组件
+
+Tomcat的核心由两大模块构成：
+*   **Coyote**： 负责**网络连接**的模块，即连接器（Connector）。它对外处理Socket通信，封装网络协议（HTTP/AJP）。
+*   **Catalina**： 负责**Servlet容器**的模块。它内部实现了Servlet规范规定的容器层级（Engine, Host, Context, Wrapper）。
+
+#### 2. 核心机制深度剖析
+
+**A. 连接器（Coyote）与线程模型——高并发的关键**
+
+这是面试高频考点。以最常用的**NIO连接器**为例，其工作流程如下图所示，它严格地将I/O处理和业务处理解耦：
+
+```mermaid
+flowchart TD
+    A[“客户端请求”] --> B[Acceptor Thread<br>接收新连接]
+    B --> C[“将连接注册到<br>Poller Thread的Selector上”]
+    C -- 事件轮询 --> D{Poller Threads<br>检测I/O就绪事件}
+    D -- “Socket可读” --> E[“将Socket封装成SocketProcessor<br>放入工作队列”]
+    E --> F[“Tomcat工作线程池<br>（Tomcat Thread Pool）”]
+    F --> G[执行Servlet业务逻辑]
+    G --> H[返回响应]
+```
+
+这个模型的**设计优势**在于：
+*   **解耦与分工**：`Acceptor`和`Poller`是“网络专家”，数量极少，高效处理海量连接的生命周期和I/O事件。`工作线程`是“业务专家”，专注于执行耗时业务逻辑。
+*   **资源高效利用**：避免了为每个连接创建一个线程的巨大开销，可以轻松支持数万甚至数十万的并发连接（尽管同时活跃的请求数受限于工作线程池大小）。
+*   **可控的并发度**：业务并发量由工作线程池大小决定，不会因为网络连接暴增而耗尽线程资源，系统更稳定。
+
+**B. 容器（Catalina）与管道阀门（Pipeline-Valve）——灵活的处理链**
+
+Catalina容器采用了一种责任链模式，每个容器组件（Engine, Host, Context, Wrapper）内部都有一个**Pipeline（管道）** 和若干个**Valve（阀门）**。
+
+*   **Pipeline**： 就像一个流水线。
+*   **Valve**： 就像流水线上的一个个处理工序（如权限检查、日志记录）。每个容器都有一个**基础阀门（Basic Valve）**，通常负责调用下一个容器的管道，最终会调用到`StandardWrapperValve`，由它来加载和调用具体的Servlet。
+
+**设计优势**：
+*   **高度可扩展**：你可以自定义Valve并插入到任何层级的管道中，实现AOP（面向切面编程）的功能，如全局安全控制、请求日志，而无需修改应用代码。
+*   **逻辑清晰**：容器层级与URL匹配（`www.example.com:8080/app/servlet` -> `Server:8080`/`Host:example.com`/`Context:app`/`Wrapper:servlet`）完美对应，管理直观。
+
+#### 3. 优势总结
+Tomcat的优势正是源于这种**严谨的分层和模块化设计**。它可能不是最快的，但一定是最清晰、最稳定、最易于管理和扩展的。它的强大生态（管理界面、监控工具JMX、集群支持）都建立在这个坚实的架构之上。
+
+---
+
+### 二、 Eclipse Jetty： 极致的“嵌入式”与“异步”架构
+
+Jetty的设计哲学是**模块化、轻量、异步优先**。它更像一个可以随意拆卸组合的“乐高工具箱”。
+
+#### 1. 整体架构：基于Handler的处理树
+
+Jetty没有Tomcat那样复杂的容器层级，它的核心抽象是`Handler`（处理器）。一个Jetty服务器就是一棵`Handler`树。
+
+*   `Server` -> `HandlerCollection`（可能包含多个Handler）
+    *   `ContextHandler`： 为一组Handler提供Servlet上下文环境。
+    *   `ServletHandler`： 映射URL到具体的Servlet。
+    *   `ResourceHandler`： 处理静态资源。
+    *   `RewriteHandler`： URL重写。
+
+#### 2. 核心机制深度剖析
+
+**A. 连接管理：SelectorManager**
+
+Jetty使用一个`SelectorManager`来管理NIO的`Selector`。它将连接的生命周期（接受、注册、就绪、关闭）事件分发给多个`Selector`线程处理。这与Tomcat的Poller类似，但实现上更紧密地与其`Connection`对象绑定。
+
+**B. 异步处理的支持——深入骨髓**
+
+Jetty从底层到上层都对异步提供了原生支持。
+*   **Servlet异步**：当在Servlet中开启异步模式（`request.startAsync()`）时，Jetty会立即释放请求线程，但保持客户端连接。当异步任务（如数据库查询）完成后，再使用另一个线程将结果写回客户端。**这极大地提高了线程利用率**，使得少量线程就能处理大量等待外部资源的请求。
+*   **HttpClient与HttpServer的对称性**：Jetty的客户端和服务端使用相似的非阻塞架构，这使得用它构建的网关、代理等中间件性能极高。
+
+#### 3. 优势总结
+Jetty的优势在于其**极简和灵活**。你可以只引入`jetty-server`和`jetty-servlet`两个JAR包，用几行代码就启动一个Web服务器。这种“库”而非“服务器”的思想，使其成为嵌入式和微服务的理想选择。它的异步处理能力也让它在处理WebSocket、Server-Sent Events等长连接场景时得心应手。
+
+---
+
+### 三、 Undertow： 面向未来的“高性能非阻塞”架构
+
+Undertow的设计哲学是**性能至上、低开销、无依赖**。它像一个为速度而生的“一级方程式赛车”。
+
+#### 1. 整体架构：基于XNIO和HttpHandler链
+
+Undertow构建在JBoss的**XNIO**库之上，这是一个提供更友好API的NIO框架。它的核心是`HttpHandler`。
+
+*   `Server` -> `HttpHandler`
+    *   你可以通过`PathHandler`、`RoutingHandler`等组合出复杂的路由逻辑。
+    *   这种设计极其简单，就是一个函数式接口：`void handleRequest(HttpServerExchange exchange)`
+
+#### 2. 核心机制深度剖析
+
+**A. XNIO工作者（Worker）线程池**
+
+Undertow的线程模型非常独特。它使用两种线程：
+*   **IO线程（XnioWorker）**： 由XNIO提供，负责非阻塞的读写操作。**关键点：这些IO线程也会直接用于执行没有阻塞操作的HttpHandler逻辑。**
+*   **工作线程**： 用于处理可能阻塞的任务。
+
+**其高性能的秘诀**：如果一个请求的处理过程全程都是非阻塞的（比如直接内存操作、快速计算），那么它可能**完全由IO线程处理**，避免了向工作线程池提交任务的开销（线程上下文切换、任务队列排队）。这为高吞吐量和低延迟提供了巨大优势。
+
+**B. 灵活的缓冲区管理**
+
+Undertow提供了池化的直接缓冲区（Direct Buffer），减少了堆内内存与堆外内存的拷贝次数，进一步提升了I/O性能。
+
+#### 3. 优势总结
+Undertow的优势是**极致的性能和高度的灵活性**。它的架构没有历史包袱，完全为现代非阻塞应用设计。通过允许IO线程直接处理请求，它最大限度地减少了线程切换开销。其极低的内存占用（核心jar包小，运行时堆内存小）使其在资源受限的容器化环境中（如Kubernetes）大放异彩。
+
+---
+
+### 终极对比与面试回答思路
+
+当被问及区别时，你可以这样组织答案：
+
+“这三者的根本区别在于**设计目标的优先级不同**，这直接导致了架构的差异。
+
+1.  **Tomcat优先考虑‘规范和稳定’**。它的Coyote连接器和Catalina容器分层明确，管道-阀门机制扩展性强。这种架构像一个‘标准工厂’，流程清晰，适合大规模、需要精细管理的传统Web项目。
+2.  **Jetty优先考虑‘轻量和嵌入’**。它的Handler树架构极其灵活，可以按需组装。它生来就是一个‘库’，而非一个‘服务器’，这使得它在微服务和嵌入式场景中几乎没有竞争对手。
+3.  **Undertow优先考虑‘性能和资源’**。它基于XNIO，允许IO线程直接处理非阻塞业务，从底层就为高吞吐、低延迟而优化。它更像一个‘高性能引擎’，是云原生时代对极致性能追求的理想选择。
+
+因此，**选择哪一个，其实是选择一种设计哲学**。在常规应用中，它们都能很好地工作；但在架构选型时，如果你需要的是企业级稳定性和生态，选Tomcat；如果需要快速嵌入和启动，选Jetty；如果系统瓶颈在于高并发和资源消耗，选Undertow。”
+
+希望这次更深入的架构剖析能让你真正理解它们的内在工作原理，在面试中展现出你的技术深度！
 
 
 
