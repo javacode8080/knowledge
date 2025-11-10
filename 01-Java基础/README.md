@@ -2293,6 +2293,11 @@ public static void increment() {
     - 1. 如果参数化类型表示一个 T 的生产者，使用 < ? extends T>;
     - 2. 如果它表示一个 T 的消费者，就使用 < ? super T>；
     - 3. 如果既是生产又是消费，那使用通配符就没什么意义了，因为你需要的是精确的参数类型。
+    - PECS原则
+      - 如果要从集合中读取类型T的数据，并且不能写入，可以使用 ? extends 通配符；(Producer Extends)
+      - 集合中写入类型T的数据，并且不需要读取，可以使用 ? super 通配符；(Consumer Super)
+      - 如果既要存又要取，那么就不要使用任何通配符。
+
 
 4.  **有界类型参数（Bounded Type Parameters）**:
     *   在定义类型参数时，可以限制它必须是某个类的子类（`<T extends ClassName>`）或实现某个接口（`<T extends InterfaceName>`）。这提供了更强的类型约束。
