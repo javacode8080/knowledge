@@ -7060,6 +7060,6370 @@ public class OrderService {
 4. ✅ **性能优化**：按需计算，避免为所有Bean提前计算匹配关系
 
 这种"看似重复实则优化"的设计体现了Spring框架在性能和功能平衡方面的深度思考。
+# 十二、Spring进阶 - Spring AOP实现原理详解之Cglib代理实现
+## 12.1 引入
+> 我们在前文中已经介绍了SpringAOP的切面实现和创建动态代理的过程，那么动态代理是如何工作的呢？本文主要介绍Cglib动态代理的案例和SpringAOP实现的原理。
+
+要了解动态代理是如何工作的，首先需要了解
+
+- 什么是代理模式？
+- 什么是动态代理？
+- 什么是Cglib？
+- SpringAOP和Cglib是什么关系？
+## 12.2 动态代理要解决什么问题？
+### 12.2.1什么是代理？
+**代理模式(Proxy pattern)**: 为另一个对象提供一个替身或占位符以控制对这个对象的访问
+![80.代理模式.png](../../assets/images/04-主流框架/spring/80.代理模式.png)
+
+举个简单的例子：
+
+我(client)如果要买(doOperation)房，可以找中介(proxy)买房，中介直接和卖方(target)买房。中介和卖方都实现买卖(doOperation)的操作。中介就是代理(proxy)。
+### 12.2.2 什么是动态代理？
+> 动态代理就是，在程序运行期，创建目标对象的代理对象，并对目标对象中的方法进行功能性增强的一种技术。
+
+在生成代理对象的过程中，目标对象不变，代理对象中的方法是目标对象方法的增强方法。可以理解为运行期间，对象中方法的动态拦截，在拦截方法的前后执行功能操作。
+![81.spring-springframework-aop-61.png](../../assets/images/04-主流框架/spring/81.spring-springframework-aop-61.png)
+### 12.2.3 什么是Cglib? SpringAOP和Cglib是什么关系？
+> Cglib是一个强大的、高性能的代码生成包，它广泛被许多AOP框架使用，为他们提供方法的拦截。
+![82.spring-springframework-aop-62.png](../../assets/images/04-主流框架/spring/82.spring-springframework-aop-62.png)
+- 最底层是字节码，字节码相关的知识请参考 JVM基础 - 类字节码详解
+- ASM是操作字节码的工具
+- cglib基于ASM字节码工具操作字节码（即动态生成代理，对方法进行增强）
+- SpringAOP基于cglib进行封装，实现cglib方式的动态代理
+## 12.3 Cglib代理的案例
+### 12.3.1 pom包依赖
+引入cglib的依赖包
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>tech-pdai-spring-demos</artifactId>
+        <groupId>tech.pdai</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>007-spring-framework-demo-aop-proxy-cglib</artifactId>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <!-- https://mvnrepository.com/artifact/cglib/cglib -->
+        <dependency>
+            <groupId>cglib</groupId>
+            <artifactId>cglib</artifactId>
+            <version>3.3.0</version>
+        </dependency>
+    </dependencies>
+
+</project>
+```
+### 12.3.2 定义实体
+- User
+```java
+package tech.pdai.springframework.entity;
+
+/**
+ * @author pdai
+ */
+public class User {
+
+    /**
+     * user's name.
+     */
+    private String name;
+
+    /**
+     * user's age.
+     */
+    private int age;
+
+    /**
+     * init.
+     *
+     * @param name name
+     * @param age  age
+     */
+    public User(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public int getAge() {
+        return age;
+    }
+
+    public void setAge(int age) {
+        this.age = age;
+    }
+
+    @Override
+    public String toString() {
+        return "User{" +
+                "name='" + name + '\'' +
+                ", age=" + age +
+                '}';
+    }
+}
+```
+### 12.3.3 被代理的类
+即目标类, 对被代理的类中的方法进行增强
+```java
+package tech.pdai.springframework.service;
+
+import java.util.Collections;
+import java.util.List;
+
+import tech.pdai.springframework.entity.User;
+
+/**
+ * @author pdai
+ */
+public class UserServiceImpl {
+
+    /**
+     * find user list.
+     *
+     * @return user list
+     */
+    public List<User> findUserList() {
+        return Collections.singletonList(new User("pdai", 18));
+    }
+
+    /**
+     * add user
+     */
+    public void addUser() {
+        // do something
+    }
+
+}
+```
+### 12.3.4 cglib代理
+cglib代理类，需要实现MethodInterceptor接口，并指定代理目标类target
+```java
+package tech.pdai.springframework.proxy;
+
+import java.lang.reflect.Method;
+
+import net.sf.cglib.proxy.Enhancer;
+import net.sf.cglib.proxy.MethodInterceptor;
+import net.sf.cglib.proxy.MethodProxy;
+
+/**
+ * This class is for proxy demo.
+ *
+ * @author pdai
+ */
+public class UserLogProxy implements MethodInterceptor {
+
+    /**
+     * 业务类对象，供代理方法中进行真正的业务方法调用
+     */
+    private Object target;
+
+    public Object getUserLogProxy(Object target) {
+        //给业务对象赋值
+        this.target = target;
+        //创建加强器，用来创建动态代理类
+        Enhancer enhancer = new Enhancer();
+        //为加强器指定要代理的业务类（即：为下面生成的代理类指定父类）
+        enhancer.setSuperclass(this.target.getClass());
+        //设置回调：对于代理类上所有方法的调用，都会调用CallBack，而Callback则需要实现intercept()方法进行拦
+        enhancer.setCallback(this);
+        // 创建动态代理类对象并返回
+        return enhancer.create();
+    }
+
+    // 实现回调方法
+    @Override
+    public Object intercept(Object obj, Method method, Object[] args, MethodProxy proxy) throws Throwable {
+        // log - before method
+        System.out.println("[before] execute method: " + method.getName());
+
+        // call method
+        Object result = proxy.invokeSuper(obj, args);
+
+        // log - after method
+        System.out.println("[after] execute method: " + method.getName() + ", return value: " + result);
+        return null;
+    }
+}
+```
+### 12.3.5 使用代理
+启动类中指定代理目标并执行。
+```java
+package tech.pdai.springframework;
+
+import tech.pdai.springframework.proxy.UserLogProxy;
+import tech.pdai.springframework.service.UserServiceImpl;
+
+/**
+ * Cglib proxy demo.
+ *
+ * @author pdai
+ */
+public class ProxyDemo {
+
+    /**
+     * main interface.
+     *
+     * @param args args
+     */
+    public static void main(String[] args) {
+        // proxy
+        UserServiceImpl userService = (UserServiceImpl) new UserLogProxy().getUserLogProxy(new UserServiceImpl());
+
+        // call methods
+        userService.findUserList();
+        userService.addUser();
+    }
+}
+```
+### 12.3.6 简单测试
+我们启动上述类main 函数，执行的结果如下：
+```java
+[before] execute method: findUserList
+[after] execute method: findUserList, return value: [User{name='pdai', age=18}]
+[before] execute method: addUser
+[after] execute method: addUser, return value: null
+```
+## 12.4 Cglib代理的流程
+我们把上述Demo的主要流程画出来，你便能很快理解
+![83.spring-springframework-aop-63.png](../../assets/images/04-主流框架/spring/83.spring-springframework-aop-63.png)
+
+更多细节：
+- 在上图中，我们可以通过在Enhancer中配置更多的参数来控制代理的行为，比如如果只希望增强这个类中的一个方法（而不是所有方法），那就增加callbackFilter来对目标类中方法进行过滤；Enhancer可以有更多的参数类配置其行为，不过我们在学习上述主要的流程就够了。
+- final方法为什么不能被代理？很显然final方法没法被子类覆盖，当然不能代理了。
+- Mockito为什么不能mock静态方法？因为mockito也是基于cglib动态代理来实现的，static方法也不能被子类覆盖，所以显然不能mock。但PowerMock可以mock静态方法，因为它直接在bytecode上工作。
+## 12.5 SpringAOP中Cglib代理的实现
+> SpringAOP封装了cglib，通过其进行动态代理的创建。
+
+我们看下CglibAopProxy的getProxy方法
+```java
+@Override
+public Object getProxy() {
+  return getProxy(null);
+}
+
+@Override
+public Object getProxy(@Nullable ClassLoader classLoader) {
+  if (logger.isTraceEnabled()) {
+    logger.trace("Creating CGLIB proxy: " + this.advised.getTargetSource());
+  }
+
+  try {
+    Class<?> rootClass = this.advised.getTargetClass();
+    Assert.state(rootClass != null, "Target class must be available for creating a CGLIB proxy");
+
+    // 上面流程图中的目标类
+    Class<?> proxySuperClass = rootClass;
+    if (rootClass.getName().contains(ClassUtils.CGLIB_CLASS_SEPARATOR)) {
+      proxySuperClass = rootClass.getSuperclass();
+      Class<?>[] additionalInterfaces = rootClass.getInterfaces();
+      for (Class<?> additionalInterface : additionalInterfaces) {
+        this.advised.addInterface(additionalInterface);
+      }
+    }
+
+    // Validate the class, writing log messages as necessary.
+    validateClassIfNecessary(proxySuperClass, classLoader);
+
+    // 重点看这里，就是上图的enhancer，设置各种参数来构建
+    Enhancer enhancer = createEnhancer();
+    if (classLoader != null) {
+      enhancer.setClassLoader(classLoader);
+      if (classLoader instanceof SmartClassLoader &&
+          ((SmartClassLoader) classLoader).isClassReloadable(proxySuperClass)) {
+        enhancer.setUseCache(false);
+      }
+    }
+    enhancer.setSuperclass(proxySuperClass);
+    enhancer.setInterfaces(AopProxyUtils.completeProxiedInterfaces(this.advised));
+    enhancer.setNamingPolicy(SpringNamingPolicy.INSTANCE);
+    enhancer.setStrategy(new ClassLoaderAwareGeneratorStrategy(classLoader));
+
+    // 设置callback回调接口，即方法的增强点
+    Callback[] callbacks = getCallbacks(rootClass);
+    Class<?>[] types = new Class<?>[callbacks.length];
+    for (int x = 0; x < types.length; x++) {
+      types[x] = callbacks[x].getClass();
+    }
+    // 上节说到的filter
+    enhancer.setCallbackFilter(new ProxyCallbackFilter(
+        this.advised.getConfigurationOnlyCopy(), this.fixedInterceptorMap, this.fixedInterceptorOffset));
+    enhancer.setCallbackTypes(types);
+
+    // 重点：创建proxy和其实例
+    return createProxyClassAndInstance(enhancer, callbacks);
+  }
+  catch (CodeGenerationException | IllegalArgumentException ex) {
+    throw new AopConfigException("Could not generate CGLIB subclass of " + this.advised.getTargetClass() +
+        ": Common causes of this problem include using a final class or a non-visible class",
+        ex);
+  }
+  catch (Throwable ex) {
+    // TargetSource.getTarget() failed
+    throw new AopConfigException("Unexpected AOP exception", ex);
+  }
+}
+```
+获取callback的方法如下，提几个理解的要点吧，具体读者在学习的时候建议把我的例子跑一下，然后打一个断点进行理解。
+- rootClass: 即目标代理类
+- advised: 包含上文中我们获取到的advisor增强器的集合
+- exposeProxy: 在xml配置文件中配置的，背景就是如果在事务A中使用了代理，事务A调用了目标类的的方法a，在方法a中又调用目标类的方法b，方法a，b同时都是要被增强的方法，如果不配置exposeProxy属性，方法b的增强将会失效，如果配置exposeProxy，方法b在方法a的执行中也会被增强了
+- DynamicAdvisedInterceptor: 拦截器将advised(包含上文中我们获取到的advisor增强器)构建配置的AOP的callback(第一个callback)
+- targetInterceptor: xml配置的optimize属性使用的(第二个callback)
+- 最后连同其它5个默认的Interceptor 返回作为cglib的拦截器链，之后通过CallbackFilter的accpet方法返回的索引从这个集合中返回对应的拦截增强器执行增强操作。
+```java
+private Callback[] getCallbacks(Class<?> rootClass) throws Exception {
+  // Parameters used for optimization choices...
+  boolean exposeProxy = this.advised.isExposeProxy();
+  boolean isFrozen = this.advised.isFrozen();
+  boolean isStatic = this.advised.getTargetSource().isStatic();
+
+  // Choose an "aop" interceptor (used for AOP calls).
+  Callback aopInterceptor = new DynamicAdvisedInterceptor(this.advised);
+
+  // Choose a "straight to target" interceptor. (used for calls that are
+  // unadvised but can return this). May be required to expose the proxy.
+  Callback targetInterceptor;
+  if (exposeProxy) {
+    targetInterceptor = (isStatic ?
+        new StaticUnadvisedExposedInterceptor(this.advised.getTargetSource().getTarget()) :
+        new DynamicUnadvisedExposedInterceptor(this.advised.getTargetSource()));
+  }
+  else {
+    targetInterceptor = (isStatic ?
+        new StaticUnadvisedInterceptor(this.advised.getTargetSource().getTarget()) :
+        new DynamicUnadvisedInterceptor(this.advised.getTargetSource()));
+  }
+
+  // Choose a "direct to target" dispatcher (used for
+  // unadvised calls to static targets that cannot return this).
+  Callback targetDispatcher = (isStatic ?
+      new StaticDispatcher(this.advised.getTargetSource().getTarget()) : new SerializableNoOp());
+
+  Callback[] mainCallbacks = new Callback[] {
+      aopInterceptor,  // 
+      targetInterceptor,  // invoke target without considering advice, if optimized
+      new SerializableNoOp(),  // no override for methods mapped to this
+      targetDispatcher, this.advisedDispatcher,
+      new EqualsInterceptor(this.advised),
+      new HashCodeInterceptor(this.advised)
+  };
+
+  Callback[] callbacks;
+
+  // If the target is a static one and the advice chain is frozen,
+  // then we can make some optimizations by sending the AOP calls
+  // direct to the target using the fixed chain for that method.
+  if (isStatic && isFrozen) {
+    Method[] methods = rootClass.getMethods();
+    Callback[] fixedCallbacks = new Callback[methods.length];
+    this.fixedInterceptorMap = CollectionUtils.newHashMap(methods.length);
+
+    // TODO: small memory optimization here (can skip creation for methods with no advice)
+    for (int x = 0; x < methods.length; x++) {
+      Method method = methods[x];
+      List<Object> chain = this.advised.getInterceptorsAndDynamicInterceptionAdvice(method, rootClass);
+      fixedCallbacks[x] = new FixedChainStaticTargetInterceptor(
+          chain, this.advised.getTargetSource().getTarget(), this.advised.getTargetClass());
+      this.fixedInterceptorMap.put(method, x);
+    }
+
+    // Now copy both the callbacks from mainCallbacks
+    // and fixedCallbacks into the callbacks array.
+    callbacks = new Callback[mainCallbacks.length + fixedCallbacks.length];
+    System.arraycopy(mainCallbacks, 0, callbacks, 0, mainCallbacks.length);
+    System.arraycopy(fixedCallbacks, 0, callbacks, mainCallbacks.length, fixedCallbacks.length);
+    this.fixedInterceptorOffset = mainCallbacks.length;
+  }
+  else {
+    callbacks = mainCallbacks;
+  }
+  return callbacks;
+}
+```
+可以结合调试，方便理解
+![84.spring-springframework-aop-64.png](../../assets/images/04-主流框架/spring/84.spring-springframework-aop-64.png)
+# 十三、Spring进阶 - Spring AOP实现原理详解之JDK代理实现
+## 13.1 引入
+> 上文我们学习了SpringAOP Cglib动态代理的实现，本文主要是SpringAOP JDK动态代理的案例和实现部分。
+
+## 13.2 什么是JDK代理?
+JDK动态代理是有JDK提供的工具类Proxy实现的，动态代理类是在运行时生成指定接口的代理类，每个代理实例（实现需要代理的接口）都有一个关联的调用处理程序对象，此对象实现了InvocationHandler，最终的业务逻辑是在InvocationHandler实现类的invoke方法上。
+## 13.3 JDK代理的案例
+### 13.3.1 不需要maven依赖
+jdk代理不需要任何依赖。
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>tech-pdai-spring-demos</artifactId>
+        <groupId>tech.pdai</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>006-spring-framework-demo-aop-proxy-jdk</artifactId>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+
+    <!--based on jdk proxy -->
+    <dependencies>
+
+    </dependencies>
+
+</project>
+```
+### 13.3.2 定义实体
+- User
+```java
+package tech.pdai.springframework.entity;
+
+/**
+ * @author pdai
+ */
+public class User {
+
+    /**
+     * user's name.
+     */
+    private String name;
+
+    /**
+     * user's age.
+     */
+    private int age;
+
+    /**
+     * init.
+     *
+     * @param name name
+     * @param age  age
+     */
+    public User(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public int getAge() {
+        return age;
+    }
+
+    public void setAge(int age) {
+        this.age = age;
+    }
+
+    @Override
+    public String toString() {
+        return "User{" +
+                "name='" + name + '\'' +
+                ", age=" + age +
+                '}';
+    }
+}
+```
+### 13.3.3 被代理的类和接口
+接口
+```java
+package tech.pdai.springframework.service;
+
+import tech.pdai.springframework.entity.User;
+
+import java.util.List;
+
+/**
+ * @author pdai
+ */
+public interface IUserService {
+
+    /**
+     * find user list.
+     *
+     * @return user list
+     */
+    List<User> findUserList();
+
+    /**
+     * add user
+     */
+    void addUser();
+}
+```
+实现类如下：
+```java
+package tech.pdai.springframework.service;
+
+import tech.pdai.springframework.entity.User;
+
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * @author pdai
+ */
+public class UserServiceImpl implements IUserService {
+
+    /**
+     * find user list.
+     *
+     * @return user list
+     */
+    @Override
+    public List<User> findUserList() {
+        return Collections.singletonList(new User("pdai", 18));
+    }
+
+    /**
+     * add user
+     */
+    @Override
+    public void addUser() {
+        // do something
+    }
+
+}
+```
+### 13.3.4 JDK代理类
+代理类如下：
+```java
+package tech.pdai.springframework.proxy;
+
+import tech.pdai.springframework.service.IUserService;
+import tech.pdai.springframework.service.UserServiceImpl;
+
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.util.Arrays;
+
+/**
+ * This class is for proxy demo.
+ *
+ * @author pdai
+ */
+public class UserLogProxy {
+
+    /**
+     * proxy target
+     */
+    private IUserService target;
+
+    /**
+     * init.
+     *
+     * @param target target
+     */
+    public UserLogProxy(UserServiceImpl target) {
+        super();
+        this.target = target;
+    }
+
+    /**
+     * get proxy.
+     *
+     * @return proxy target
+     */
+    public IUserService getLoggingProxy() {
+        IUserService proxy;
+        ClassLoader loader = target.getClass().getClassLoader();
+        Class[] interfaces = new Class[]{IUserService.class};
+        InvocationHandler h = new InvocationHandler() {
+            /**
+             * proxy: 代理对象。 一般不使用该对象 method: 正在被调用的方法 args: 调用方法传入的参数
+             */
+            @Override
+            public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+                String methodName = method.getName();
+                // log - before method
+                System.out.println("[before] execute method: " + methodName);
+
+                // call method
+                Object result = null;
+                try {
+                    // 前置通知
+                    result = method.invoke(target, args);
+                    // 返回通知, 可以访问到方法的返回值
+                } catch (NullPointerException e) {
+                    e.printStackTrace();
+                    // 异常通知, 可以访问到方法出现的异常
+                }
+                // 后置通知. 因为方法可以能会出异常, 所以访问不到方法的返回值
+
+                // log - after method
+                System.out.println("[after] execute method: " + methodName + ", return value: " + result);
+                return result;
+            }
+        };
+        /**
+         * loader: 代理对象使用的类加载器.
+         * interfaces: 指定代理对象的类型. 即代理代理对象中可以有哪些方法.
+         * h: 当具体调用代理对象的方法时, 应该如何进行响应, 实际上就是调用 InvocationHandler 的 invoke 方法
+         */
+        proxy = (IUserService) Proxy.newProxyInstance(loader, interfaces, h);
+        return proxy;
+    }
+
+}
+```
+### 13.3.4 使用代理
+启动类中指定代理目标并执行。
+```java
+package tech.pdai.springframework;
+
+import tech.pdai.springframework.proxy.UserLogProxy;
+import tech.pdai.springframework.service.IUserService;
+import tech.pdai.springframework.service.UserServiceImpl;
+
+/**
+ * Jdk proxy demo.
+ *
+ * @author pdai
+ */
+public class ProxyDemo {
+
+    /**
+     * main interface.
+     *
+     * @param args args
+     */
+    public static void main(String[] args) {
+        // proxy
+        IUserService userService = new UserLogProxy(new UserServiceImpl()).getLoggingProxy();
+
+        // call methods
+        userService.findUserList();
+        userService.addUser();
+    }
+}
+```
+### 13.3.5 简单测试
+我们启动上述类main 函数，执行的结果如下：
+```java
+[before] execute method: findUserList
+[after] execute method: findUserList, return value: [User{name='pdai', age=18}]
+[before] execute method: addUser
+[after] execute method: addUser, return value: null
+```
+## 13.4 JDK代理的流程
+> JDK代理自动生成的class是由sun.misc.ProxyGenerator来生成的。
+### 13.4.1 ProxyGenerator生成代码
+我们看下sun.misc.ProxyGenerator生成代码的逻辑：
+```java
+/**
+    * Generate a proxy class given a name and a list of proxy interfaces.
+    *
+    * @param name        the class name of the proxy class
+    * @param interfaces  proxy interfaces
+    * @param accessFlags access flags of the proxy class
+*/
+public static byte[] generateProxyClass(final String name,
+                                        Class<?>[] interfaces,
+                                        int accessFlags)
+{
+    ProxyGenerator gen = new ProxyGenerator(name, interfaces, accessFlags);
+    final byte[] classFile = gen.generateClassFile();
+    ...
+}
+```
+generateClassFile方法如下：
+```java
+/**
+    * Generate a class file for the proxy class.  This method drives the
+    * class file generation process.
+    */
+private byte[] generateClassFile() {
+
+    /* 第一步：将所有方法包装成ProxyMethod对象 */
+    
+    // 将Object类中hashCode、equals、toString方法包装成ProxyMethod对象
+    addProxyMethod(hashCodeMethod, Object.class);
+    addProxyMethod(equalsMethod, Object.class);
+    addProxyMethod(toStringMethod, Object.class);
+
+    // 将代理类接口方法包装成ProxyMethod对象
+    for (Class<?> intf : interfaces) {
+        for (Method m : intf.getMethods()) {
+            addProxyMethod(m, intf);
+        }
+    }
+
+    // 校验返回类型
+    for (List<ProxyMethod> sigmethods : proxyMethods.values()) {
+        checkReturnTypes(sigmethods);
+    }
+
+    /* 第二步：为代理类组装字段，构造函数，方法，static初始化块等 */
+    try {
+        // 添加构造函数，参数是InvocationHandler
+        methods.add(generateConstructor());
+
+        // 代理方法
+        for (List<ProxyMethod> sigmethods : proxyMethods.values()) {
+            for (ProxyMethod pm : sigmethods) {
+
+                // 字段
+                fields.add(new FieldInfo(pm.methodFieldName,
+                    "Ljava/lang/reflect/Method;",
+                        ACC_PRIVATE | ACC_STATIC));
+
+                // 上述ProxyMethod中的方法
+                methods.add(pm.generateMethod());
+            }
+        }
+
+        // static初始化块
+        methods.add(generateStaticInitializer());
+
+    } catch (IOException e) {
+        throw new InternalError("unexpected I/O Exception", e);
+    }
+
+    if (methods.size() > 65535) {
+        throw new IllegalArgumentException("method limit exceeded");
+    }
+    if (fields.size() > 65535) {
+        throw new IllegalArgumentException("field limit exceeded");
+    }
+
+    /* 第三步：写入class文件 */
+
+    /*
+        * Make sure that constant pool indexes are reserved for the
+        * following items before starting to write the final class file.
+        */
+    cp.getClass(dotToSlash(className));
+    cp.getClass(superclassName);
+    for (Class<?> intf: interfaces) {
+        cp.getClass(dotToSlash(intf.getName()));
+    }
+
+    /*
+        * Disallow new constant pool additions beyond this point, since
+        * we are about to write the final constant pool table.
+        */
+    cp.setReadOnly();
+
+    ByteArrayOutputStream bout = new ByteArrayOutputStream();
+    DataOutputStream dout = new DataOutputStream(bout);
+
+    try {
+        /*
+            * Write all the items of the "ClassFile" structure.
+            * See JVMS section 4.1.
+            */
+                                    // u4 magic;
+        dout.writeInt(0xCAFEBABE);
+                                    // u2 minor_version;
+        dout.writeShort(CLASSFILE_MINOR_VERSION);
+                                    // u2 major_version;
+        dout.writeShort(CLASSFILE_MAJOR_VERSION);
+
+        cp.write(dout);             // (write constant pool)
+
+                                    // u2 access_flags;
+        dout.writeShort(accessFlags);
+                                    // u2 this_class;
+        dout.writeShort(cp.getClass(dotToSlash(className)));
+                                    // u2 super_class;
+        dout.writeShort(cp.getClass(superclassName));
+
+                                    // u2 interfaces_count;
+        dout.writeShort(interfaces.length);
+                                    // u2 interfaces[interfaces_count];
+        for (Class<?> intf : interfaces) {
+            dout.writeShort(cp.getClass(
+                dotToSlash(intf.getName())));
+        }
+
+                                    // u2 fields_count;
+        dout.writeShort(fields.size());
+                                    // field_info fields[fields_count];
+        for (FieldInfo f : fields) {
+            f.write(dout);
+        }
+
+                                    // u2 methods_count;
+        dout.writeShort(methods.size());
+                                    // method_info methods[methods_count];
+        for (MethodInfo m : methods) {
+            m.write(dout);
+        }
+
+                                        // u2 attributes_count;
+        dout.writeShort(0); // (no ClassFile attributes for proxy classes)
+
+    } catch (IOException e) {
+        throw new InternalError("unexpected I/O Exception", e);
+    }
+
+    return bout.toByteArray();
+}
+```
+一共三个步骤（把大象装进冰箱分几步？）：
+- 第一步：（把冰箱门打开）准备工作，将所有方法包装成ProxyMethod对象，包括Object类中hashCode、equals、toString方法，以及被代理的接口中的方法
+- 第二步：（把大象装进去）为代理类组装字段，构造函数，方法，static初始化块等
+- 第三步：（把冰箱门带上）写入class文件
+### 13.4.2 从生成的Proxy代码看执行流程
+从上述sun.misc.ProxyGenerator类中可以看到，这个类里面有一个配置参数`sun.misc.ProxyGenerator.saveGeneratedFiles`，可以通过这个参数将生成的Proxy类保存在本地，比如设置为true 执行后，生成的文件如下：
+![85.JDK代理类本地保存配置.png](../../assets/images/04-主流框架/spring/85.JDK代理类本地保存配置.png)
+![86.spring-springframework-aop-71.png](../../assets/images/04-主流框架/spring/86.spring-springframework-aop-71.png)
+
+我们看下生成后的代码：
+```java
+//
+// Source code recreated from a .class file by IntelliJ IDEA
+// (powered by FernFlower decompiler)
+//
+
+package com.sun.proxy;
+
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.lang.reflect.UndeclaredThrowableException;
+import java.util.List;
+import tech.pdai.springframework.service.IUserService;
+
+// 所有类和方法都是final类型的
+public final class $Proxy0 extends Proxy implements IUserService {
+    private static Method m1;
+    private static Method m3;
+    private static Method m2;
+    private static Method m0;
+    private static Method m4;
+
+    // 构造函数注入 InvocationHandler
+    public $Proxy0(InvocationHandler var1) throws  {
+        super(var1);
+    }
+
+    public final boolean equals(Object var1) throws  {
+        try {
+            return (Boolean)super.h.invoke(this, m1, new Object[]{var1});
+        } catch (RuntimeException | Error var3) {
+            throw var3;
+        } catch (Throwable var4) {
+            throw new UndeclaredThrowableException(var4);
+        }
+    }
+
+    public final List findUserList() throws  {
+        try {
+            return (List)super.h.invoke(this, m3, (Object[])null);
+        } catch (RuntimeException | Error var2) {
+            throw var2;
+        } catch (Throwable var3) {
+            throw new UndeclaredThrowableException(var3);
+        }
+    }
+
+    public final String toString() throws  {
+        try {
+            return (String)super.h.invoke(this, m2, (Object[])null);
+        } catch (RuntimeException | Error var2) {
+            throw var2;
+        } catch (Throwable var3) {
+            throw new UndeclaredThrowableException(var3);
+        }
+    }
+
+    public final int hashCode() throws  {
+        try {
+            return (Integer)super.h.invoke(this, m0, (Object[])null);
+        } catch (RuntimeException | Error var2) {
+            throw var2;
+        } catch (Throwable var3) {
+            throw new UndeclaredThrowableException(var3);
+        }
+    }
+
+    public final void addUser() throws  {
+        try {
+            super.h.invoke(this, m4, (Object[])null);
+        } catch (RuntimeException | Error var2) {
+            throw var2;
+        } catch (Throwable var3) {
+            throw new UndeclaredThrowableException(var3);
+        }
+    }
+
+    static {
+        try {
+            // 初始化 methods, 2个IUserService接口中的方法，3个Object中的接口
+            m1 = Class.forName("java.lang.Object").getMethod("equals", Class.forName("java.lang.Object"));
+            m3 = Class.forName("tech.pdai.springframework.service.IUserService").getMethod("findUserList");
+            m2 = Class.forName("java.lang.Object").getMethod("toString");
+            m0 = Class.forName("java.lang.Object").getMethod("hashCode");
+            m4 = Class.forName("tech.pdai.springframework.service.IUserService").getMethod("addUser");
+        } catch (NoSuchMethodException var2) {
+            throw new NoSuchMethodError(var2.getMessage());
+        } catch (ClassNotFoundException var3) {
+            throw new NoClassDefFoundError(var3.getMessage());
+        }
+    }
+}
+```
+上述代码是比较容易理解的，我就不画图了。
+
+主要流程是：
+- ProxyGenerator创建Proxy的具体类$Proxy0
+- 由static初始化块初始化接口方法：2个IUserService接口中的方法，3个Object中的接口方法
+- 由构造函数注入InvocationHandler
+- 执行的时候，通过ProxyGenerator创建的Proxy，调用InvocationHandler的invoke方法，执行我们自定义的invoke方法
+
+## 13.5 SpringAOP中JDK代理的实现
+SpringAOP扮演的是JDK代理的创建和调用两个角色，我们通过这两个方向来看下SpringAOP的代码（JdkDynamicAopProxy类）
+
+### 13.5.1 SpringAOP Jdk代理的创建
+代理的创建比较简单，调用getProxy方法，然后直接调用JDK中Proxy.newProxyInstance()方法将classloader和被代理的接口方法传入即可。
+```java
+@Override
+public Object getProxy() {
+    return getProxy(ClassUtils.getDefaultClassLoader());
+}
+
+@Override
+public Object getProxy(@Nullable ClassLoader classLoader) {
+    if (logger.isTraceEnabled()) {
+        logger.trace("Creating JDK dynamic proxy: " + this.advised.getTargetSource());
+    }
+    return Proxy.newProxyInstance(classLoader, this.proxiedInterfaces, this);
+}
+```
+### 13.5.2 SpringAOP Jdk代理的执行
+执行的方法如下：
+```java
+/**
+    * Implementation of {@code InvocationHandler.invoke}.
+    * <p>Callers will see exactly the exception thrown by the target,
+    * unless a hook method throws an exception.
+    */
+@Override
+@Nullable
+public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+    Object oldProxy = null;
+    boolean setProxyContext = false;
+
+    TargetSource targetSource = this.advised.targetSource;
+    Object target = null;
+
+    try {
+        // 执行的是equal方法
+        if (!this.equalsDefined && AopUtils.isEqualsMethod(method)) {
+            // The target does not implement the equals(Object) method itself.
+            return equals(args[0]);
+        }
+        // 执行的是hashcode方法
+        else if (!this.hashCodeDefined && AopUtils.isHashCodeMethod(method)) {
+            // The target does not implement the hashCode() method itself.
+            return hashCode();
+        }
+        // 如果是包装类，则dispatch to proxy config
+        else if (method.getDeclaringClass() == DecoratingProxy.class) {
+            // There is only getDecoratedClass() declared -> dispatch to proxy config.
+            return AopProxyUtils.ultimateTargetClass(this.advised);
+        }
+        // 用反射方式来执行切点
+        else if (!this.advised.opaque && method.getDeclaringClass().isInterface() &&
+                method.getDeclaringClass().isAssignableFrom(Advised.class)) {
+            // Service invocations on ProxyConfig with the proxy config...
+            return AopUtils.invokeJoinpointUsingReflection(this.advised, method, args);
+        }
+
+        Object retVal;
+
+        if (this.advised.exposeProxy) {
+            // Make invocation available if necessary.
+            oldProxy = AopContext.setCurrentProxy(proxy);
+            setProxyContext = true;
+        }
+
+        // Get as late as possible to minimize the time we "own" the target,
+        // in case it comes from a pool.
+        target = targetSource.getTarget();
+        Class<?> targetClass = (target != null ? target.getClass() : null);
+
+        // 获取拦截链
+        List<Object> chain = this.advised.getInterceptorsAndDynamicInterceptionAdvice(method, targetClass);
+
+        // Check whether we have any advice. If we don't, we can fallback on direct
+        // reflective invocation of the target, and avoid creating a MethodInvocation.
+        if (chain.isEmpty()) {
+            // We can skip creating a MethodInvocation: just invoke the target directly
+            // Note that the final invoker must be an InvokerInterceptor so we know it does
+            // nothing but a reflective operation on the target, and no hot swapping or fancy proxying.
+            Object[] argsToUse = AopProxyUtils.adaptArgumentsIfNecessary(method, args);
+            retVal = AopUtils.invokeJoinpointUsingReflection(target, method, argsToUse);
+        }
+        else {
+            // We need to create a method invocation...
+            MethodInvocation invocation =
+                    new ReflectiveMethodInvocation(proxy, target, method, args, targetClass, chain);
+            // Proceed to the joinpoint through the interceptor chain.
+            retVal = invocation.proceed();
+        }
+
+        // Massage return value if necessary.
+        Class<?> returnType = method.getReturnType();
+        if (retVal != null && retVal == target &&
+                returnType != Object.class && returnType.isInstance(proxy) &&
+                !RawTargetAccess.class.isAssignableFrom(method.getDeclaringClass())) {
+            // Special case: it returned "this" and the return type of the method
+            // is type-compatible. Note that we can't help if the target sets
+            // a reference to itself in another returned object.
+            retVal = proxy;
+        }
+        else if (retVal == null && returnType != Void.TYPE && returnType.isPrimitive()) {
+            throw new AopInvocationException(
+                    "Null return value from advice does not match primitive return type for: " + method);
+        }
+        return retVal;
+    }
+    finally {
+        if (target != null && !targetSource.isStatic()) {
+            // Must have come from TargetSource.
+            targetSource.releaseTarget(target);
+        }
+        if (setProxyContext) {
+            // Restore old proxy.
+            AopContext.setCurrentProxy(oldProxy);
+        }
+    }
+}
+```
+# 十四、Spring进阶 - SpringMVC实现原理之DispatcherServlet的初始化过程
+## 14.1 DispatcherServlet和ApplicationContext有何关系？
+> DispatcherServlet 作为一个 Servlet，需要根据 Servlet 规范使用 Java 配置或 web.xml 声明和映射。反过来，DispatcherServlet 使用 Spring 配置来发现请求映射、视图解析、异常处理等等所需的委托组件。那它和ApplicationContext有和关系呢？如下内容可以参考<a href='https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-servlet.html'>官网-SpringMVC文档</a>
+
+DispatcherServlet 需要 WebApplicationContext（继承自 ApplicationContext） 来配置。WebApplicationContext 可以链接到ServletContext 和 Servlet。因为绑定了 ServletContext，这样应用程序就可以在需要的时候使用 RequestContextUtils 的静态方法访问 WebApplicationContext。
+
+大多数应用程序只有一个WebApplicationContext，除此之外也可以一个Root WebApplicationContext 被多个 Servlet实例，然后各自拥有自己的Servlet WebApplicationContext 配置。
+
+Root WebApplicationContext 包含需要共享给多个 Servlet 实例的数据源和业务服务基础 Bean。这些 Bean 可以在 Servlet 特定的范围被继承或覆盖。
+
+（PS：官网上的这张图可以可以帮助你构建DispatcherServlet和ApplicationContext在设计上的认知，这一点对于理解DispatcherServlet的设计和初始化过程非常重要）
+![87.spring-springframework-mvc-13.png](../../assets/images/04-主流框架/spring/87.spring-springframework-mvc-13.png)
+## 14.2 DispatcherServlet是如何初始化的？
+> DispatcherServlet首先是Sevlet，Servlet有自己的生命周期的方法（init,destory等），那么我们在看DispatcherServlet初始化时首先需要看源码中DispatcherServlet的类结构设计。
+
+首先我们看DispatcherServlet的类结构关系，在这个类依赖结构中找到init的方法
+![88.spring-springframework-mvc-11.png](../../assets/images/04-主流框架/spring/88.spring-springframework-mvc-11.png)
+
+很容易找到init()的方法位于HttpServletBean中，然后跑Spring基础 - SpringMVC请求流程和案例中的代码，在init方法中打断点
+![89.spring-springframework-mvc-23.png](../../assets/images/04-主流框架/spring/89.spring-springframework-mvc-23.png)
+### 14.2.1 init
+init()方法如下, 主要读取web.xml中servlet参数配置，并将交给子类方法initServletBean()继续初始化
+```java
+/**
+  * Map config parameters onto bean properties of this servlet, and
+  * invoke subclass initialization.
+  * @throws ServletException if bean properties are invalid (or required
+  * properties are missing), or if subclass initialization fails.
+  */
+@Override
+public final void init() throws ServletException {
+
+  // 读取web.xml中的servlet配置
+  PropertyValues pvs = new ServletConfigPropertyValues(getServletConfig(), this.requiredProperties);
+  if (!pvs.isEmpty()) {
+    try {
+      // 转换成BeanWrapper，为了方便使用Spring的属性注入功能
+      BeanWrapper bw = PropertyAccessorFactory.forBeanPropertyAccess(this);
+      // 注入Resource类型需要依赖于ResourceEditor解析，所以注册Resource类关联到ResourceEditor解析器
+      ResourceLoader resourceLoader = new ServletContextResourceLoader(getServletContext());
+      bw.registerCustomEditor(Resource.class, new ResourceEditor(resourceLoader, getEnvironment()));
+      // 更多的初始化可以让子类去拓展
+      initBeanWrapper(bw);
+      // 让spring注入namespace,contextConfigLocation等属性
+      bw.setPropertyValues(pvs, true);
+    }
+    catch (BeansException ex) {
+      if (logger.isErrorEnabled()) {
+        logger.error("Failed to set bean properties on servlet '" + getServletName() + "'", ex);
+      }
+      throw ex;
+    }
+  }
+
+  // 让子类去拓展
+  initServletBean();
+}
+```
+读取配置可以从下图看出，正是初始化了我们web.xml中配置
+![90.spring-springframework-mvc-24.png](../../assets/images/04-主流框架/spring/90.spring-springframework-mvc-24.png)
+
+再看下initServletBean()方法，位于FrameworkServlet类中
+```java
+/**
+  * Overridden method of {@link HttpServletBean}, invoked after any bean properties
+  * have been set. Creates this servlet's WebApplicationContext.
+  */
+@Override
+protected final void initServletBean() throws ServletException {
+  getServletContext().log("Initializing Spring " + getClass().getSimpleName() + " '" + getServletName() + "'");
+  if (logger.isInfoEnabled()) {
+    logger.info("Initializing Servlet '" + getServletName() + "'");
+  }
+  long startTime = System.currentTimeMillis();
+
+  try {
+    // 最重要的是这个方法
+    this.webApplicationContext = initWebApplicationContext();
+
+    // 可以让子类进一步拓展
+    initFrameworkServlet();
+  }
+  catch (ServletException | RuntimeException ex) {
+    logger.error("Context initialization failed", ex);
+    throw ex;
+  }
+
+  if (logger.isDebugEnabled()) {
+    String value = this.enableLoggingRequestDetails ?
+        "shown which may lead to unsafe logging of potentially sensitive data" :
+        "masked to prevent unsafe logging of potentially sensitive data";
+    logger.debug("enableLoggingRequestDetails='" + this.enableLoggingRequestDetails +
+        "': request parameters and headers will be " + value);
+  }
+
+  if (logger.isInfoEnabled()) {
+    logger.info("Completed initialization in " + (System.currentTimeMillis() - startTime) + " ms");
+  }
+}
+```
+### 14.2.2 initWebApplicationContext
+initWebApplicationContext用来初始化和刷新WebApplicationContext。
+
+initWebApplicationContext() 方法如下
+```java
+/**
+  * Initialize and publish the WebApplicationContext for this servlet.
+  * <p>Delegates to {@link #createWebApplicationContext} for actual creation
+  * of the context. Can be overridden in subclasses.
+  * @return the WebApplicationContext instance
+  * @see #FrameworkServlet(WebApplicationContext)
+  * @see #setContextClass
+  * @see #setContextConfigLocation
+  */
+protected WebApplicationContext initWebApplicationContext() {
+  WebApplicationContext rootContext =
+      WebApplicationContextUtils.getWebApplicationContext(getServletContext());
+  WebApplicationContext wac = null;
+
+  // 如果在构造函数已经被初始化
+  if (this.webApplicationContext != null) {
+    // A context instance was injected at construction time -> use it
+    wac = this.webApplicationContext;
+    if (wac instanceof ConfigurableWebApplicationContext) {
+      ConfigurableWebApplicationContext cwac = (ConfigurableWebApplicationContext) wac;
+      if (!cwac.isActive()) {
+        // The context has not yet been refreshed -> provide services such as
+        // setting the parent context, setting the application context id, etc
+        if (cwac.getParent() == null) {
+          // The context instance was injected without an explicit parent -> set
+          // the root application context (if any; may be null) as the parent
+          cwac.setParent(rootContext);
+        }
+        configureAndRefreshWebApplicationContext(cwac);
+      }
+    }
+  }
+  // 没有在构造函数中初始化，则尝试通过contextAttribute初始化
+  if (wac == null) {
+    // No context instance was injected at construction time -> see if one
+    // has been registered in the servlet context. If one exists, it is assumed
+    // that the parent context (if any) has already been set and that the
+    // user has performed any initialization such as setting the context id
+    wac = findWebApplicationContext();
+  }
+
+  // 还没有的话，只能重新创建了
+  if (wac == null) {
+    // No context instance is defined for this servlet -> create a local one
+    wac = createWebApplicationContext(rootContext);
+  }
+
+  if (!this.refreshEventReceived) {
+    // Either the context is not a ConfigurableApplicationContext with refresh
+    // support or the context injected at construction time had already been
+    // refreshed -> trigger initial onRefresh manually here.
+    synchronized (this.onRefreshMonitor) {
+      onRefresh(wac);
+    }
+  }
+
+  if (this.publishContext) {
+    // Publish the context as a servlet context attribute.
+    String attrName = getServletContextAttributeName();
+    getServletContext().setAttribute(attrName, wac);
+  }
+
+  return wac;
+}
+```
+webApplicationContext只会初始化一次，依次尝试构造函数初始化，没有则通过contextAttribute初始化，仍没有则创建新的
+
+创建的createWebApplicationContext方法如下
+```java
+/**
+  * Instantiate the WebApplicationContext for this servlet, either a default
+  * {@link org.springframework.web.context.support.XmlWebApplicationContext}
+  * or a {@link #setContextClass custom context class}, if set.
+  * <p>This implementation expects custom contexts to implement the
+  * {@link org.springframework.web.context.ConfigurableWebApplicationContext}
+  * interface. Can be overridden in subclasses.
+  * <p>Do not forget to register this servlet instance as application listener on the
+  * created context (for triggering its {@link #onRefresh callback}, and to call
+  * {@link org.springframework.context.ConfigurableApplicationContext#refresh()}
+  * before returning the context instance.
+  * @param parent the parent ApplicationContext to use, or {@code null} if none
+  * @return the WebApplicationContext for this servlet
+  * @see org.springframework.web.context.support.XmlWebApplicationContext
+  */
+protected WebApplicationContext createWebApplicationContext(@Nullable ApplicationContext parent) {
+  Class<?> contextClass = getContextClass();
+  if (!ConfigurableWebApplicationContext.class.isAssignableFrom(contextClass)) {
+    throw new ApplicationContextException(
+        "Fatal initialization error in servlet with name '" + getServletName() +
+        "': custom WebApplicationContext class [" + contextClass.getName() +
+        "] is not of type ConfigurableWebApplicationContext");
+  }
+
+  // 通过反射方式初始化
+  ConfigurableWebApplicationContext wac =
+      (ConfigurableWebApplicationContext) BeanUtils.instantiateClass(contextClass);
+
+  wac.setEnvironment(getEnvironment());
+  wac.setParent(parent);
+  String configLocation = getContextConfigLocation(); // 就是前面Demo中的springmvc.xml
+  if (configLocation != null) {
+    wac.setConfigLocation(configLocation);
+  }
+
+  // 初始化Spring环境
+  configureAndRefreshWebApplicationContext(wac);
+
+  return wac;
+}
+```
+configureAndRefreshWebApplicationContext方法初始化设置Spring环境
+```java
+protected void configureAndRefreshWebApplicationContext(ConfigurableWebApplicationContext wac) {
+  // 设置context ID
+  if (ObjectUtils.identityToString(wac).equals(wac.getId())) {
+    // The application context id is still set to its original default value
+    // -> assign a more useful id based on available information
+    if (this.contextId != null) {
+      wac.setId(this.contextId);
+    }
+    else {
+      // Generate default id...
+      wac.setId(ConfigurableWebApplicationContext.APPLICATION_CONTEXT_ID_PREFIX +
+          ObjectUtils.getDisplayString(getServletContext().getContextPath()) + '/' + getServletName());
+    }
+  }
+
+  // 设置servletContext, servletConfig, namespace, listener...
+  wac.setServletContext(getServletContext());
+  wac.setServletConfig(getServletConfig());
+  wac.setNamespace(getNamespace());
+  wac.addApplicationListener(new SourceFilteringListener(wac, new ContextRefreshListener()));
+
+  // The wac environment's #initPropertySources will be called in any case when the context
+  // is refreshed; do it eagerly here to ensure servlet property sources are in place for
+  // use in any post-processing or initialization that occurs below prior to #refresh
+  ConfigurableEnvironment env = wac.getEnvironment();
+  if (env instanceof ConfigurableWebEnvironment) {
+    ((ConfigurableWebEnvironment) env).initPropertySources(getServletContext(), getServletConfig());
+  }
+
+  // 让子类去拓展
+  postProcessWebApplicationContext(wac);
+  applyInitializers(wac);
+
+  // Spring环境初始化完了，就可以初始化DispatcherServlet处理流程中需要的组件了。
+  wac.refresh();
+}
+```
+### 14.2.3 refresh
+有了webApplicationContext后，就开始刷新了（onRefresh()方法），这个方法是FrameworkServlet提供的模板方法，由子类DispatcherServlet来实现的。
+```java
+/**
+  * This implementation calls {@link #initStrategies}.
+  */
+@Override
+protected void onRefresh(ApplicationContext context) {
+  initStrategies(context);
+}
+```
+刷新主要是调用initStrategies(context)方法对DispatcherServlet中的组件进行初始化，这些组件就是在SpringMVC请求流程中包的主要组件。
+```java
+/**
+  * Initialize the strategy objects that this servlet uses.
+  * <p>May be overridden in subclasses in order to initialize further strategy objects.
+  */
+protected void initStrategies(ApplicationContext context) {
+  initMultipartResolver(context);
+  initLocaleResolver(context);
+  initThemeResolver(context);
+
+  // 主要看如下三个方法
+  initHandlerMappings(context);
+  initHandlerAdapters(context);
+  initHandlerExceptionResolvers(context);
+
+  initRequestToViewNameTranslator(context);
+  initViewResolvers(context);
+  initFlashMapManager(context);
+}
+```
+### 14.2.4 initHanlderxxx
+我们主要看initHandlerXXX相关的方法，它们之间的关系可以看SpringMVC的请求流程：
+![91.spring-springframework-mvc-26.png](../../assets/images/04-主流框架/spring/91.spring-springframework-mvc-26.png)
+- HandlerMapping是映射处理器
+- HandlerAdpter是`处理适配器`，它用来找到你的Controller中的处理方法
+- HandlerExceptionResolver是当遇到处理异常时的异常解析器
+
+initHandlerMapping方法如下，无非就是获取按照优先级排序后的HanlderMappings, 将来匹配时按照优先级最高的HanderMapping进行处理。
+![92.spring-springframework-mvc-25.png](../../assets/images/04-主流框架/spring/92.spring-springframework-mvc-25.png)
+
+initHandlerAdapters方法和initHandlerExceptionResolvers方法也是类似的，如果没有找到，那就构建默认的。
+```java
+/**
+  * Initialize the HandlerAdapters used by this class.
+  * <p>If no HandlerAdapter beans are defined in the BeanFactory for this namespace,
+  * we default to SimpleControllerHandlerAdapter.
+  */
+private void initHandlerAdapters(ApplicationContext context) {
+  this.handlerAdapters = null;
+
+  if (this.detectAllHandlerAdapters) {
+    // Find all HandlerAdapters in the ApplicationContext, including ancestor contexts.
+    Map<String, HandlerAdapter> matchingBeans =
+        BeanFactoryUtils.beansOfTypeIncludingAncestors(context, HandlerAdapter.class, true, false);
+    if (!matchingBeans.isEmpty()) {
+      this.handlerAdapters = new ArrayList<>(matchingBeans.values());
+      // We keep HandlerAdapters in sorted order.
+      AnnotationAwareOrderComparator.sort(this.handlerAdapters);
+    }
+  }
+  else {
+    try {
+      HandlerAdapter ha = context.getBean(HANDLER_ADAPTER_BEAN_NAME, HandlerAdapter.class);
+      this.handlerAdapters = Collections.singletonList(ha);
+    }
+    catch (NoSuchBeanDefinitionException ex) {
+      // Ignore, we'll add a default HandlerAdapter later.
+    }
+  }
+
+  // Ensure we have at least some HandlerAdapters, by registering
+  // default HandlerAdapters if no other adapters are found.
+  if (this.handlerAdapters == null) {
+    this.handlerAdapters = getDefaultStrategies(context, HandlerAdapter.class);
+    if (logger.isTraceEnabled()) {
+      logger.trace("No HandlerAdapters declared for servlet '" + getServletName() +
+          "': using default strategies from DispatcherServlet.properties");
+    }
+  }
+}
+
+/**
+  * Initialize the HandlerExceptionResolver used by this class.
+  * <p>If no bean is defined with the given name in the BeanFactory for this namespace,
+  * we default to no exception resolver.
+  */
+private void initHandlerExceptionResolvers(ApplicationContext context) {
+  this.handlerExceptionResolvers = null;
+
+  if (this.detectAllHandlerExceptionResolvers) {
+    // Find all HandlerExceptionResolvers in the ApplicationContext, including ancestor contexts.
+    Map<String, HandlerExceptionResolver> matchingBeans = BeanFactoryUtils
+        .beansOfTypeIncludingAncestors(context, HandlerExceptionResolver.class, true, false);
+    if (!matchingBeans.isEmpty()) {
+      this.handlerExceptionResolvers = new ArrayList<>(matchingBeans.values());
+      // We keep HandlerExceptionResolvers in sorted order.
+      AnnotationAwareOrderComparator.sort(this.handlerExceptionResolvers);
+    }
+  }
+  else {
+    try {
+      HandlerExceptionResolver her =
+          context.getBean(HANDLER_EXCEPTION_RESOLVER_BEAN_NAME, HandlerExceptionResolver.class);
+      this.handlerExceptionResolvers = Collections.singletonList(her);
+    }
+    catch (NoSuchBeanDefinitionException ex) {
+      // Ignore, no HandlerExceptionResolver is fine too.
+    }
+  }
+
+  // Ensure we have at least some HandlerExceptionResolvers, by registering
+  // default HandlerExceptionResolvers if no other resolvers are found.
+  if (this.handlerExceptionResolvers == null) {
+    this.handlerExceptionResolvers = getDefaultStrategies(context, HandlerExceptionResolver.class);
+    if (logger.isTraceEnabled()) {
+      logger.trace("No HandlerExceptionResolvers declared in servlet '" + getServletName() +
+          "': using default strategies from DispatcherServlet.properties");
+    }
+  }
+}
+```
+最后我们看下初始化的日志：
+```sh
+21:30:33.163 [RMI TCP Connection(2)-127.0.0.1] INFO org.springframework.web.servlet.DispatcherServlet - Initializing Servlet 'springmvc-demo'
+21:30:38.242 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.web.context.support.XmlWebApplicationContext - Refreshing WebApplicationContext for namespace 'springmvc-demo-servlet'
+21:30:39.256 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.context.annotation.ClassPathBeanDefinitionScanner - Identified candidate component class: file [/Users/pdai/pdai/www/tech-pdai-spring-demos/011-spring-framework-demo-springmvc/target/011-spring-framework-demo-springmvc-1.0-SNAPSHOT/WEB-INF/classes/tech/pdai/springframework/springmvc/controller/UserController.class]
+21:30:39.261 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.context.annotation.ClassPathBeanDefinitionScanner - Identified candidate component class: file [/Users/pdai/pdai/www/tech-pdai-spring-demos/011-spring-framework-demo-springmvc/target/011-spring-framework-demo-springmvc-1.0-SNAPSHOT/WEB-INF/classes/tech/pdai/springframework/springmvc/dao/UserDaoImpl.class]
+21:30:39.274 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.context.annotation.ClassPathBeanDefinitionScanner - Identified candidate component class: file [/Users/pdai/pdai/www/tech-pdai-spring-demos/011-spring-framework-demo-springmvc/target/011-spring-framework-demo-springmvc-1.0-SNAPSHOT/WEB-INF/classes/tech/pdai/springframework/springmvc/service/UserServiceImpl.class]
+21:30:39.546 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.xml.XmlBeanDefinitionReader - Loaded 29 bean definitions from class path resource [springmvc.xml]
+21:30:39.711 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.context.annotation.internalConfigurationAnnotationProcessor'
+21:30:39.973 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.context.event.internalEventListenerProcessor'
+21:30:39.984 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.context.event.internalEventListenerFactory'
+21:30:39.995 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.context.annotation.internalAutowiredAnnotationProcessor'
+21:30:40.003 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.context.annotation.internalCommonAnnotationProcessor'
+21:30:40.042 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.ui.context.support.UiApplicationContextUtils - Unable to locate ThemeSource with name 'themeSource': using default [org.springframework.ui.context.support.ResourceBundleThemeSource@791af912]
+21:30:40.052 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'userController'
+21:30:40.136 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'userServiceImpl'
+21:30:40.140 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'userDaoImpl'
+21:30:40.147 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.web.servlet.resource.DefaultServletHttpRequestHandler#0'
+21:30:40.153 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.web.servlet.handler.SimpleUrlHandlerMapping#0'
+21:30:40.350 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.web.servlet.handler.MappedInterceptor#0'
+21:30:40.356 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.format.support.FormattingConversionServiceFactoryBean#0'
+21:30:40.741 [RMI TCP Connection(2)-127.0.0.1] DEBUG _org.springframework.web.servlet.HandlerMapping.Mappings - 'org.springframework.web.servlet.handler.SimpleUrlHandlerMapping#0' {/**=org.springframework.web.servlet.resource.DefaultServletHttpRequestHandler@216c0f1f}
+21:30:40.742 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'mvcCorsConfigurations'
+21:30:40.742 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.web.servlet.handler.BeanNameUrlHandlerMapping'
+21:30:40.792 [RMI TCP Connection(2)-127.0.0.1] DEBUG _org.springframework.web.servlet.HandlerMapping.Mappings - 'org.springframework.web.servlet.handler.BeanNameUrlHandlerMapping' {}
+21:30:40.792 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.web.servlet.mvc.HttpRequestHandlerAdapter'
+21:30:40.793 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.web.servlet.mvc.SimpleControllerHandlerAdapter'
+21:30:40.794 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'localeResolver'
+21:30:40.796 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'themeResolver'
+21:30:40.798 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'viewNameTranslator'
+21:30:40.799 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'flashMapManager'
+21:30:40.805 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'mvcContentNegotiationManager'
+21:30:40.887 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping'
+21:30:41.150 [RMI TCP Connection(2)-127.0.0.1] DEBUG _org.springframework.web.servlet.HandlerMapping.Mappings - 
+	t.p.s.s.c.UserController:
+	{ [/user]}: list(HttpServletRequest,HttpServletResponse)
+21:30:41.202 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping - 1 mappings in 'org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping'
+21:30:41.202 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter'
+21:30:41.626 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter - ControllerAdvice beans: none
+21:30:41.738 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'mvcUriComponentsContributor'
+21:30:41.786 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter - ControllerAdvice beans: none
+21:30:41.806 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver#0'
+21:30:41.919 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver - ControllerAdvice beans: none
+21:30:41.920 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.web.servlet.mvc.annotation.ResponseStatusExceptionResolver#0'
+21:30:41.949 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver#0'
+21:30:41.967 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.beans.factory.support.DefaultListableBeanFactory - Creating shared instance of singleton bean 'jspViewResolver'
+21:30:44.214 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.web.servlet.DispatcherServlet - Detected AcceptHeaderLocaleResolver
+21:30:44.214 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.web.servlet.DispatcherServlet - Detected FixedThemeResolver
+21:31:02.141 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.web.servlet.DispatcherServlet - Detected org.springframework.web.servlet.view.DefaultRequestToViewNameTranslator@d57bc91
+21:31:03.483 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.web.servlet.DispatcherServlet - Detected org.springframework.web.servlet.support.SessionFlashMapManager@2b4e795e
+21:44:08.180 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.jndi.JndiTemplate - Looking up JNDI object with name [java:comp/env/spring.liveBeansView.mbeanDomain]
+21:44:08.185 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.jndi.JndiLocatorDelegate - Converted JNDI name [java:comp/env/spring.liveBeansView.mbeanDomain] not found - trying original name [spring.liveBeansView.mbeanDomain]. javax.naming.NameNotFoundException: 名称[spring.liveBeansView.mbeanDomain]未在此上下文中绑定。找不到[spring.liveBeansView.mbeanDomain]。
+21:44:08.185 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.jndi.JndiTemplate - Looking up JNDI object with name [spring.liveBeansView.mbeanDomain]
+21:44:08.185 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.jndi.JndiPropertySource - JNDI lookup for name [spring.liveBeansView.mbeanDomain] threw NamingException with message: 名称[spring.liveBeansView.mbeanDomain]未在此上下文中绑定。找不到[spring.liveBeansView.mbeanDomain]。. Returning null.
+21:44:08.195 [RMI TCP Connection(2)-127.0.0.1] DEBUG org.springframework.web.servlet.DispatcherServlet - enableLoggingRequestDetails='false': request parameters and headers will be masked to prevent unsafe logging of potentially sensitive data
+21:44:08.195 [RMI TCP Connection(2)-127.0.0.1] INFO org.springframework.web.servlet.DispatcherServlet - Completed initialization in 815032 ms
+```
+### 14.2.5 三大Handler的作用详解 
+
+#### 核心概念：DispatcherServlet 的工作流程
+
+你可以把 `DispatcherServlet` 想象成一个公司的**总调度中心（前端控制器）**。当一个HTTP请求到来时，它负责协调各个部门完成工作，但它自己并不处理具体业务。
+
+1.  **收到请求**：DispatcherServlet 接收用户请求。
+2.  **问路**：它问 **HandlerMapping**：“这个请求的URL（比如 `/user/1`）应该由哪个部门的哪位同事（哪个Controller的哪个方法）来处理？”
+3.  **派活**：HandlerMapping 返回处理者的信息（例如，`UserController` 的 `getUserById` 方法）。DispatcherServlet 拿到这个信息后，需要找一个能驱动这位同事干活的人。
+4.  **找适配器**：它问 **HandlerAdapter**：“你们谁擅长驱动 `UserController` 这种风格的同事干活？” Spring 提供了多种 Adapter，比如驱动 `@Controller` 注解的、驱动实现 `Controller` 接口的等。
+5.  **执行任务**：合适的 HandlerAdapter 开始工作：它调用目标方法，解析参数，执行方法逻辑，最后封装返回结果（可能是 `ModelAndView`，也可能是 `@ResponseBody` 标注的对象）。
+6.  **处理意外**：如果在第5步中出现了异常（比如数据库连接失败、参数校验失败），DispatcherServlet 就会启动 **HandlerExceptionResolver** 来处理这个“烂摊子”，最终返回一个友好的错误页面或JSON错误信息，而不是让用户看到一堆异常堆栈。
+---
+
+#### 一、HandlerMapping（映射处理器）
+
+**作用**：建立请求URL与处理程序（Controller）之间的映射关系。
+
+##### 1. 传统Spring项目（XML配置体现）
+
+在Spring Boot出现之前，配置映射关系主要依赖于XML文件。你需要**显式地**在 `WEB-INF/web.xml` 和 `applicationContext.xml`（或类似的Spring配置文件）中定义。
+
+**方式一：BeanNameUrlHandlerMapping（默认且常用）**
+这种方式要求Bean的ID以 `/` 开头，URL会直接映射到同名的Bean上。
+
+*   **web.xml**：配置 DispatcherServlet
+    ```xml
+    <!-- web.xml -->
+    <web-app>
+        <servlet>
+            <servlet-name>dispatcher</servlet-name>
+            <servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
+            <!-- 指定Spring MVC配置文件的位置 -->
+            <init-param>
+                <param-name>contextConfigLocation</param-name>
+                <param-value>/WEB-INF/spring-mvc-config.xml</param-value>
+            </init-param>
+            <load-on-startup>1</load-on-startup>
+        </servlet>
+        <servlet-mapping>
+            <servlet-name>dispatcher</servlet-name>
+            <url-pattern>/</url-pattern>
+        </servlet-mapping>
+    </web-app>
+    ```
+
+*   **spring-mvc-config.xml**：配置Controller Bean和映射
+    ```xml
+    <beans xmlns="http://www.springframework.org/schema/beans"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://www.springframework.org/schema/beans
+            http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+        <!-- 定义一个Controller，实现Controller接口 -->
+        <bean id="/hello.do" class="com.example.HelloController"/>
+
+        <!-- 实际上，BeanNameUrlHandlerMapping是默认的，通常无需显式配置 -->
+        <!-- <bean class="org.springframework.web.servlet.handler.BeanNameUrlHandlerMapping"/> -->
+    </beans>
+    ```
+
+*   **业务代码**：实现 `Controller` 接口
+    ```java
+    package com.example;
+    import org.springframework.web.servlet.ModelAndView;
+    import org.springframework.web.servlet.mvc.Controller;
+    import javax.servlet.http.HttpServletRequest;
+    import javax.servlet.http.HttpServletResponse;
+
+    public class HelloController implements Controller {
+        @Override
+        public ModelAndView handleRequest(HttpServletRequest request, HttpServletResponse response) throws Exception {
+            ModelAndView mav = new ModelAndView();
+            mav.addObject("message", "Hello from XML Config!");
+            mav.setViewName("hello"); // 对应 /WEB-INF/views/hello.jsp
+            return mav;
+        }
+    }
+    ```
+    **体现**：当访问 `/hello.do` 时，`BeanNameUrlHandlerMapping` 会将请求映射到ID为 `/hello.do` 的 `HelloController` Bean。
+
+**方式二：SimpleUrlHandlerMapping**
+可以更集中地配置URL映射，将多个URL映射到不同的Controller。
+
+```xml
+<!-- spring-mvc-config.xml -->
+<bean class="org.springframework.web.servlet.handler.SimpleUrlHandlerMapping">
+    <property name="mappings">
+        <props>
+            <!-- key是URL，value是Bean的id -->
+            <prop key="/user/list.do">userController</prop>
+            <prop key="/order/detail.do">orderController</prop>
+        </props>
+    </property>
+</bean>
+
+<bean id="userController" class="com.example.UserController"/>
+<bean id="orderController" class="com.example.OrderController"/>
+```
+
+##### 2. Spring Boot项目（代码体现）
+
+Spring Boot通过自动配置完成了所有XML的配置工作。你**无需任何XML**，只需使用注解。
+
+*   **业务代码**：使用 `@Controller` 和 `@RequestMapping` 注解
+    ```java
+    @Controller
+    public class HelloController {
+
+        @RequestMapping("/hello")
+        public String hello(Model model) {
+            model.addAttribute("message", "Hello from Spring Boot!");
+            return "hello"; // 模板名称，由模板引擎解析
+        }
+    }
+    ```
+    **体现**：Spring Boot自动配置了 `RequestMappingHandlerMapping`，它会扫描所有 `@Controller` 类，并根据 `@RequestMapping` 注解自动建立映射关系。开发者完全感知不到配置过程。
+
+---
+
+#### 二、HandlerAdapter（处理适配器）
+
+**作用**：作为适配层，让 `DispatcherServlet` 能够调用各种不同类型的处理器。
+
+##### 1. 传统Spring项目（XML配置体现）
+
+不同类型的Controller需要不同的Adapter来驱动。
+
+*   **对于实现了 `Controller` 接口的类（如上例的 `HelloController`）**：
+    需要 `SimpleControllerHandlerAdapter`。
+    ```xml
+    <!-- spring-mvc-config.xml -->
+    <!-- 因为SimpleControllerHandlerAdapter是默认适配器之一，通常也无需显式配置 -->
+    <!-- <bean class="org.springframework.web.servlet.mvc.SimpleControllerHandlerAdapter"/> -->
+    ```
+    **体现**：当 `HandlerMapping` 返回一个 `HelloController`（实现了 `Controller` 接口）时，`DispatcherServlet` 会找到 `SimpleControllerHandlerAdapter`，由它来调用 `handleRequest` 方法。
+
+*   **对于基于注解的Controller（即使在传统Spring中也可用）**：
+    需要显式开启注解驱动，这会自动注册 `RequestMappingHandlerAdapter`。
+    ```xml
+    <!-- spring-mvc-config.xml -->
+    <!-- 这行配置是关键！它注册了RequestMappingHandlerMapping和RequestMappingHandlerAdapter -->
+    <mvc:annotation-driven/>
+    ```
+    配置后，你就可以编写现代风格的注解Controller了，其代码与Spring Boot中的写法一致。
+
+##### 2. Spring Boot项目（代码体现）
+
+Spring Boot的自动配置在检测到Classpath下的Spring MVC相关类后，会自动启用 `<mvc:annotation-driven/>` 的等效配置，即自动配置好 `RequestMappingHandlerAdapter`。
+
+*   **业务代码**：你可以直接使用强大的参数绑定功能。
+    ```java
+    @RestController
+    public class UserApiController {
+        @GetMapping("/user/{id}")
+        public User getUser(@PathVariable Long id) { // HandlerAdapter负责解析id参数
+            // ... 业务逻辑
+            return user;
+        }
+    }
+    ```
+    **体现**：你无需关心适配器，只需按约定写方法签名（使用 `@PathVariable`, `@RequestParam` 等），`RequestMappingHandlerAdapter` 会自动处理。
+
+---
+
+#### 三、HandlerExceptionResolver（异常解析器）
+
+**作用**：统一处理Controller中抛出的异常。
+
+##### 1. 传统Spring项目（XML配置体现）
+
+**方式一：配置SimpleMappingExceptionResolver（XML方式）**
+可以在XML中集中定义某种异常对应跳转到哪个错误页面。
+
+```xml
+<!-- spring-mvc-config.xml -->
+<bean class="org.springframework.web.servlet.handler.SimpleMappingExceptionResolver">
+    <property name="exceptionMappings">
+        <props>
+            <!-- 当发生SQLException时，跳转到error-db页面 -->
+            <prop key="java.sql.SQLException">error-db</prop>
+            <!-- 当发生Exception时，跳转到error页面 -->
+            <prop key="java.lang.Exception">error</prop>
+        </props>
+    </property>
+    <!-- 默认错误页面 -->
+    <property name="defaultErrorView" value="error"/>
+</bean>
+```
+
+**方式二：使用@ExceptionHandler（注解方式，需结合注解驱动）**
+在传统Spring中，也可以使用注解，但需要配合 `<mvc:annotation-driven/>` 和 `@ControllerAdvice`。
+
+```xml
+<!-- 1. 开启注解驱动 -->
+<mvc:annotation-driven/>
+<!-- 2. 开启组件扫描 -->
+<context:component-scan base-package="com.example"/>
+```
+
+```java
+// 2. 业务代码：编写异常处理器
+@ControllerAdvice
+public class GlobalExceptionHandler {
+    @ExceptionHandler(UserNotFoundException.class)
+    public ModelAndView handleUserNotFound(UserNotFoundException e) {
+        ModelAndView mav = new ModelAndView("error");
+        mav.addObject("message", e.getMessage());
+        return mav;
+    }
+}
+```
+
+##### 2. Spring Boot项目（代码体现）
+
+Spring Boot强烈推荐并简化了注解方式。你只需要编写异常处理类即可，无需任何XML配置。
+
+*   **业务代码**：
+    ```java
+    @RestControllerAdvice // @ControllerAdvice + @ResponseBody
+    public class GlobalApiExceptionHandler {
+
+        @ExceptionHandler(UserNotFoundException.class)
+        public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException e) {
+            ErrorResponse error = new ErrorResponse(404, "User Not Found: " + e.getMessage());
+            return ResponseEntity.status(404).body(error);
+        }
+
+        @ExceptionHandler(Exception.class)
+        public ResponseEntity<ErrorResponse> handleGlobalException(Exception e) {
+            ErrorResponse error = new ErrorResponse(500, "Internal Server Error");
+            return ResponseEntity.status(500).body(error);
+        }
+    }
+    ```
+    **体现**：Spring Boot自动检测到 `@RestControllerAdvice` 注解的Bean，并将其注册到异常解析链中。
+
+---
+
+#### 总结对比表
+
+| 组件 | 核心作用 | 传统Spring项目（XML配置体现） | Spring Boot项目（代码/自动配置体现） |
+| :--- | :--- | :--- | :--- |
+| **HandlerMapping** | **路由寻址** | **显式配置**：在XML中定义`<bean>`，通过ID或`SimpleUrlHandlerMapping`建立URL与Bean的映射。**核心差异**：映射关系在配置文件中定义。 | **隐式自动配置**：使用`@RequestMapping`等注解，`RequestMappingHandlerMapping`自动扫描并注册映射。**核心差异**：零配置，约定大于配置。 |
+| **HandlerAdapter** | **适配执行** | **显式或隐式配置**：为不同类型的Controller（如`Controller`接口实现类）配置对应的Adapter（如`SimpleControllerHandlerAdapter`）。使用`<mvc:annotation-driven/>`来启用注解适配器。 | **完全自动配置**：自动配置好`RequestMappingHandlerAdapter`，开发者直接使用注解编写Controller即可。 |
+| **HandlerExceptionResolver** | **统一异常处理** | **XML配置**：使用`SimpleMappingExceptionResolver`在XML中定义异常与视图的映射。**注解配置**：需先配置`<mvc:annotation-driven/>`，再使用`@ControllerAdvice`。 | **纯注解配置**：直接使用`@RestControllerAdvice`/`@ControllerAdvice`+`@ExceptionHandler`，无任何XML。 |
+
+**根本区别**：
+*   **传统Spring项目**：**组装式**。开发者是“装配工”，需要自己在XML配置文件中声明（或通过注解驱动开启）各个组件及其依赖关系，控制权大，但配置繁琐。
+*   **Spring Boot项目**：**自动式**。开发者是“使用者”。Spring Boot是“智能装配工”，根据约定和类路径自动完成所有配置，简化了开发，开箱即用。
+# 十五、Spring进阶 - SpringMVC实现原理之DispatcherServlet处理请求的过程
+## 15.1 DispatcherServlet处理请求的过程？
+> 一个请求发出，经过DispatcherServlet进行了什么样的处理，最后将内容返回的呢？
+### 15.1.1 回顾整理处理流程
+首先让我们整体看一下Spring Web MVC 处理请求的流程：
+![5.spring-springframework-mvc-5.png](../../assets/images/04-主流框架/spring/5.spring-springframework-mvc-5.png)
+
+**核心架构的具体流程**步骤如下：
+- **首先用户发送请求——>DispatcherServlet**，前端控制器收到请求后自己不进行处理，而是委托给其他的解析器进行 处理，作为统一访问点，进行全局的流程控制；
+- **DispatcherServlet——>HandlerMapping**， HandlerMapping 将会把请求映射为 HandlerExecutionChain 对象（包含一 个Handler 处理器（页面控制器）对象、多个HandlerInterceptor 拦截器）对象，通过这种策略模式，很容易添加新 的映射策略；
+- **DispatcherServlet——>HandlerAdapter**，HandlerAdapter 将会把处理器包装为适配器，从而支持多种类型的处理器， 即适配器设计模式的应用，从而很容易支持很多类型的处理器；
+- **HandlerAdapter——>处理器功能处理方法的调用**，HandlerAdapter 将会根据适配的结果调用真正的处理器的功能处 理方法，完成功能处理；并返回一个ModelAndView 对象（包含模型数据、逻辑视图名）；
+- **ModelAndView 的逻辑视图名——> ViewResolver**，ViewResolver 将把逻辑视图名解析为具体的View，通过这种策 略模式，很容易更换其他视图技术；
+- **View——>渲染**，View 会根据传进来的Model 模型数据进行渲染，此处的Model 实际是一个Map 数据结构，因此 很容易支持其他视图技术；
+- **返回控制权给DispatcherServlet**，由DispatcherServlet 返回响应给用户，到此一个流程结束。
+### 15.1.2  doGet入口
+> 我们以上个demo中这个GET请求为例，请求URL是http://localhost:8080/011_spring_framework_demo_springmvc_war_exploded/user
+
+我们知道servlet处理get请求是doGet方法，所以我们去找DispatcherServlet类结构中的doGet方法。
+```java
+@Override
+protected final void doGet(HttpServletRequest request, HttpServletResponse response)
+    throws ServletException, IOException {
+
+  processRequest(request, response);
+}
+```
+processRequest处理请求的方法如下：
+```java
+/**
+  * Process this request, publishing an event regardless of the outcome.
+  * <p>The actual event handling is performed by the abstract
+  * {@link #doService} template method.
+  */
+protected final void processRequest(HttpServletRequest request, HttpServletResponse response)
+    throws ServletException, IOException {
+
+  // 计算处理请求的时间
+  long startTime = System.currentTimeMillis();
+  Throwable failureCause = null;
+
+  LocaleContext previousLocaleContext = LocaleContextHolder.getLocaleContext();
+  LocaleContext localeContext = buildLocaleContext(request);
+
+  RequestAttributes previousAttributes = RequestContextHolder.getRequestAttributes();
+  ServletRequestAttributes requestAttributes = buildRequestAttributes(request, response, previousAttributes);
+
+  WebAsyncManager asyncManager = WebAsyncUtils.getAsyncManager(request);
+  asyncManager.registerCallableInterceptor(FrameworkServlet.class.getName(), new RequestBindingInterceptor());
+
+  // 初始化context
+  initContextHolders(request, localeContext, requestAttributes);
+
+  try {
+    // 看这里
+    doService(request, response);
+  }
+  catch (ServletException | IOException ex) {
+    failureCause = ex;
+    throw ex;
+  }
+  catch (Throwable ex) {
+    failureCause = ex;
+    throw new NestedServletException("Request processing failed", ex);
+  }
+
+  finally {
+    // 重置context
+    resetContextHolders(request, previousLocaleContext, previousAttributes);
+    if (requestAttributes != null) {
+      requestAttributes.requestCompleted();
+    }
+    logResult(request, response, failureCause, asyncManager);
+    publishRequestHandledEvent(request, response, startTime, failureCause);
+  }
+}
+```
+本质上就是调用doService方法，由DispatchServlet类实现
+```java
+/**
+  * Exposes the DispatcherServlet-specific request attributes and delegates to {@link #doDispatch}
+  * for the actual dispatching.
+  */
+@Override
+protected void doService(HttpServletRequest request, HttpServletResponse response) throws Exception {
+  logRequest(request);
+
+  // 保存下请求之前的参数.
+  Map<String, Object> attributesSnapshot = null;
+  if (WebUtils.isIncludeRequest(request)) {
+    attributesSnapshot = new HashMap<>();
+    Enumeration<?> attrNames = request.getAttributeNames();
+    while (attrNames.hasMoreElements()) {
+      String attrName = (String) attrNames.nextElement();
+      if (this.cleanupAfterInclude || attrName.startsWith(DEFAULT_STRATEGIES_PREFIX)) {
+        attributesSnapshot.put(attrName, request.getAttribute(attrName));
+      }
+    }
+  }
+
+  // 方便后续 handlers 和 view 要使用它们.
+  request.setAttribute(WEB_APPLICATION_CONTEXT_ATTRIBUTE, getWebApplicationContext());
+  request.setAttribute(LOCALE_RESOLVER_ATTRIBUTE, this.localeResolver);
+  request.setAttribute(THEME_RESOLVER_ATTRIBUTE, this.themeResolver);
+  request.setAttribute(THEME_SOURCE_ATTRIBUTE, getThemeSource());
+
+  if (this.flashMapManager != null) {
+    FlashMap inputFlashMap = this.flashMapManager.retrieveAndUpdate(request, response);
+    if (inputFlashMap != null) {
+      request.setAttribute(INPUT_FLASH_MAP_ATTRIBUTE, Collections.unmodifiableMap(inputFlashMap));
+    }
+    request.setAttribute(OUTPUT_FLASH_MAP_ATTRIBUTE, new FlashMap());
+    request.setAttribute(FLASH_MAP_MANAGER_ATTRIBUTE, this.flashMapManager);
+  }
+
+  RequestPath previousRequestPath = null;
+  if (this.parseRequestPath) {
+    previousRequestPath = (RequestPath) request.getAttribute(ServletRequestPathUtils.PATH_ATTRIBUTE);
+    ServletRequestPathUtils.parseAndCache(request);
+  }
+
+  try {
+    // 看这里，终于将这个请求分发出去了
+    doDispatch(request, response);
+  }
+  finally {
+    if (!WebAsyncUtils.getAsyncManager(request).isConcurrentHandlingStarted()) {
+      // Restore the original attribute snapshot, in case of an include.
+      if (attributesSnapshot != null) {
+        restoreAttributesAfterInclude(request, attributesSnapshot);
+      }
+    }
+    if (this.parseRequestPath) {
+      ServletRequestPathUtils.setParsedRequestPath(previousRequestPath, request);
+    }
+  }
+}
+```
+### 15.1.3 请求分发(doDispatch)
+doDispatch方法是真正处理请求的核心方法
+```java
+protected void doDispatch(HttpServletRequest request, HttpServletResponse response) throws Exception {
+  HttpServletRequest processedRequest = request;
+  HandlerExecutionChain mappedHandler = null;
+  boolean multipartRequestParsed = false;
+
+  WebAsyncManager asyncManager = WebAsyncUtils.getAsyncManager(request);
+
+  try {
+    ModelAndView mv = null;
+    Exception dispatchException = null;
+
+    try {
+      // 判断是不是文件上传类型的request
+      processedRequest = checkMultipart(request);
+      multipartRequestParsed = (processedRequest != request);
+
+      // 根据request获取匹配的handler.
+      mappedHandler = getHandler(processedRequest);
+      if (mappedHandler == null) {
+        noHandlerFound(processedRequest, response);
+        return;
+      }
+
+      // 根据handler获取匹配的handlerAdapter
+      HandlerAdapter ha = getHandlerAdapter(mappedHandler.getHandler());
+
+      // 如果handler支持last-modified头处理
+      String method = request.getMethod();
+      boolean isGet = HttpMethod.GET.matches(method);
+      if (isGet || HttpMethod.HEAD.matches(method)) {
+        long lastModified = ha.getLastModified(request, mappedHandler.getHandler());
+        if (new ServletWebRequest(request, response).checkNotModified(lastModified) && isGet) {
+          return;
+        }
+      }
+
+      if (!mappedHandler.applyPreHandle(processedRequest, response)) {
+        return;
+      }
+
+      // 真正handle处理，并返回modelAndView
+      mv = ha.handle(processedRequest, response, mappedHandler.getHandler());
+
+      if (asyncManager.isConcurrentHandlingStarted()) {
+        return;
+      }
+
+      // 通过视图的prefix和postfix获取完整的视图名
+      applyDefaultViewName(processedRequest, mv);
+
+      // 应用后置的拦截器
+      mappedHandler.applyPostHandle(processedRequest, response, mv);
+    }
+    catch (Exception ex) {
+      dispatchException = ex;
+    }
+    catch (Throwable err) {
+      // As of 4.3, we're processing Errors thrown from handler methods as well,
+      // making them available for @ExceptionHandler methods and other scenarios.
+      dispatchException = new NestedServletException("Handler dispatch failed", err);
+    }
+
+    // 处理handler处理的结果，显然就是对ModelAndView 或者 出现的Excpetion处理
+    processDispatchResult(processedRequest, response, mappedHandler, mv, dispatchException);
+  }
+  catch (Exception ex) {
+    triggerAfterCompletion(processedRequest, response, mappedHandler, ex);
+  }
+  catch (Throwable err) {
+    triggerAfterCompletion(processedRequest, response, mappedHandler,
+        new NestedServletException("Handler processing failed", err));
+  }
+  finally {
+    if (asyncManager.isConcurrentHandlingStarted()) {
+      // Instead of postHandle and afterCompletion
+      if (mappedHandler != null) {
+        mappedHandler.applyAfterConcurrentHandlingStarted(processedRequest, response);
+      }
+    }
+    else {
+      // Clean up any resources used by a multipart request.
+      if (multipartRequestParsed) {
+        cleanupMultipart(processedRequest);
+      }
+    }
+  }
+}
+```
+### 15.1.4 映射和适配器处理
+对于真正的handle方法，我们看下其处理流程
+```java
+/**
+  * This implementation expects the handler to be an {@link HandlerMethod}.
+  */
+@Override
+@Nullable
+public final ModelAndView handle(HttpServletRequest request, HttpServletResponse response, Object handler)
+    throws Exception {
+
+  return handleInternal(request, response, (HandlerMethod) handler);
+}
+
+```
+交给handleInternal方法处理，以RequestMappingHandlerAdapter这个HandlerAdapter中的处理方法为例
+```java
+@Override
+protected ModelAndView handleInternal(HttpServletRequest request,
+    HttpServletResponse response, HandlerMethod handlerMethod) throws Exception {
+
+  ModelAndView mav;
+  checkRequest(request);
+
+  // Execute invokeHandlerMethod in synchronized block if required.
+  if (this.synchronizeOnSession) {
+    HttpSession session = request.getSession(false);
+    if (session != null) {
+      Object mutex = WebUtils.getSessionMutex(session);
+      synchronized (mutex) {
+        mav = invokeHandlerMethod(request, response, handlerMethod);
+      }
+    }
+    else {
+      // No HttpSession available -> no mutex necessary
+      mav = invokeHandlerMethod(request, response, handlerMethod);
+    }
+  }
+  else {
+    // No synchronization on session demanded at all...
+    mav = invokeHandlerMethod(request, response, handlerMethod);
+  }
+
+  if (!response.containsHeader(HEADER_CACHE_CONTROL)) {
+    if (getSessionAttributesHandler(handlerMethod).hasSessionAttributes()) {
+      applyCacheSeconds(response, this.cacheSecondsForSessionAttributeHandlers);
+    }
+    else {
+      prepareResponse(response);
+    }
+  }
+
+  return mav;
+}
+```
+![93.spring-springframework-mvc-27.png](../../assets/images/04-主流框架/spring/93.spring-springframework-mvc-27.png)
+
+然后执行invokeHandlerMethod这个方法，用来对RequestMapping（usercontroller中的list方法）进行处理
+```java
+/**
+  * Invoke the {@link RequestMapping} handler method preparing a {@link ModelAndView}
+  * if view resolution is required.
+  * @since 4.2
+  * @see #createInvocableHandlerMethod(HandlerMethod)
+  */
+@Nullable
+protected ModelAndView invokeHandlerMethod(HttpServletRequest request,
+    HttpServletResponse response, HandlerMethod handlerMethod) throws Exception {
+
+  ServletWebRequest webRequest = new ServletWebRequest(request, response);
+  try {
+    
+    WebDataBinderFactory binderFactory = getDataBinderFactory(handlerMethod);
+    ModelFactory modelFactory = getModelFactory(handlerMethod, binderFactory);
+
+    // 重要：设置handler(controller#list)方法上的参数，返回值处理，绑定databinder等
+    ServletInvocableHandlerMethod invocableMethod = createInvocableHandlerMethod(handlerMethod);
+    if (this.argumentResolvers != null) {
+      invocableMethod.setHandlerMethodArgumentResolvers(this.argumentResolvers);
+    }
+    if (this.returnValueHandlers != null) {
+      invocableMethod.setHandlerMethodReturnValueHandlers(this.returnValueHandlers);
+    }
+    invocableMethod.setDataBinderFactory(binderFactory);
+    invocableMethod.setParameterNameDiscoverer(this.parameterNameDiscoverer);
+
+    ModelAndViewContainer mavContainer = new ModelAndViewContainer();
+    mavContainer.addAllAttributes(RequestContextUtils.getInputFlashMap(request));
+    modelFactory.initModel(webRequest, mavContainer, invocableMethod);
+    mavContainer.setIgnoreDefaultModelOnRedirect(this.ignoreDefaultModelOnRedirect);
+
+    
+    AsyncWebRequest asyncWebRequest = WebAsyncUtils.createAsyncWebRequest(request, response);
+    asyncWebRequest.setTimeout(this.asyncRequestTimeout);
+
+    WebAsyncManager asyncManager = WebAsyncUtils.getAsyncManager(request);
+    asyncManager.setTaskExecutor(this.taskExecutor);
+    asyncManager.setAsyncWebRequest(asyncWebRequest);
+    asyncManager.registerCallableInterceptors(this.callableInterceptors);
+    asyncManager.registerDeferredResultInterceptors(this.deferredResultInterceptors);
+
+    if (asyncManager.hasConcurrentResult()) {
+      Object result = asyncManager.getConcurrentResult();
+      mavContainer = (ModelAndViewContainer) asyncManager.getConcurrentResultContext()[0];
+      asyncManager.clearConcurrentResult();
+      LogFormatUtils.traceDebug(logger, traceOn -> {
+        String formatted = LogFormatUtils.formatValue(result, !traceOn);
+        return "Resume with async result [" + formatted + "]";
+      });
+      invocableMethod = invocableMethod.wrapConcurrentResult(result);
+    }
+
+    // 执行controller中方法
+    invocableMethod.invokeAndHandle(webRequest, mavContainer);
+    if (asyncManager.isConcurrentHandlingStarted()) {
+      return null;
+    }
+
+    return getModelAndView(mavContainer, modelFactory, webRequest);
+  }
+  finally {
+    webRequest.requestCompleted();
+  }
+}
+```
+invokeAndHandle交给UserController中具体执行list方法执行
+![94.spring-springframework-mvc-29.png](../../assets/images/04-主流框架/spring/94.spring-springframework-mvc-29.png)
+
+后续invoke执行的方法，直接看整个请求流程的调用链即可
+![95.spring-springframework-mvc-30.png](../../assets/images/04-主流框架/spring/95.spring-springframework-mvc-30.png)
+
+执行后获得视图和Model
+![96.spring-springframework-mvc-31.png](../../assets/images/04-主流框架/spring/96.spring-springframework-mvc-31.png)
+### 15.1.5 视图渲染
+接下来继续执行processDispatchResult方法，对视图和model（如果有异常则对异常处理）进行处理（显然就是渲染页面了）
+```java
+/**
+  * Handle the result of handler selection and handler invocation, which is
+  * either a ModelAndView or an Exception to be resolved to a ModelAndView.
+  */
+private void processDispatchResult(HttpServletRequest request, HttpServletResponse response,
+    @Nullable HandlerExecutionChain mappedHandler, @Nullable ModelAndView mv,
+    @Nullable Exception exception) throws Exception {
+
+  boolean errorView = false;
+
+  // 如果处理过程有异常，则异常处理
+  if (exception != null) {
+    if (exception instanceof ModelAndViewDefiningException) {
+      logger.debug("ModelAndViewDefiningException encountered", exception);
+      mv = ((ModelAndViewDefiningException) exception).getModelAndView();
+    }
+    else {
+      Object handler = (mappedHandler != null ? mappedHandler.getHandler() : null);
+      mv = processHandlerException(request, response, handler, exception);
+      errorView = (mv != null);
+    }
+  }
+
+  // 是否需要渲染视图
+  if (mv != null && !mv.wasCleared()) {
+    render(mv, request, response); // 渲染视图
+    if (errorView) {
+      WebUtils.clearErrorRequestAttributes(request);
+    }
+  }
+  else {
+    if (logger.isTraceEnabled()) {
+      logger.trace("No view rendering, null ModelAndView returned.");
+    }
+  }
+
+  if (WebAsyncUtils.getAsyncManager(request).isConcurrentHandlingStarted()) {
+    // Concurrent handling started during a forward
+    return;
+  }
+
+  if (mappedHandler != null) {
+    // Exception (if any) is already handled..
+    mappedHandler.triggerAfterCompletion(request, response, null);
+  }
+}
+```
+接下来显然就是渲染视图了, spring在initStrategies方法中初始化的组件（LocaleResovler等）就派上用场了。
+```java
+/**
+  * Render the given ModelAndView.
+  * <p>This is the last stage in handling a request. It may involve resolving the view by name.
+  * @param mv the ModelAndView to render
+  * @param request current HTTP servlet request
+  * @param response current HTTP servlet response
+  * @throws ServletException if view is missing or cannot be resolved
+  * @throws Exception if there's a problem rendering the view
+  */
+protected void render(ModelAndView mv, HttpServletRequest request, HttpServletResponse response) throws Exception {
+  // Determine locale for request and apply it to the response.
+  Locale locale =
+      (this.localeResolver != null ? this.localeResolver.resolveLocale(request) : request.getLocale());
+  response.setLocale(locale);
+
+  View view;
+  String viewName = mv.getViewName();
+  if (viewName != null) {
+    // We need to resolve the view name.
+    view = resolveViewName(viewName, mv.getModelInternal(), locale, request);
+    if (view == null) {
+      throw new ServletException("Could not resolve view with name '" + mv.getViewName() +
+          "' in servlet with name '" + getServletName() + "'");
+    }
+  }
+  else {
+    // No need to lookup: the ModelAndView object contains the actual View object.
+    view = mv.getView();
+    if (view == null) {
+      throw new ServletException("ModelAndView [" + mv + "] neither contains a view name nor a " +
+          "View object in servlet with name '" + getServletName() + "'");
+    }
+  }
+
+  // Delegate to the View object for rendering.
+  if (logger.isTraceEnabled()) {
+    logger.trace("Rendering view [" + view + "] ");
+  }
+  try {
+    if (mv.getStatus() != null) {
+      response.setStatus(mv.getStatus().value());
+    }
+    view.render(mv.getModelInternal(), request, response);
+  }
+  catch (Exception ex) {
+    if (logger.isDebugEnabled()) {
+      logger.debug("Error rendering view [" + view + "]", ex);
+    }
+    throw ex;
+  }
+}
+```
+后续就是通过viewResolver进行解析了，这里就不再继续看代码了，上述流程基本上够帮助你构建相关的认知了。
+
+最后无非是返回控制权给DispatcherServlet，由DispatcherServlet 返回响应给用户。
+
+最后的最后我们看下请求的日志：
+```sh
+21:45:53.390 [http-nio-8080-exec-6] DEBUG org.springframework.web.servlet.DispatcherServlet - GET "/011_spring_framework_demo_springmvc_war_exploded/user", parameters={}
+21:45:53.400 [http-nio-8080-exec-6] DEBUG org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping - Mapped to tech.pdai.springframework.springmvc.controller.UserController#list(HttpServletRequest, HttpServletResponse)
+22:51:14.504 [http-nio-8080-exec-6] DEBUG org.springframework.web.servlet.view.JstlView - View name 'userList', model {dateTime=Fri Apr 22 21:45:53 CST 2022, userList=[tech.pdai.springframework.springmvc.entity.User@7b8c8dc]}
+22:51:14.550 [http-nio-8080-exec-6] DEBUG org.springframework.web.servlet.view.JstlView - Forwarding to [/WEB-INF/views/userList.jsp]
+22:51:44.395 [http-nio-8080-exec-6] DEBUG org.springframework.web.servlet.DispatcherServlet - Completed 200 OK
+```
+# 十六 ♥SpringBoot 知识体系详解♥
+
+提示：Spring，Spring Boot系列的章节在整理中... 包含实际业务开发中的方方面面...
+
+# ♥SpringBoot 知识体系详解♥
+
+## 相关文章
+
+站在知识体系的视角，基于SpringBoot开发。
+
+- SpringBoot入门(helloworld,banner,logback,分层设计)
+- SpringBoot接口设计和实现(封装,校验,异常,加密,幂等)
+- SpringBoot集成MySQL(JPA,MyBatis,MyBatis-Plus)
+- SpringBoot集成ShardingJDBC(分表分库,读写分离,多租户)
+- SpringBoot集成连接池(HikariCP,Druid)
+- SpringBoot集成数据迁移(Liquibase,Flyway)
+- SpringBoot集成PostgreSQL(JPA,MyBatis-Plus,Json)
+- SpringBoot集成Redis(Jedis,Luttue,Redission)
+- SpringBoot集成其它NoSQL数据库(MongoDB,ElasticSearch,Noe4J)
+- SpringBoot集成Websocket(socket,netty)
+- SpringBoot集成定时任务(springtask,quartz,elastic-job,xxl-job)
+- SpringBoot集成视图解析(Thymeleaf,FreeMarker,Velocity,JSP,VueJS)
+- SpringBoot集成缓存(Caffeine,EhCache,CouchBase)
+- SpringBoot集成认证授权(SpringSecurity,Shiro,Oauth2,SA-Token,Keycloak)
+- SpringBoot集成文档操作(上传,PDF,Excel,Word)
+- SpringBoot集成消息队列(ActiveMQ,RabbitMQ,ZeroMQ,Kafka)
+- SpringBoot集成通知(Email,短信,钉钉,微信)
+- SpringBoot集成文件系统(minIO,aliyun,tencentCloud,FastDFS)
+- SpringBoot集成工作流引擎(activi,jBPM,flowable)
+- SpringBoot集成其它功能(支付,OPC-UA,JavaFX2)
+- SpringBoot应用部署(jar,war,linux,docker,docker-compose)
+- SpringBoot集成监控(actuator,springboot-admin,ELK,Grafana,APM)
+- SpringBoot进阶(starter,自动装配原理,各类机制等)
+
+## SpringBoot入门(helloworld,banner,logback,分层设计)
+
+首先，在开始SpringBoot开发时，我们了解一些技术栈背景并通过Hello World级别应用程序开始延伸出SpringBoot入门应用的开发。
+
+- [SpringBoot入门 - SpringBoot 简介]
+  - 为什么有了SpringFramework还会诞生SpringBoot？简单而言，因为虽然Spring的组件代码是轻量级的，但它的配置却是重量级的；所以SpringBoot的设计策略是通过开箱即用和约定大于配置来解决配置重的问题的。
+- [SpringBoot入门 - 创建第一个Hello world工程]
+  - (我们了解了SpringBoot和SpringFramework的关系之后，我们可以开始创建一个Hello World级别的项目了。)
+- [SpringBoot入门 - 对Hello world进行MVC分层]
+  - (上文中我们创建一个简单的Hello Wold级别的web应用程序，但是存在一个问题，我们将所有代码都放在一个类中的, 这显然是不合理的，那么一个经典的CRUD项目如何分包呢？本文结合常见的MVC分层思路带你学习常见的包结构划分。)
+- [SpringBoot入门 - 添加内存数据库H2]
+  - (上文我们展示了通过学习经典的MVC分包结构展示了一个用户的增删查改项目，但是我们没有接入数据库；本文将在上文的基础上，增加一个H2内存数据库，并且通过Spring提供的数据访问包JPA进行数据查询。)
+- [SpringBoot入门 - 定制自己的Banner](我们在启动Spring Boot程序时，有SpringBoot的Banner信息，那么如何自定义成自己项目的信息呢？)
+- [SpringBoot入门 - 添加Logback日志]
+  - (SpringBoot开发中如何选用日志框架呢？出于性能等原因，Logback目前是springboot应用日志的标配；当然有时候在生产环境中也会考虑和三方中间件采用统一处理方式。)
+- [SpringBoot入门 - 配置热部署devtools工具]
+  - (在SpringBoot开发调试中，如果我每行代码的修改都需要重启启动再调试，可能比较费时间；SpringBoot团队针对此问题提供了spring-boot-devtools（简称devtools）插件，它试图提升开发调试的效率。)
+- [SpringBoot入门 - 开发中还有哪些常用注解]
+  - (SpringBoot中常用的注解)
+
+## SpringBoot接口设计和实现(封装,校验,异常,加密,幂等)
+
+接着，站在接口设计和实现的角度，从实战开发中梳理出，关于接口开发的技术要点。
+
+- [SpringBoot接口 - 如何统一接口封装]
+  - (在以SpringBoot开发Restful接口时，统一返回方便前端进行开发和封装，以及出现时给出响应编码和信息。)
+- [SpringBoot接口 - 如何对参数进行校验]
+  - (在以SpringBoot开发Restful接口时,对于接口的查询参数后台也是要进行校验的，同时还需要给出校验的返回信息放到上文我们统一封装的结构中。那么如何优雅的进行参数的统一校验呢？)
+- [SpringBoot接口 - 如何参数校验国际化]
+  - (上文我们学习了如何对SpringBoot接口进行参数校验，但是如果需要有国际化的信息，应该如何优雅处理呢？)
+- [SpringBoot接口 - 如何统一异常处理]
+  - (SpringBoot接口如何对异常进行统一封装，并统一返回呢？以上文的参数校验为例，如何优雅的将参数校验的错误信息统一处理并封装返回呢？)
+- [SpringBoot接口 - 如何提供多个版本接口]
+  - (在以SpringBoot开发Restful接口时，由于模块，系统等业务的变化，需要对同一接口提供不同版本的参数实现（老的接口还有模块或者系统在用，不能直接改，所以需要不同版本）。如何更加优雅的实现多版本接口呢？)
+- [SpringBoot接口 - 如何生成接口文档之Swagger技术栈]
+  - (SpringBoot开发Restful接口，有什么API规范吗？如何快速生成API文档呢？Swagger是一个用于生成、描述和调用RESTful接口的Web服务。通俗的来讲，Swagger就是将项目中所有（想要暴露的）接口展现在页面上，并且可以进行接口调用和测试的服务。本文主要介绍OpenAPI规范，以及Swagger技术栈基于OpenAPI规范的集成方案。)
+- [SpringBoot接口 - 如何生成接口文档之集成Smart-Doc]
+  - (上文我们看到可以通过Swagger系列可以快速生成API文档，但是这种API文档生成是需要在接口上添加注解等，这表明这是一种侵入式方式；那么有没有非侵入式方式呢,比如通过注释生成文档？本文主要介绍非侵入式的方式及集成Smart-doc案例。我们构建知识体系时使用Smart-doc这类工具并不是目标，而是要了解非侵入方式能做到什么程度和技术思路,最后平衡下来多数情况下多数人还是会选择Swagger+openapi技术栈的。)
+- [SpringBoot接口 - 如何访问外部接口]
+  - (在SpringBoot接口开发中，存在着本模块的代码需要访问外面模块接口或外部url链接的需求,比如调用外部的地图API或者天气API。那么有哪些方式可以调用外部接口呢？)
+- [SpringBoot接口 - 如何对接口进行加密]
+  - (在以SpringBoot开发后台API接口时，会存在哪些接口不安全的因素呢？通常如何去解决的呢？本文主要介绍API接口有不安全的因素以及常见的保证接口安全的方式，重点实践如何对接口进行签名。)
+- [SpringBoot接口 - 如何保证接口幂等]
+  - (在以SpringBoot开发Restful接口时，如何防止接口的重复提交呢？本文主要介绍接口幂等相关的知识点，并实践常见基于Token实现接口幂等。)
+- [SpringBoot接口 - 如何实现接口限流之单实例]
+  - (在以SpringBoot开发Restful接口时，当流量超过服务极限能力时，系统可能会出现卡死、崩溃的情况，所以就有了降级和限流。在接口层如何做限流呢？本文主要回顾限流的知识点，并实践单实例限流的一种思路。)
+- [SpringBoot接口 - 如何实现接口限流之分布式]
+  - (上文中介绍了单实例下如何在业务接口层做限流，本文主要介绍分布式场景下限流的方案，以及什么样的分布式场景下需要在业务层加限流而不是接入层;并且结合kailing开源的ratelimiter-spring-boot-starter为例，学习思路+代码封装+starter封装。)
+
+## SpringBoot集成MySQL(JPA,MyBatis,MyBatis-Plus)
+
+接下来，我们学习SpringBoot如何集成数据库，比如MySQL数据库，常用的方式有JPA和MyBatis。
+
+- [SpringBoot集成MySQL - 基于JPA的封装]
+  - (在实际开发中，最为常见的是基于数据库的CRUD封装等，比如SpringBoot集成MySQL数据库，常用的方式有JPA和MyBatis；本文主要介绍基于JPA方式的基础封装思路。)
+- [SpringBoot集成MySQL - MyBatis XML方式]
+  - (上文介绍了用JPA方式的集成MySQL数据库，JPA方式在中国以外地区开发而言基本是标配，在国内MyBatis及其延伸框架较为主流。本文主要介绍MyBatis技栈的演化以及SpringBoot集成基础的MyBatisXML实现方式的实例。)
+- [SpringBoot集成MySQL - MyBatis 注解方式]
+  - (上文主要介绍了Spring集成MyBatis访问MySQL，采用的是XML配置方式；我们知道除了XML配置方式，MyBatis还支持注解方式。本文主要介绍SpringBoot+MyBatis注解方式。)
+- [SpringBoot集成MySQL - MyBatis PageHelper分页]
+  - (前文中，我们展示了SpringBoot与MyBatis的集成，但是没有展示分页实现。本文专门介绍分页相关知识体系和基于MyBatis的物理分页PageHelper。)
+- [SpringBoot集成MySQL - MyBatis 多个数据源]
+  - (前文介绍的SpringBoot集成单个MySQL数据库的情形，那么什么场景会使用多个数据源以及什么场景会需要多个数据源的动态切换呢？本文主要介绍上述场景及SpringBoot+MyBatis实现多个数据源的方案和示例。)
+- [SpringBoot集成MySQL - MyBatis-Plus方式]
+  - (MyBatis-Plus（简称MP）是一个MyBatis的增强工具，在MyBatis的基础上只做增强不做改变，为简化开发、提高效率而生。MyBatis-Plus在国内也有很多的用户，本文主要介绍MyBatis-Plus和SpringBoot的集成。)
+- [SpringBoot集成MySQL - MyBatis-Plus代码自动生成]
+  - (本文主要介绍MyBatis-Plus代码自动生成，以及产生此类代码生成工具的背景和此类工具的基本实现原理。)
+- [SpringBoot集成MySQL - MyBatis-Plus基于字段隔离的多租户]
+  - (本文主要介绍MyBatis-Plus的基于字段隔离的多租户实现，以及MyBatis-Plus的基于字段的隔离方式实践和原理。)
+
+## SpringBoot集成ShardingJDBC(分表分库,读写分离,多租户)
+
+随着数据量和业务的增长，我们还需要进行分库分表，这里主要围绕ShardingSphere中间件来实现分库分表，读写分离和多租户等。
+
+- [SpringBoot集成ShardingJDBC - Sharding-JDBC简介和基于MyBatis的单库分表]
+  - (本文主要介绍分表分库，以及SpringBoot集成基于ShardingJDBC的单库分表实践。)
+- [SpringBoot集成ShardingJDBC - 基于JPA的单库分表]
+  - (上文介绍SpringBoot集成基于ShardingJDBC的读写分离实践，本文在此基础上介绍SpringBoot集成基于ShardingJDBC+JPA的单库分表实践。)
+- [SpringBoot集成ShardingJDBC - 基于JPA的读写分离]
+  - (本文主要介绍分表分库，以及SpringBoot集成基于ShardingJDBC的读写分离实践。)
+- [SpringBoot集成ShardingJDBC - 基于JPA的DB隔离多租户方案]
+  - (本文主要介绍ShardingJDBC的分片算法和分片策略，并在此基础上通过SpringBoot集成ShardingJDBC的几种策略（标准分片策略，行表达式分片策略和hint分片策略）向你展示DB隔离的多租户方案。)
+
+## SpringBoot集成连接池(HikariCP,Druid)
+
+为了提高对数据库操作的性能，引出了数据库连接池，它负责分配、管理和释放数据库连接。历史舞台上出现了C3P0，DBCP，BoneCP等均已经被淘汰，目前最为常用（也是SpringBoot2标配的）是HikariCP，与此同时国内阿里Druid（定位为基于数据库连接池的监控）也有一些市场份额。
+
+- [SpringBoot集成连接池 - 数据库连接池和默认连接池HikariCP]
+  - (本文主要介绍数据库连接池，以及SpringBoot集成默认的HikariCP的实践。)
+- [SpringBoot集成连接池 - 集成数据库Druid连接池]
+  - (上文介绍默认数据库连接池HikariCP，本文主要介绍SpringBoot集成阿里的Druid连接池的实践;客观的来说，阿里Druid只能说是中文开源中功能全且广泛的连接池为基础的监控组件，但是（仅从连接池的角度）在生态，维护性，开源规范性，综合性能等方面和HikariCP比还是有很大差距。)
+
+## SpringBoot集成数据迁移(Liquibase,Flyway)
+
+在实际上线的应用中，随着版本的迭代，经常会遇到需要变更数据库表和字段，必然会遇到需要对这些变更进行记录和管理，以及回滚等等；同时只有脚本化且版本可管理，才能在让数据库实现真正的DevOps（自动化执行+回滚等）。在这样的场景下出现了Liquibase, Flyway等数据库迁移管理工具。
+
+- [SpringBoot数据库管理 - 用Liquibase对数据库管理和迁移]
+  - (Liquibase是一个用于用于跟踪、管理和应用数据库变化的开源工具，通过日志文件(changelog)的形式记录数据库的变更(changeset)，然后执行日志文件中的修改，将数据库更新或回滚(rollback)到一致的状态。它的目标是提供一种数据库类型无关的解决方案，通过执行schema类型的文件来达到迁移。本文主要介绍SpringBoot与Liquibase的集成。)
+- [SpringBoot数据库管理 - 用flyway对数据库管理和迁移]
+  - (上文介绍了Liquibase，以及和SpringBoot的集成。除了Liquibase之外，还有一个组件Flyway也是经常被使用到的类似的数据库版本管理中间件。本文主要介绍Flyway,以及SpringBoot集成Flyway。)
+
+## SpringBoot集成PostgreSQL(JPA,MyBatis-Plus,Json)
+
+在企业级应用场景下开源数据库PostgreSQL对标的是Oracle，它的市场份额稳步攀升，并且它在自定义函数，NoSQL等方面也支持，所以PostgreSQL也是需要重点掌握的。
+
+- [SpringBoot集成PostgreSQL - 基于JPA封装基础数据操作]
+  - (PostgreSQL在关系型数据库的稳定性和性能方面强于MySQL，所以它在实际项目中使用和占比越来越高。对开发而言最为常见的是基于数据库的CRUD封装等，本文主要介绍SpringBoot集成PostgreSQL数据库，以及基于JPA方式的基础封装思路。)
+- [SpringBoot集成PostgreSQL - 基于MyBatis-Plus方式]
+  - (前文介绍SpringBoot+MyBatis-Plus+MySQL的集成，本文主要介绍SpringBoot+MyBatis-Plus+PostgreSQL的集成。)
+- [SpringBoot集成PostgreSQL - NoSQL特性JSONB及自定义函数的封装]
+
+## SpringBoot集成Redis(Jedis,Luttue,Redission)
+
+学习完SpringBoot和SQL数据库集成后，我们开始学习NoSQL数据库的开发和集成；最重要的是分布式的缓存库Redis，它是最为常用的key-value库。主要包括早前的Jedis集成，目前常见的Luttue和Redission的封装集成；还包括基于此的Redis分布式锁的实现等。
+
+- [SpringBoot集成Redis - 基于RedisTemplate+Jedis的数据操作]
+  - (Redis是最常用的KV数据库，Spring通过模板方式（RedisTemplate）提供了对Redis的数据查询和操作功能。本文主要介绍基于RedisTemplate+Jedis方式对Redis进行查询和操作的案例。)
+- [SpringBoot集成Redis - 基于RedisTemplate+Lettuce数据操作]
+  - (在SpringBoot2.x版本中Redis默认客户端是Lettuce，本文主要介绍SpringBoot和默认的Lettuce的整合案例。)
+- [SpringBoot集成Redis - 基于RedisTemplate+Lettuce数据类封装]
+  - (前两篇文章介绍了SpringBoot基于RedisTemplate的数据操作，那么如何对这些操作进行封装呢？本文主要介绍基于RedisTemplate的封装。)
+- [SpringBoot集成Redis - Redis分布式锁的实现]
+  - (Redis实际使用场景最为常用的还有通过Redis实现分布式锁。本文主要介绍Redis实现分布式锁。)
+
+## SpringBoot集成其它NoSQL数据库(MongoDB,ElasticSearch,Noe4J)
+
+- [SpringBoot集成MongoDB - 基于MongoTemplate的数据操作]
+- [SpringBoot集成ElasticSearch - 基于ElasticSearchTemplate的数据操作]
+- [SpringBoot集成Noe4J - 集成图数据Noe4J]
+
+## SpringBoot集成Websocket(socket,netty)
+
+进一步，我们看下SpringBoot集成Socket。
+
+- [SpringBoot集成Socket - 基础的Websocket实现]
+- [SpringBoot集成Socket - 用Netty实现socket]
+
+## SpringBoot集成定时任务(springtask,quartz,elastic-job,xxl-job)
+
+开发中常用的还有定时任务，我们看下SpringBoot集成定时任务,包括Timer，ScheduleExecutorService，HashedWheelTimer，Springtasks，quartz，elastic-job，xxl-job等。
+
+- [SpringBoot集成定时任务 - Timer实现方式]
+  - (定时任务在实际开发中有着广泛的用途，本文主要帮助你构建定时任务的知识体系，同时展示Timer的schedule和scheduleAtFixedRate例子；后续的文章中我们将逐一介绍其它常见的与SpringBoot的集成。)
+- [SpringBoot集成定时任务 - ScheduleExecutorService实现方式]
+  - (上文介绍的Timer在实际开发中很少被使用，因为Timer底层是使用一个单线程来实现多个Timer任务处理的，所有任务都是由同一个线程来调度，所有任务都是串行执行。而ScheduledExecutorService是基于线程池的，可以开启多个线程进行执行多个任务，每个任务开启一个线程；这样任务的延迟和未处理异常就不会影响其它任务的执行了。)
+- [SpringBoot集成定时任务 - Netty HashedWheelTimer方式]
+  - (Timer和ScheduledExecutorService是JDK内置的定时任务方案，而业内还有一个经典的定时任务的设计叫时间轮(TimingWheel),Netty内部基于时间轮实现了一个HashedWheelTimer来优化百万量级I/O超时的检测，它是一个高性能，低消耗的数据结构，它适合用非准实时，延迟的短平快任务，例如心跳检测。本文主要介绍时间轮(TimingWheel)及其使用。)
+- [SpringBoot集成定时任务 - Spring tasks实现方式]
+  - (前文我们介绍了Timer和ScheduledExecutorService是JDK内置的定时任务方案以及Netty内部基于时间轮实现的HashedWheelTimer；而主流的SpringBoot集成方案有两种，一种是SpringSechedule,另一种是Spring集成Quartz；本文主要介绍SpringSchedule实现方式。)
+- [SpringBoot集成定时任务 - 基础quartz实现方式]
+  - (除了SpringTask，最为常用的Quartz，并且Spring也集成了Quartz的框架。本文主要介绍Quartz和基础的Quartz的集成案例。)
+- [SpringBoot集成定时任务 - 分布式quartz cluster方式]
+  - (通常我们使用quartz只是实现job单实例运行，本例将展示quartz实现基于数据库的分布式任务管理，和控制job生命周期。)
+- [SpringBoot集成定时任务 - 分布式elastic-job方式]
+  - (前文展示quartz实现基于数据库的分布式任务管理和job生命周期的控制，那在分布式场景下如何解决弹性调度、资源管控、以及作业治理等呢？针对这些功能前当当团队开发了ElasticJob，2020年5月28日ElasticJob成为ApacheShardingSphere的子项目；本文介绍ElasticJob以及SpringBoot的集成。)
+- [SpringBoot集成定时任务 - 分布式xxl-job方式]
+  - (除了前文介绍的ElasticJob，xxl-job在很多中小公司有着应用（虽然其代码和设计等质量并不太高，License不够开放，有着个人主义色彩，但是其具体开箱使用的便捷性和功能相对完善性，这是中小团队采用的主要原因）；XXL-JOB是一个分布式任务调度平台，其核心设计目标是开发迅速、学习简单、轻量级、易扩展。本文介绍XXL-JOB以及SpringBoot的集成。)@pdai
+
+## SpringBoot集成视图解析(Thymeleaf,FreeMarker,Velocity,JSP,VueJS)
+
+SpringBoot集成视图解析，包括SpringBoot推荐的Thymeleaf，其它常用的FreeMarker,Velocity,Mustache，甚至JSP；还包括在后端视图的基础上采用主流的前端视图（比如VueJs)的兼容方案等。
+
+- [SpringBoot集成视图 - 集成Thymeleaf视图解析]
+- [SpringBoot集成视图 - 集成FreeMarker视图解析]
+- [SpringBoot集成视图 - 集成Velocity视图解析]
+- [SpringBoot集成视图 - 集成Mustache视图解析]
+- [SpringBoot集成视图 - 集成JSP视图解析]
+- [SpringBoot集成视图 - 集成后端视图+VueJS解析]
+
+## SpringBoot集成缓存(Caffeine,EhCache,CouchBase)
+
+- [SpringBoot + Spring Cache + ConcurrentMap]
+- [SpringBoot + Spring Cache + EHCache]
+- [SpringBoot + Spring Cache + Redis]
+- [SpringBoot + Spring Cache + Caffeine]
+- [SpringBoot + Spring Cache + CouchBase]
+
+## SpringBoot集成认证授权(SpringSecurity,Shiro,Oauth2,SA-Token,Keycloak)
+
+- [SpringBoot + Shiro]
+- [SpringBoot + Spring Security 常规实现Oauth2]
+- [SpringBoot + SA-Token]
+- [SpringBoot + Keycloak]
+- [SpringBoot + 登录验证码 AJ_Captcha]
+
+## SpringBoot集成文档操作(上传,PDF,Excel,Word)
+
+开发中常见的文档操作，包括文件的上传和下载，上传又包含大文件的处理；针对不同的文档类型又有些常见的工具，比如POI及衍生框架用来导出Excel,iText框架用来导出PDF等。
+
+- [SpringBoot集成文件 - 基础的文件上传和下载]
+  - (项目中常见的功能是需要将数据文件（比如Excel,csv)上传到服务器端进行处理，亦或是将服务器端的数据以某种文件形式（比如excel,pdf,csv,word)下载到客户端。本文主要介绍基于SpringBoot的对常规文件的上传和下载，以及常见的问题等。)
+- [SpringBoot集成文件 - 大文件的上传(异步，分片，断点续传和秒传)]
+  - (上文中介绍的是常规文件的上传和下载，而超大文件的上传技术手段和普通文件上传是有差异的，主要通过基于分片的断点续传和秒传和异步上传等技术手段解决。本文主要介绍SpringBoot集成大文件上传的案例。)
+- [SpringBoot集成文件 - 集成POI之Excel导入导出]
+  - (ApachePOI是用Java编写的免费开源的跨平台的JavaAPI，ApachePOI提供API给Java程序对MicrosoftOffice格式档案读和写的功能。本文主要介绍通过SpringBoot集成POI工具实现Excel的导入和导出功能。)
+- [SpringBoot集成文件 - 集成EasyExcel之Excel导入导出]
+  - (EasyExcel是一个基于Java的、快速、简洁、解决大文件内存溢出的Excel处理工具。它能让你在不用考虑性能、内存的等因素的情况下，快速完成Excel的读、写等功能。它是基于POI来封装实现的，主要解决其易用性，封装性和性能问题。本文主要介绍通过SpringBoot集成EasyExcel实现Excel的导入，导出和填充模板等功能。)
+- [SpringBoot集成文件 - 集成EasyPOI之Excel导入导出]
+  - (除了POI和EasyExcel，国内还有一个EasyPOI框架较为常见，适用于没有使用过POI并希望快速操作Excel的入门项目，在中大型项目中并不推荐使用(为了保证知识体系的完整性，把EasyPOI也加了进来)。本文主要介绍SpringBoot集成EasyPOI实现Excel的导入，导出和填充模板等功能。)
+- [SpringBoot集成文件 - 集成POI之Word导出]
+  - (前文我们介绍了通过ApachePOI导出excel，而ApachePOI包含是操作OfficeOpenXML（OOXML）标准和微软的OLE2复合文档格式（OLE2）的JavaAPI。所以也是可以通过POI来导出word的。本文主要介绍通过SpringBoot集成POI工具实现Word的导出功能。)
+- [SpringBoot集成文件 - 集成POI-tl之基于模板的Word导出]
+  - (前文我们介绍了通过ApachePOI通过来导出word的例子；那如果是word模板方式，有没有开源库通过模板方式导出word呢？poi-tl是一个基于ApachePOI的Word模板引擎，也是一个免费开源的Java类库，你可以非常方便的加入到你的项目中，并且拥有着让人喜悦的特性。本文主要介绍通过SpringBoot集成poi-tl实现模板方式的Word导出功能。)
+- [SpringBoot集成文件 - 集成itextpdf之导出PDF]
+  - (除了处理word,excel等文件外，最为常见的就是PDF的导出了。在java技术栈中，PDF创建和操作最为常用的itext了，但是使用itext一定要了解其版本历史和License问题，在早前版本使用的是MPL和LGPL双许可协议，在5.x以上版本中使用的是AGPLv3(这个协议意味着，只有个人用途和开源的项目才能使用itext这个库，否则是需要收费的)。本文主要介绍通过SpringBoot集成itextpdf实现PDF导出功能。)
+- [SpringBoot + 集成PDFBox之PDF操作]()
+- [SpringBoot + 集成OpenOffice之文档在线预览]
+  - (https://blog.csdn.net/shipfei_csdn/article/details/105141487)
+- [SpringBoot + 集成LibreOffice之文档在线预览]
+- [SpringBoot + 集成kkfileview之文档在线预览]
+  - (https://kkfileview.keking.cn)
+
+## SpringBoot集成消息队列(ActiveMQ,RabbitMQ,ZeroMQ,Kafka)
+
+- [SpringBoot + ActiveMQ]
+- [SpringBoot + RabbitMQ]
+- [SpringBoot + ZeroMQ]
+- [SpringBoot + Kafka]
+
+## SpringBoot集成通知(Email,短信,钉钉,微信)
+
+- [SpringBoot + 邮件]
+- [SpringBoot + 钉钉]
+- [SpringBoot + 微信]
+- [SpringBoot + 短信]
+
+## SpringBoot集成文件系统(minIO,aliyun,tencentCloud,FastDFS)
+
+- [SpringBoot + MinIO]
+- [SpringBoot + aliyun]
+- [SpringBoot + TecentCloud]
+- [SpringBoot + FastDFS]
+
+## SpringBoot集成工作流引擎(activi,jBPM,flowable)
+
+- [SpringBoot + activi]
+- [SpringBoot + jBPM]
+- [SpringBoot + flowable]
+
+## SpringBoot集成其它功能(支付,OPC-UA,JavaFX2)
+
+除了上述的常见的业务上的集成功能外，还有哪些功能或者应用呢？
+
+- [SpringBoot集成JavaFX2 - JavaFX 2.0应用]
+  - (很多人对Java开发native程序第一反应还停留在暗灰色单一风格的JavaGUI界面，开发方式还停留在AWT或者Swing。本文主要基于SpringBoot和JavaFX开发一个Demo给你展示JavaNative应用可以做到什么样的程度。当然JavaFX2.0没有流行起来也是有原因的，而且目前native的选择很多，前端是个框架都会搞个native...)
+- [SpringBoot + 支付]
+- [SpringBoot + OPC-UA]
+
+## SpringBoot应用部署(jar,war,linux,docker,docker-compose)
+
+那么如何将SpringBoot应用打包并部署呢？打包主要有jar，war两种方式；部署包含在linux或者windows上制作成服务，以及制作成docker进行部署；此外也可以结合CI/CD环境进行部署。
+
+- [SpringBoot应用部署 - 打包成jar部署]
+  - (我们知道spring-boot-starter-web默认已经集成了web容器（tomcat)，在部署前只需要将项目打包成jar即可。那么怎么将springbootweb项目打包成jar呢？本文主要介绍常见的几种方式。)
+- [SpringBoot应用部署 - 使用第三方JAR包]
+  - (在项目中我们经常需要使用第三方的Jar，比如某些SDK，这些SDK没有直接发布到公开的maven仓库中，这种情况下如何使用这些三方JAR呢？本文提供最常用的两种方式。)
+- [SpringBoot应用部署 - 打包成war部署]
+  - (前文我们知道SpringBootweb项目默认打包成jar部署是非常方便的，那什么样的场景下还会打包成war呢？本文主要介绍SpringBoot应用打包成war包的示例。)
+- [SpringBoot应用部署 - 替换tomcat为Jetty容器]
+  - (前文我们知道spring-boot-starter-web默认集成tomcatservlet容器(被使用广泛）；而Jetty也是servlet容器，它具有易用性，轻量级，可拓展性等，有些场景（Jetty更满足公有云的分布式环境的需求，而Tomcat更符合企业级环境）下会使用jetty容器。本文主要介绍SpringBoot使用Jetty容器。)
+- [SpringBoot应用部署 - 替换tomcat为Undertow容器]
+  - (前文我们了解到Jetty更满足公有云的分布式环境的需求，而Tomcat更符合企业级环境；那么从性能的角度来看，更为优秀的servlet容器是Undertow。本文将介绍Undertow，以及SpringBoot集成Undertow的示例。)
+- [SpringBoot应用部署 - 在linux环境将jar制作成service]
+  - (前文我们将SpringBoot应用打包成jar，那么如何将jar封装成service呢？本文主要介绍将SpringBoot应用部署成linux的service。)
+- [SpringBoot应用部署 - 在windows环境将jar制作成service]
+  - (前文我们将SpringBoot应用打包成jar并在Linux上封装成service，那么在Windows环境下如何封装呢？本文主要介绍将SpringBoot应用部署成Windows的service。)
+- [SpringBoot应用部署 - docker镜像打包,运行和管理]
+  - (随着软虚拟化docker的流行，基于docker的devops技术栈也开始流行。本文主要介绍通过docker-maven-plugin将springboot应用打包成docker镜像，通过Docker桌面化管理工具或者IdeaDocker插件进行管理。)
+- [SpringBoot应用部署 - 使用DockerCompose对容器编排管理]
+  - (如果docker容器是相互依赖的（比如SpringBoot容器依赖另外一个MySQL的数据库容器），那就需要对容器进行编排。本文主要介绍基于DockerCompose的简单容器化编排SpringBoot应用。)
+
+## SpringBoot集成监控(actuator,springboot-admin,ELK,Grafana,APM)
+
+SpringBoot集成监控，包括SpringBoot自带的actuator，基于actuator的可视化工具springbootadmin。监控的日志体系技术栈ELK，监控状态和指标收集prometheus+Grafana，基于Agent的APM性能监控等。
+
+- SpringBoot集成监控 - 集成actuator监控工具
+  - 当SpringBoot的应用部署到生产环境中后，如何监控和管理呢？比如审计日志，监控状态，指标收集等。为了解决这个问题，SpringBoot提供了Actuator。本文主要介绍SpringBootActuator及实现案例。
+- SpringBoot集成监控 - 集成springbootadmin监控工具
+  - 上文中展示了SpringBoot提供了Actuator对应用进行监控和管理，而SpringBootAdmin能够将Actuator中的信息进行界面化的展示，也可以监控所有SpringBoot应用的健康状况，提供实时警报功能。本文主要介绍springbootadmin以及SpringBoot和springbootadmin的集成。
+- SpringBoot集成监控 - 日志收集(ELK)
+- SpringBoot集成监控 - 状态监控(Prometheus+Grafana)
+- SpringBoot集成监控 - 性能监控(APMAgent)
+
+## SpringBoot进阶(starter,自动装配原理,各类机制等)
+- SpringBoot进阶 - 实现自动装配原理
+- SpringBoot进阶 - 自定义starter
+  - (如何将自己的模块封装成starter，并给其它springBoot项目使用呢？本文主要介绍在Springboot封装一个自定义的Starter的一个Demo，从创建一个模块->封装starter->使用)
+- SpringBoot进阶 - 嵌入web容器Tomcat原理
+- SpringBoot进阶 - 健康检查Actuator原理
+# 十七、▶SpringBoot入门 - SpringBoot简介
+> 为什么有了SpringFramework还会诞生SpringBoot？简单而言，因为虽然Spring的组件代码是轻量级的，但它的配置却是重量级的；所以SpringBoot的设计策略是通过**开箱即用和约定大于配置**来解决配置重的问题的。
+## 17.1 SpringFramework解决了什么问题，没有解决什么问题？
+> 需要概括性的理解 SpringFramework解决了什么问题，没有解决什么问题？
+### 17.1.1 SpringFramework解决了什么问题？
+Spring是Java企业版（Java Enterprise Edition，JEE，也称J2EE）的轻量级代替品。无需开发重量级的EnterpriseJavaBean（EJB），Spring为企业级Java开发提供了一种相对简单的方法，通过依赖注入和面向切面编程，用简单的Java对象（Plain Old Java Object，POJO）实现了EJB的功能。
+- 1.使用Spring的IOC容器,将对象之间的依赖关系交给Spring,降低组件之间的耦合性,让我们更专注于应用逻辑 
+- 2.可以提供众多服务,事务管理,WS等。 
+- 3.AOP的很好支持,方便面向切面编程。 
+- 4.对主流的框架提供了很好的集成支持,如Hibernate,Struts2,JPA等 
+- 5.Spring DI机制降低了业务对象替换的复杂性。 
+- 6.Spring属于低侵入,代码污染极低。 7
+- .Spring的高度可开放性,并不强制依赖于Spring,开发者可以自由选择Spring部分或全部
+### 17.1.2 SpringFramework没有解决了什么问题？
+虽然Spring的组件代码是轻量级的，但它的配置却是重量级的。一开始，Spring用XML配置，而且是很多XML配置。Spring 2.5引入了基于注解的组件扫描，这消除了大量针对应用程序自身组件的显式XML配置。Spring 3.0引入了基于Java的配置，这是一种类型安全的可重构配置方式，可以代替XML。
+
+所有这些配置都代表了开发时的损耗。因为在思考Spring特性配置和解决业务问题之间需要进行思维切换，所以编写配置挤占了编写应用程序逻辑的时间。和所有框架一样，Spring实用，但与此同时它要求的回报也不少。
+
+除此之外，项目的依赖管理也是一件耗时耗力的事情。在环境搭建时，需要分析要导入哪些库的坐标，而且还需要分析导入与之有依赖关系的其他库的坐标，一旦选错了依赖的版本，随之而来的不兼容问题就会严重阻碍项目的开发进度。
+- 1.jsp中要写很多代码、控制器过于灵活,缺少一个公用控制器 
+- 2.Spring不支持分布式,这也是EJB仍然在用的原因之一。
+## 17.2 SringBoot的概述
+### 17.2.1 SpringBoot解决上述Spring的缺点
+SpringBoot对上述Spring的缺点进行的改善和优化，基于约定优于配置的思想，可以让开发人员不必在配置与逻辑业务之间进行思维的切换，全身心的投入到逻辑业务的代码编写中，从而大大提高了开发的效率，一定程度上缩短了项目周期。
+### 17.2.2 SpringBoot的特点
+- 为基于Spring的开发提供更快的入门体验
+- 开箱即用，没有代码生成，也无需XML配置。同时也可以修改默认值来满足特定的需求
+- 提供了一些大型项目中常见的非功能性特性，如嵌入式服务器、安全、指标，健康检测、外部配置等
+
+**SpringBoot不是对Spring功能上的增强，而是提供了一种快速使用Spring的方式**
+
+### 17.2.3SpringBoot的核心功能
+- `起步依赖` 起步依赖本质上是一个Maven项目对象模型（Project Object Model，POM），定义了对其他库的传递依赖，这些东西加在一起即支持某项功能。简单的说，起步依赖就是将具备某种功能的坐标打包到一起，并提供一些默认的功能。
+- `自动配置` Spring Boot的自动配置是一个运行时（更准确地说，是应用程序启动时）的过程，考虑了众多因素，才决定Spring配置应该用哪个，不该用哪个。该过程是Spring自动完成的。
+# 十八、SpringBoot入门 - SpringBoot HelloWorld
+## 18.1 创建 SpringBoot Web 应用
+> 为快速进行开发，推荐你使用IDEA这类开发工具，它将大大提升你学习和开发的效率。
+- 选择 Spring Initialize
+
+Spring提供的初始化项目的工具
+![97.springboot-helloworld-1.png](../../assets/images/04-主流框架/spring/97.springboot-helloworld-1.png)
+
+当然你可以在 https://start.spring.io/ 中初始化你项目工程
+![98.springboot-hello-world-6.png](../../assets/images/04-主流框架/spring/98.springboot-hello-world-6.png)
+- 填写 GAV三元组
+    - Group: 是公司或者组织的名称，是一种命名空间的概念，比如网站，那么group可以是tech.pdai
+    - Artifat: 当前项目的唯一标识
+    - Version: 项目的版本号，一般xx-SNAPSHOT表示非稳定版
+![99.springboot-helloworld-2.png](../../assets/images/04-主流框架/spring/99.springboot-helloworld-2.png)
+- 选择初始化模块
+
+Spring Initialize可以帮助你选择常见的功能模块的starter包
+![100.springboot-helloworld-3.png](../../assets/images/04-主流框架/spring/100.springboot-helloworld-3.png)
+
+- 项目名
+
+最后我们输入我们项目的名称，既可以初始化项目
+![101.springboot-helloworld-4.png](../../assets/images/04-主流框架/spring/101.springboot-helloworld-4.png)
+## 18.2 初始化后内容
+- README.md
+
+README中可以添加这个项目的介绍，它将显示在github/gitlab/gitee等仓库托管中项目介绍的首页。
+![102.springboot-helloworld-5.png](../../assets/images/04-主流框架/spring/102.springboot-helloworld-5.png)
+- .gitignore
+
+gitignore是git仓库，你可以将不需要提交到代码仓库的文件添加到这个文件（比如程序编译后生成的运行目录target等)，默认如下
+```json
+HELP.md
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**
+!**/src/test/**
+
+## STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+## IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+## NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+
+## VS Code ###
+.vscode/
+```
+- pom.xml
+
+在Maven包管理pom.xml中添加依赖包
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.5.3</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>tech.pdai</groupId>
+    <artifactId>101-springboot-demo-helloworld</artifactId>
+    <version>1.0-SNAPSHOT</version>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
+```
+## 18.3 给你的第一个应用添加包和代码
+我们添加如下的代码，启动即可启动一个WEB服务，通过浏览器访问/hello, 并返回Hello world.
+- 添加代码
+```java
+package tech.pdai.springboot.helloworld;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * @author pdai
+ */
+@SpringBootApplication
+@RestController
+public class SpringBootHelloWorldApplication {
+
+    /**
+     * main interface.
+     *
+     * @param args args
+     */
+    public static void main(String[] args) {
+        SpringApplication.run(SpringBootHelloWorldApplication.class, args);
+    }
+
+    /**
+     * hello world.
+     *
+     * @return hello
+     */
+    @GetMapping("/hello")
+    public ResponseEntity<String> hello() {
+        return new ResponseEntity<>("hello world", HttpStatus.OK);
+    }
+
+}
+```
+## 18.4 运行你的第一个程序
+点击SpringBootHelloWorldApplication入口的绿色按钮，运行程序
+![103.springboot-hello-world-1.png](../../assets/images/04-主流框架/spring/103.springboot-hello-world-1.png)
+
+运行后，你将看到如下的信息：表明我们启动程序成功（启动了一个内嵌的Tomcat容器，服务端口在8080）
+![104.springboot-hello-world-2.png](../../assets/images/04-主流框架/spring/104.springboot-hello-world-2.png)
+
+这时候我们便可以通过浏览器访问服务
+![105.springboot-hello-world-3.png](../../assets/images/04-主流框架/spring/105.springboot-hello-world-3.png)
+## 18.5 一些思考
+> 到此，你会发现一个简单的web程序居然完成了。这里你需要一些思考：
+### 18.5.1 为什么我们添加一个starter-web模块便可以了呢？
+
+我们安装Maven Helper的插件，用来查看spring-boot-starter-web模块的依赖
+![106.springboot-hello-world-7.png](../../assets/images/04-主流框架/spring/106.springboot-hello-world-7.png)
+
+我们看下这个模块的依赖，你便能初步窥探出模块支撑
+![107.springboot-hello-world-8.png](../../assets/images/04-主流框架/spring/107.springboot-hello-world-8.png)
+### 18.5.2 我们如何更改更多Server的配置呢？比如Tomcat Server
+为什么Tomcat默认端口是8080？ 如前文所述，SpringBoot最强大的地方在于约定大于配置，只要你引入某个模块的xx-start包，它将自动注入配置，提供了这个模块的功能；比如这里我们在POM中添加了如下的包
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+```
+它内嵌了Tomcat并且提供了默认的配置，比如默认端口是8080.
+
+我们可以在application.properties或者application.yml中配置
+![108.springboot-hello-world-4.png](../../assets/images/04-主流框架/spring/108.springboot-hello-world-4.png)
+
+特别的，如果你添加了如下包
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-configuration-processor</artifactId>
+    <optional>true</optional>
+</dependency>
+```
+主要功能：
+1. **自动生成配置元数据文件**  
+   - 当你在项目中定义自定义配置属性（例如使用 `@ConfigurationProperties` 注解）时，该处理器会在编译阶段自动生成一个 `META-INF/spring-configuration-metadata.json` 文件。
+   - 这个文件包含了配置属性的详细信息，如属性名、类型、描述、默认值等。
+
+2. **增强 IDE 支持**  
+   - 生成的元数据文件使得 IDE（如 IntelliJ IDEA 或 Eclipse）能够提供智能提示、自动补全和验证功能。例如，在 `application.properties` 或 `application.yml` 中输入配置时，IDE 会显示可用的属性列表和文档，减少拼写错误和配置失误。
+
+3. **支持自定义配置**  
+   - 如果你在项目中创建了自定义的配置类（例如通过 `@ConfigurationProperties` 定义应用参数），但没有此依赖，IDE 可能无法识别这些属性。添加后，即可享受与 Spring Boot 内置配置相同的智能提示。
+![109.springboot-hello-world-5.png](../../assets/images/04-主流框架/spring/109.springboot-hello-world-5.png)
+### 18.5.3 SpringBoot还提供了哪些starter模块呢？
+Spring Boot 推荐的基础 POM 文件
+
+| 名称 | 说明 |
+|------|------|
+| spring-boot-starter | 核心 POM，包含自动配置支持、日志库和对 YAML 配置文件的支持。 |
+| spring-boot-starter-amqp | 通过 spring-rabbit 支持 AMQP。 |
+| spring-boot-starter-aop | 包含 spring-aop 和 AspectJ 来支持面向切面编程（AOP）。 |
+| spring-boot-starter-batch | 支持 Spring Batch，包含 HSQLDB。 |
+| spring-boot-starter-data-jpa | 包含 spring-data-jpa、spring-orm 和 Hibernate 来支持 JPA。 |
+| spring-boot-starter-data-mongodb | 包含 spring-data-mongodb 来支持 MongoDB。 |
+| spring-boot-starter-data-rest | 通过 spring-data-rest-webmvc 支持以 REST 方式暴露 Spring Data 仓库。 |
+| spring-boot-starter-jdbc | 支持使用 JDBC 访问数据库。 |
+| spring-boot-starter-security | 包含 spring-security。 |
+| spring-boot-starter-test | 包含常用的测试所需的依赖，如 JUnit、Hamcrest、Mockito 和 spring-test 等。 |
+| spring-boot-starter-velocity | 支持使用 Velocity 作为模板引擎。 |
+| spring-boot-starter-web | 支持 Web 应用开发，包含 Tomcat 和 spring-mvc。 |
+| spring-boot-starter-websocket | 支持使用 Tomcat 开发 WebSocket 应用。 |
+| spring-boot-starter-ws | 支持 Spring Web Services。 |
+| spring-boot-starter-actuator | 添加适用于生产环境的功能，如性能指标和监测等功能。 |
+| spring-boot-starter-remote-shell | 添加远程 SSH 支持。 |
+| spring-boot-starter-jetty | 使用 Jetty 而不是默认的 Tomcat 作为应用服务器。 |
+| spring-boot-starter-log4j | 添加 Log4j 的支持。 |
+| spring-boot-starter-logging | 使用 Spring Boot 默认的日志框架 Logback。 |
+| spring-boot-starter-tomcat | 使用 Spring Boot 默认的 Tomcat 作为应用服务器。 |
+
+所有这些 POM 依赖的好处在于为开发 Spring 应用提供了一个良好的基础。Spring Boot 所选择的第三方库是经过考虑的，是比较适合产品开发的选择。但是 Spring Boot 也提供了不同的选项，比如日志框架可以用 Logback 或 Log4j，应用服务器可以用 Tomcat 或 Jetty。
+# 十九、SpringBoot入门 - 对Hello world进行MVC分层
+
+## 19.1 经典的MVC三层架构
+
+三层架构（3-tier application）通常意义上的三层架构就是将整个业务应用划分为：表现层（UI）、业务逻辑层（BLL）、数据访问层（DAL）。区分层次的目的即为了“高内聚，低耦合”的思想。
+
+1. **表现层（UI）**：通俗讲就是展现给用户的界面，即用户在使用一个系统的时候他的所见所得。
+2. **业务逻辑层（BLL）**：针对具体问题的操作，也可以说是对数据层的操作，对数据业务逻辑处理。
+3. **数据访问层（DAL）**：该层所做事务直接操作数据库，针对数据的增添、删除、修改、更新、查找等。
+![110.spring-framework-helloworld-2.png](../../assets/images/04-主流框架/spring/110.spring-framework-helloworld-2.png)
+## 19.2 用Package解耦三层结构
+
+我们这里设计一个常见的用户增删查改项目，通常来说对应的包结构如下：
+![111.springboot-hello-mvc-1.png](../../assets/images/04-主流框架/spring/111.springboot-hello-mvc-1.png)
+### 19.2.1 controller表示层
+
+```java
+package tech.pdai.springboot.helloworld.controller;
+
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.helloworld.entity.User;
+import tech.pdai.springboot.helloworld.service.UserService;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+
+    /**
+     * http://localhost:8080/user/add .
+     *
+     * @param user user param
+     * @return user
+     */
+    @RequestMapping("add")
+    public User add(User user) {
+        userService.addUser(user);
+        return user;
+    }
+
+    /**
+     * http://localhost:8080/user/list .
+     *
+     * @return user list
+     */
+    @GetMapping("list")
+    public List<User> list() {
+        return userService.list();
+    }
+}
+```
+
+### 19.2.2 service业务逻辑层
+
+```java
+package tech.pdai.springboot.helloworld.service.impl;
+
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.helloworld.dao.UserRepository;
+import tech.pdai.springboot.helloworld.entity.User;
+import tech.pdai.springboot.helloworld.service.UserService;
+
+/**
+ * user service impl.
+ *
+ * @author pdai
+ */
+@Service
+public class UserServiceImpl implements UserService {
+
+    /**
+     * user dao.
+     */
+    @Autowired
+    private UserRepository userDao;
+
+    /**
+     * @param user user
+     */
+    @Override
+    public void addUser(User user) {
+        userDao.save(user);
+    }
+
+    /**
+     * @return user list
+     */
+    @Override
+    public List<User> list() {
+        return userDao.findAll();
+    }
+
+}
+```
+
+### 19.2.3 dao数据访问层（数据放在内存中）
+
+```java
+package tech.pdai.springboot.helloworld.dao;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+import org.springframework.stereotype.Repository;
+import tech.pdai.springboot.helloworld.entity.User;
+
+/**
+ * @author pdai
+ */
+@Repository
+public class UserRepository {
+
+    private List<User> userDemoList = new ArrayList<>();
+
+    public void save(User user) {
+        userDemoList.add(user);
+    }
+
+    public List<User> findAll() {
+        return userDemoList;
+    }
+}
+```
+
+### 19.2.4 entity模型实体层
+
+```java
+package tech.pdai.springboot.helloworld.entity;
+
+/**
+ * User entity.
+ *
+ * @author pdai
+ */
+public class User {
+
+    /**
+     * user id
+     */
+    private int userId;
+
+    /**
+     * username.
+     */
+    private String userName;
+
+    public int getUserId() {
+        return userId;
+    }
+
+    public void setUserId(int userId) {
+        this.userId = userId;
+    }
+
+    public String getUserName() {
+        return userName;
+    }
+
+    public void setUserName(String userName) {
+        this.userName = userName;
+    }
+}
+```
+
+## 19.3 运行测试
+
+- **添加用户**：访问 `http://localhost:8080/user/add`，传入用户参数。
+![112.springboot-hello-mvc-2.png](../../assets/images/04-主流框架/spring/112.springboot-hello-mvc-2.png)
+- **查询用户列表**：访问 `http://localhost:8080/user/list`，返回用户列表。
+![113.springboot-hello-mvc-3.png](../../assets/images/04-主流框架/spring/113.springboot-hello-mvc-3.png)
+# 二十、pringBoot入门 - 添加内存数据库H2
+## 20.1 什么是H2内存数据库
+> H2是一个用Java开发的嵌入式数据库，它本身只是一个类库，可以直接嵌入到应用项目中。
+<a href ='https://www.h2database.com/html/main.html'>官网</a>
+
+- 有哪些用途？
+  - H2最大的用途在于可以同应用程序打包在一起发布，这样可以非常方便地存储少量结构化数据。
+  - 它的另一个用途是用于单元测试。启动速度快，而且可以关闭持久化功能，每一个用例执行完随即还原到初始状态。
+  - H2的第三个用处是作为缓存，作为NoSQL的一个补充。当某些场景下数据模型必须为关系型，可以拿它当Memcached使，作为后端MySQL/Oracle的一个缓冲层，缓存一些不经常变化但需要频繁访问的数据，比如字典表、权限表。不过这样系统架构就会比较复杂了。
+- H2的产品优势?
+  - 纯Java编写，不受平台的限制；
+  - 只有一个jar文件，适合作为嵌入式数据库使用；
+  - h2提供了一个十分方便的web控制台用于操作和管理数据库内容；
+  - 功能完整，支持标准SQL和JDBC。麻雀虽小五脏俱全；
+  - 支持内嵌模式、服务器模式和集群。
+## 20.2 什么是JPA，和JDBC是什么关系
+> 什么是JDBC, ORM, JPA? 之间的关系是什么？
+- 什么是JDBC
+
+JDBC（JavaDataBase Connectivity）就是Java数据库连接，说白了就是用Java语言来操作数据库。原来我们操作数据库是在控制台使用SQL语句来操作数据库，JDBC是用Java语言向数据库发送SQL语句。
+![114.project-b-4.png](../../assets/images/04-主流框架/spring/114.project-b-4.png)
+- 什么是ORM
+
+对象关系映射（Object Relational Mapping，简称ORM）， 简单的说，**ORM是通过使用描述对象和数据库之间映射的元数据，将java程序中的对象自动持久化到关系数据库中。**本质上就是将数据从一种形式转换到另外一种形式，具体如下：
+![115.project-b-3.png](../../assets/images/04-主流框架/spring/115.project-b-3.png)
+
+具体映射：
+1. 数据库的表（table） --> 类（class）
+2. 记录（record，行数据）--> 对象（object）
+3. 字段（field）--> 对象的属性（attribute）
+- 什么是JPA
+
+JPA是Spring提供的一种ORM，首先让我们回顾下Spring runtime体系：
+![116.mongo-x-usage-spring-4.png](../../assets/images/04-主流框架/spring/116.mongo-x-usage-spring-4.png)
+
+Spring Data是基于Spring runtime体系的，JPA 属于Spring Data, 和JDBC的关系如下：
+![117.mongo-x-usage-spring-5.png](../../assets/images/04-主流框架/spring/117.mongo-x-usage-spring-5.png)
+## 20.3 案例
+> 这里承接上文， 使用H2存放用户表，并通过JPA操作用户数据。
+### 20.3.1 添加H2和JPA的依赖
+```xml
+<dependency>
+    <groupId>com.h2database</groupId>
+    <artifactId>h2</artifactId>
+    <scope>runtime</scope>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+
+```
+### 20.3.2 配置H2和JPA注入参数
+```yml
+spring:
+  datasource:
+    data: classpath:db/data.sql
+    driverClassName: org.h2.Driver
+    password: sa
+    platform: h2
+    schema: classpath:db/schema.sql
+    url: jdbc:h2:mem:dbtest
+    username: sa
+  h2:
+    console:
+      enabled: true
+      path: /h2
+      settings:
+        web-allow-others: true
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+```
+其中资源下还需要配置数据库的表结构schema.sql
+```sql
+create table if not exists tb_user (
+USER_ID int not null primary key auto_increment,
+USER_NAME varchar(100)
+);
+```
+以及数据文件 data.sql, 默认插入一条‘赵一’的数据
+```sql
+INSERT INTO tb_user (USER_ID,USER_NAME) VALUES(1,'赵一');
+```
+### 20.3.3 实体关联表
+给User添加@Entity注解，和@Table注解
+```java
+package tech.pdai.springboot.h2.entity;
+
+import javax.persistence.Entity;
+import javax.persistence.Id;
+import javax.persistence.Table;
+
+@Entity
+@Table(name = "tb_user")
+public class User {
+
+    @Id
+    private int userId;
+    private String userName;
+
+    public int getUserId() {
+        return userId;
+    }
+
+    public void setUserId(int userId) {
+        this.userId = userId;
+    }
+
+    public String getUserName() {
+        return userName;
+    }
+
+    public void setUserName(String userName) {
+        this.userName = userName;
+    }
+}
+```
+### 20.3.4 Dao继承JpaRepository
+```java
+package tech.pdai.springboot.h2.dao;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+import tech.pdai.springboot.h2.entity.User;
+
+@Repository
+public interface UserRepository extends JpaRepository<User, Integer> {
+
+}
+```
+(其它service,App启动类等代码和前文一致)
+
+### 20.3.5 运行程序
+![118.springboot-hello-mvc-4.png](../../assets/images/04-主流框架/spring/118.springboot-hello-mvc-4.png)
+### 20.3.6 H2数据库通常如何使用？
+- 嵌入式模式 （上文例子）
+
+在嵌入式模式下，应用程序使用JDBC从同一JVM中打开数据库。这是最快也是最容易的连接方式。缺点是数据库可能只在任何时候在一个虚拟机（和类加载器）中打开。与所有模式一样，支持持久性和内存数据库。对并发打开数据库的数量或打开连接的数量没有限制。
+![119.springboot-hello-h2-2.png](../../assets/images/04-主流框架/spring/119.springboot-hello-h2-2.png)
+- 服务器模式
+
+当使用服务器模式（有时称为远程模式或客户机/服务器模式）时，应用程序使用 JDBC 或 ODBC API 远程打开数据库。服务器需要在同一台或另一台虚拟机上启动，或者在另一台计算机上启动。许多应用程序可以通过连接到这个服务器同时连接到同一个数据库。在内部，服务器进程在嵌入式模式下打开数据库。
+
+服务器模式比嵌入式模式慢，因为所有数据都通过TCP/IP传输。与所有模式一样，支持持久性和内存数据库。对每个服务器并发打开的数据库数量或打开连接的数量没有限制。
+![120.springboot-hello-h2-3.png](../../assets/images/04-主流框架/spring/120.springboot-hello-h2-3.png)
+- 混合模式
+
+混合模式是嵌入式和服务器模式的结合。连接到数据库的第一个应用程序在嵌入式模式下运行，但也启动服务器，以便其他应用程序（在不同进程或虚拟机中运行）可以同时访问相同的数据。本地连接的速度与数据库在嵌入式模式中的使用速度一样快，而远程连接速度稍慢。
+
+服务器可以从应用程序内（使用服务器API）启动或停止，或自动（自动混合模式）。当使用自动混合模式时，所有想要连接到数据库的客户端（无论是本地连接还是远程连接）都可以使用完全相同的数据库URL来实现
+![121.springboot-hello-h2-4.png](../../assets/images/04-主流框架/spring/121.springboot-hello-h2-4.png)
+以上不同的连接方式对应不同的 JDBC URL，可以参考如下附录表格中的连接格式。
+# 二十一、SpringBoot入门 - 定制自己的Banner
+## 21.1 什么是Banner
+我们在启动Spring Boot程序时，有如下Banner信息：
+![122.springboot-hello-banner-1.png](../../assets/images/04-主流框架/spring/122.springboot-hello-banner-1.png)
+
+那么如何自定义成自己项目的名称呢？
+
+## 21.2 如何更改Banner
+> 更改Banner有如下几种方式：
+- banner.txt配置（最常用）
+
+在application.yml中添加配置
+```yml
+spring:
+  banner:
+    charset: UTF-8
+    location: classpath:banner.txt
+```
+在resource下创建banner.txt，内容自定义：
+```txt
+----welcome----
+
+---------------
+```
+- SpringApplication启动时设置参数
+```java
+SpringApplication application = new SpringApplication(App.class);
+/**
+* Banner.Mode.OFF:关闭;
+* Banner.Mode.CONSOLE:控制台输出，默认方式;
+* Banner.Mode.LOG:日志输出方式;
+*/
+application.setBannerMode(Banner.Mode.OFF); // here
+application.run(args);
+```
+SpringApplication还可以设置自定义的Banner的接口类
+![123.springboot-hello-banner-6.png](../../assets/images/04-主流框架/spring/123.springboot-hello-banner-6.png)
+
+## 21.3 文字Banner的设计
+> 如何设计上面的文字呢？
+### 21.3.1 一些设计Banner的网站
+可以通过这个网站进行设计：<a href='https://patorjk.com/software/taag/#p=display&f=Graffiti&t=Type+Something+&x=none&v=4&h=4&w=80&we=false'>patorjk Banner</a>
+### 21.3.2 IDEA中Banner的插件
+IDEA中也有插件，不过没有预览功能
+![124.springboot-hello-banner-5.png](../../assets/images/04-主流框架/spring/124.springboot-hello-banner-5.png)
+### 21.3.3 其它工具
+- http://www.network-science.de/ascii/
+- http://www.degraeve.com/img2txt.php
+- http://www.bootschool.net/ascii
+## 21.4 Banner中其它配置信息
+> 除了文件信息，还有哪些信息可以配置呢？比如Spring默认还带有SpringBoot当前的版本号信息。
+
+在banner.txt中，还可以进行一些设置：
+```txt
+# springboot的版本号 
+${spring-boot.version}             
+ 
+# springboot的版本号前面加v后上括号 
+${spring-boot.formatted-version}
+
+# MANIFEST.MF文件中的版本号 
+${application.version}              
+ 
+# MANIFEST.MF文件的版本号前面加v后上括号 
+${application.formatted-version}
+
+# MANIFEST.MF文件中的程序名称
+${application.title}
+
+# ANSI样色/样式等
+${Ansi.NAME} (or ${AnsiColor.NAME}, ${AnsiBackground.NAME}, ${AnsiStyle.NAME})
+```
+简单的测试如下（`注意必须打包出Jar, 才会生成resources/META-INF/MANIFEST.MF`）：
+![125.springboot-hello-banner-7.png](../../assets/images/04-主流框架/spring/125.springboot-hello-banner-7.png)
+## 21.5 动画Banner的设计
+SpringBoot2是支持图片形式的Banner，
+```yml
+spring:
+  main:
+    banner-mode: console
+    show-banner: true
+  banner:
+    charset: UTF-8
+    image:
+      margin: 0
+      height: 10
+      invert: false
+      location: classpath:pdai.png
+```
+效果如下（需要选择合适的照片，不然效果不好, 所以这种方式很少使用），
+![126.springboot-hello-banner-8.png](../../assets/images/04-主流框架/spring/126.springboot-hello-banner-8.png)
+
+注意： 格式不能太大，不然会报错
+```sh
+org.springframework.boot.ImageBanner     : Image banner not printable: class path resource [banner.gif] (class java.lang.ArrayIndexOutOfBoundsException: '4096')
+```
+## 21.6 图片Banner是如何起作用的？
+> 发现 Springboot 可以把图片转换成 ASCII 图案，那么它是怎么做的呢？以此为例，我们看下Spring 的Banner是如何生成的呢？
+- 获取Banner 
+  - 优先级是环境变量中的Image优先,格式在IMAGE_EXTENSION中
+  - 然后才是banner.txt
+  - 没有的话就用SpringBootBanner
+- 如果是图片 
+  - 获取图片Banner（属性配置等）
+  - 转换成ascii
+
+**获取banner**
+```java
+class SpringApplicationBannerPrinter {
+    static final String BANNER_LOCATION_PROPERTY = "spring.banner.location";
+    static final String BANNER_IMAGE_LOCATION_PROPERTY = "spring.banner.image.location";
+    static final String DEFAULT_BANNER_LOCATION = "banner.txt";
+    static final String[] IMAGE_EXTENSION = new String[]{"gif", "jpg", "png"};
+    private static final Banner DEFAULT_BANNER = new SpringBootBanner(); // 默认的Spring Banner
+    private final ResourceLoader resourceLoader;
+    private final Banner fallbackBanner;
+
+    // 获取Banner，优先级是环境变量中的Image优先,格式在IMAGE_EXTENSION中，然后才是banner.txt
+    private Banner getBanner(Environment environment) {
+        SpringApplicationBannerPrinter.Banners banners = new SpringApplicationBannerPrinter.Banners();
+        banners.addIfNotNull(this.getImageBanner(environment));
+        banners.addIfNotNull(this.getTextBanner(environment));
+        if (banners.hasAtLeastOneBanner()) {
+            return banners;
+        } else {
+            return this.fallbackBanner != null ? this.fallbackBanner : DEFAULT_BANNER;
+        }
+    }
+```
+**获取图片Banner**
+```java
+private Banner getImageBanner(Environment environment) {
+    String location = environment.getProperty("spring.banner.image.location");
+    if (StringUtils.hasLength(location)) {
+        Resource resource = this.resourceLoader.getResource(location);
+        return resource.exists() ? new ImageBanner(resource) : null;
+    } else {
+        String[] var3 = IMAGE_EXTENSION;
+        int var4 = var3.length;
+
+        for(int var5 = 0; var5 < var4; ++var5) {
+            String ext = var3[var5];
+            Resource resource = this.resourceLoader.getResource("banner." + ext);
+            if (resource.exists()) {
+                return new ImageBanner(resource);
+            }
+        }
+
+        return null;
+    }
+}
+```
+**获取图片的配置等**
+```java
+private void printBanner(Environment environment, PrintStream out) throws IOException {
+    int width = (Integer)this.getProperty(environment, "width", Integer.class, 76);
+    int height = (Integer)this.getProperty(environment, "height", Integer.class, 0);
+    int margin = (Integer)this.getProperty(environment, "margin", Integer.class, 2);
+    boolean invert = (Boolean)this.getProperty(environment, "invert", Boolean.class, false); // 图片的属性
+    BitDepth bitDepth = this.getBitDepthProperty(environment);
+    ImageBanner.PixelMode pixelMode = this.getPixelModeProperty(environment);
+    ImageBanner.Frame[] frames = this.readFrames(width, height); // 读取图片的帧
+
+    for(int i = 0; i < frames.length; ++i) {
+        if (i > 0) {
+            this.resetCursor(frames[i - 1].getImage(), out);
+        }
+
+        this.printBanner(frames[i].getImage(), margin, invert, bitDepth, pixelMode, out);
+        this.sleep(frames[i].getDelayTime());
+    }
+
+}
+```
+**转换成ascii**
+```java
+private void printBanner(BufferedImage image, int margin, boolean invert, BitDepth bitDepth, ImageBanner.PixelMode pixelMode, PrintStream out) {
+    AnsiElement background = invert ? AnsiBackground.BLACK : AnsiBackground.DEFAULT;
+    out.print(AnsiOutput.encode(AnsiColor.DEFAULT));
+    out.print(AnsiOutput.encode(background));
+    out.println();
+    out.println();
+    AnsiElement lastColor = AnsiColor.DEFAULT;
+    AnsiColors colors = new AnsiColors(bitDepth);
+
+    for(int y = 0; y < image.getHeight(); ++y) {
+        int x;
+        for(x = 0; x < margin; ++x) {
+            out.print(" ");
+        }
+
+        for(x = 0; x < image.getWidth(); ++x) {
+            Color color = new Color(image.getRGB(x, y), false);
+            AnsiElement ansiColor = colors.findClosest(color);
+            if (ansiColor != lastColor) {
+                out.print(AnsiOutput.encode(ansiColor));
+                lastColor = ansiColor;
+            }
+
+            out.print(this.getAsciiPixel(color, invert, pixelMode)); // // 像素点转换成字符输出
+        }
+
+        out.println();
+    }
+
+    out.print(AnsiOutput.encode(AnsiColor.DEFAULT));
+    out.print(AnsiOutput.encode(AnsiBackground.DEFAULT));
+    out.println();
+}
+```
+# 二十二、SpringBoot入门 - 添加Logback日志
+> SpringBoot开发中如何选用日志框架呢？ 出于性能等原因，Logback 目前是springboot应用日志的标配； 当然有时候在生产环境中也会考虑和三方中间件采用统一处理方式。
+## 22.1 日志框架的基础
+在学习这块时需要一些日志框架的发展和基础，同时了解日志配置时考虑的因素。
+
+### 22.1.1 关于日志框架（日志门面）
+> Java日志库是最能体现Java库在进化中的渊源关系的，在理解时重点理解**日志框架本身和日志门面**，以及比较好的实践等。要关注其历史渊源和设计（比如桥接），而具体在使用时查询接口即可， 否则会陷入JUL(Java Util Log), JCL(Commons Logging), Log4j, SLF4J, Logback，Log4j2傻傻分不清楚的境地。
+**下面详细介绍一下日志框架（日志门面）**
+### 22.1.2 日志库简介
+- 最重要的一点是 区分**日志系统**和**日志门面**;
+- 其次是日志库的使用, 包含配置与API使用；配置侧重于日志系统的配置，API使用侧重于日志门面；
+- 最后是选型，改造和最佳实践等
+#### 22.1.2.1 日志库之日志系统
+##### java.util.logging (JUL)
+JDK1.4 开始，通过 java.util.logging 提供日志功能。虽然是官方自带的log lib，JUL的使用确不广泛。主要原因:
+- JUL从JDK1.4 才开始加入(2002年)，当时各种第三方log lib已经被广泛使用了
+- JUL早期存在性能问题，到JDK1.5上才有了不错的进步，但现在和Logback/Log4j2相比还是有所不如
+- JUL的功能不如Logback/Log4j2等完善，比如Output Handler就没有Logback/Log4j2的丰富，有时候需要自己来继承定制，又比如默认没有从ClassPath里加载配置文件的功能
+##### Log4j
+Log4j 是 apache 的一个开源项目，创始人 Ceki Gulcu。Log4j 应该说是 Java 领域资格最老，应用最广的日志工具。Log4j 是高度可配置的，并可通过在运行时的外部文件配置。它根据记录的优先级别，并提供机制，以指示记录信息到许多的目的地，诸如：数据库，文件，控制台，UNIX 系统日志等。
+
+Log4j 中有三个主要组成部分：
+- loggers - 负责捕获记录信息。
+- appenders - 负责发布日志信息，以不同的首选目的地。
+- layouts - 负责格式化不同风格的日志信息。
+
+官网地址：http://logging.apache.org/log4j/2.x/
+
+Log4j 的短板在于性能，在Logback 和 Log4j2 出来之后，Log4j的使用也减少了。
+
+##### Logback
+Logback 是由 log4j 创始人 Ceki Gulcu 设计的又一个开源日志组件，是作为 Log4j 的继承者来开发的，提供了性能更好的实现，异步 logger，Filter等更多的特性。
+
+logback 当前分成三个模块：logback-core、logback-classic 和 logback-access。
+
+- logback-core - 是其它两个模块的基础模块。
+- logback-classic - 是 log4j 的一个 改良版本。此外 logback-classic 完整实现 SLF4J API 使你可以很方便地更换成其它日志系统如 log4j 或 JDK14 Logging。（注：SLF4J是一个日志门面（抽象层），而Logback是一个具体的日志实现。）
+- logback-access - 访问模块与 Servlet 容器集成提供通过 Http 来访问日志的功能。
+
+官网地址: http://logback.qos.ch/
+
+##### Log4j2
+维护 Log4j 的人为了性能又搞出了 Log4j2。
+
+Log4j2 和 Log4j1.x 并不兼容，设计上很大程度上模仿了 SLF4J/Logback，性能上也获得了很大的提升。
+
+Log4j2 也做了 Facade/Implementation 分离的设计，分成了 log4j-api 和 log4j-core。
+
+官网地址: http://logging.apache.org/log4j/2.x/
+#### 22.1.2.2 Log4j vs Logback vs Log4j2
+> 从性能上Log4J2要强，但从生态上Logback+SLF4J优先。
+##### 初步对比
+> logback和log4j2都宣称自己是log4j的后代，一个是出于同一个作者，另一个则是在名字上根正苗红。
+
+撇开血统不谈，比较一下log4j2和logback：
+
+- log4j2比logback更新：log4j2的GA版在2014年底才推出，比logback晚了好几年，这期间log4j2确实吸收了slf4j和logback的一些优点（比如日志模板），同时应用了不少的新技术
+- 由于采用了更先进的锁机制和LMAX Disruptor库，log4j2的性能优于logback，特别是在多线程环境下和使用异步日志的环境下
+- 二者都支持Filter（应该说是log4j2借鉴了logback的Filter），能够实现灵活的日志记录规则（例如仅对一部分用户记录debug级别的日志）
+- 二者都支持对配置文件的动态更新
+- 二者都能够适配slf4j，logback与slf4j的适配应该会更好一些，毕竟省掉了一层适配库
+- logback能够自动压缩/删除旧日志
+- logback提供了对日志的HTTP访问功能
+- log4j2实现了“无垃圾”和“低垃圾”模式。简单地说，log4j2在记录日志时，能够重用对象（如String等），尽可能避免实例化新的临时对象，减少因日志记录产生的垃圾对象，减少垃圾回收带来的性能下降
+- log4j2和logback各有长处，总体来说，如果对性能要求比较高的话，log4j2相对还是较优的选择。
+##### 性能对比
+> 附上log4j2与logback性能对比的benchmark，这份benchmark是Apache Logging出的，有多大水分不知道，仅供参考
+
+同步写文件日志的benchmark：
+![127.dev-package-log-1.png](../../assets/images/04-主流框架/spring/127.dev-package-log-1.png)
+
+异步写日志的benchmark：
+![128.dev-package-log-2.png](../../assets/images/04-主流框架/spring/128.dev-package-log-2.png)
+
+当然，这些benchmark都是在日志Pattern中不包含Location信息（如日志代码行号 ，调用者信息，Class名/源码文件名等）时测定的，如果输出Location信息的话，性能谁也拯救不了：
+![129.dev-package-log-3.png](../../assets/images/04-主流框架/spring/129.dev-package-log-3.png)
+#### 22.1.2.3 日志库之日志门面
+##### common-logging
+> common-logging 是 apache 的一个开源项目。也称Jakarta Commons Logging，缩写 JCL。
+
+common-logging 的功能是提供日志功能的 API 接口，本身并不提供日志的具体实现（当然，common-logging 内部有一个 Simple logger 的简单实现，但是功能很弱，直接忽略），而是在运行时动态的绑定日志实现组件来工作（如 log4j、java.util.loggin）。
+
+官网地址: http://commons.apache.org/proper/commons-logging/
+
+##### slf4j
+> 全称为 Simple Logging Facade for Java，即 java 简单日志门面。
+
+什么，作者又是 Ceki Gulcu！这位大神写了 Log4j、Logback 和 slf4j，专注日志组件开发五百年，一直只能超越自己。
+
+类似于 Common-Logging，slf4j 是对不同日志框架提供的一个 API 封装，可以在部署的时候不修改任何配置即可接入一种日志实现方案。但是，slf4j 在编译时静态绑定真正的 Log 库。使用 SLF4J 时，如果你需要使用某一种日志实现，那么你必须选择正确的 SLF4J 的 jar 包的集合（各种桥接包）。
+![130.dev-package-log-6.png](../../assets/images/04-主流框架/spring/130.dev-package-log-6.png)
+##### common-logging vs slf4j
+> slf4j 库类似于 Apache Common-Logging。但是，他在编译时静态绑定真正的日志库。这点似乎很麻烦，其实也不过是导入桥接 jar 包而已。
+- Common-Logging：运行时动态发现日志实现
+- SLF4J：编译时静态绑定日志实现（通过引入相应的桥接jar包）
+
+slf4j 一大亮点是提供了更方便的日志记录方式：
+
+不需要使用logger.isDebugEnabled()来解决日志因为字符拼接产生的性能问题。slf4j 的方式是使用{}作为字符串替换符，形式如下：
+```java
+logger.debug("id: {}, name: {} ", id, name);
+```
+Common-Logging写法是：
+```java
+logger.debug("id: " + id + ", name: " + name);
+```
+**在这种写法中：**
+- 无论DEBUG级别是否启用，**字符串拼接都会先执行**
+- 然后才在`debug()`方法内部检查级别并决定是否记录
+- 即使最终不记录日志，字符串拼接的开销也已经产生了
+
+为了避免上面的情况，Common-Logging需要修改写法才能优化拼接-较为麻烦
+```java
+// 这是优化后的写法 - 性能良好
+if (logger.isDebugEnabled()) {
+    logger.debug("id: " + id + ", name: " + name);
+}
+```
+slf4j解决方案：
+
+```java
+// 使用参数化日志（推荐）
+logger.debug("id: {}, name: {}", id, name);
+```
+
+slf4j支持参数化日志，只有在需要记录时才会进行字符串拼接，既简洁又高效。
+#### 22.1.2.4 日志库使用方案
+使用日志解决方案基本可分为三步：
+- 引入 jar 包
+- 配置
+- 使用 API
+
+常见的各种日志解决方案的第 2 步和第 3 步基本一样，实施上的差别主要在第 1 步，也就是使用不同的库。
+
+#### 22.1.2.5 日志库jar包
+这里首选推荐使用 slf4j + logback 的组合。
+
+如果你习惯了 common-logging，可以选择 common-logging+log4j。
+
+强烈建议不要直接使用日志实现组件(logback、log4j、java.util.logging)，理由前面也说过，就是无法灵活替换日志库。
+
+还有一种情况：你的老项目使用了 common-logging，或是直接使用日志实现组件。如果修改老的代码，工作量太大，需要兼容处理。在下文，都将看到各种应对方法。
+
+注：据我所知，当前仍没有方法可以将 slf4j 桥接到 common-logging。如果我孤陋寡闻了，请不吝赐教。
+##### slf4j 直接绑定日志组件
+- slf4j + logback
+
+添加依赖到 pom.xml 中即可。
+
+logback-classic-1.0.13.jar 会自动将 slf4j-api-1.7.21.jar 和 logback-core-1.0.13.jar 也添加到你的项目中。
+```xml
+<dependency>
+  <groupId>ch.qos.logback</groupId>
+  <artifactId>logback-classic</artifactId>
+  <version>1.0.13</version>
+</dependency>
+```
+- slf4j + log4j
+
+添加依赖到 pom.xml 中即可。
+
+slf4j-log4j12-1.7.21.jar 会自动将 slf4j-api-1.7.21.jar 和 log4j-1.2.17.jar 也添加到你的项目中。
+```xml
+<dependency>
+  <groupId>org.slf4j</groupId>
+  <artifactId>slf4j-log4j12</artifactId>
+  <version>1.7.21</version>
+</dependency>
+```
+- slf4j + java.util.logging
+
+添加依赖到 pom.xml 中即可。
+
+slf4j-jdk14-1.7.21.jar 会自动将 slf4j-api-1.7.21.jar 也添加到你的项目中。
+```xml
+<dependency>
+  <groupId>org.slf4j</groupId>
+  <artifactId>slf4j-jdk14</artifactId>
+  <version>1.7.21</version>
+</dependency>
+```
+##### slf4j 兼容非 slf4j 日志组件
+在介绍解决方案前，先提一个概念——桥接
+- 什么是桥接呢
+
+假如你正在开发应用程序所调用的组件当中已经使用了 common-logging，这时你需要 jcl-over-slf4j.jar 把日志信息输出重定向到 slf4j-api，slf4j-api 再去调用 slf4j 实际依赖的日志组件。这个过程称为桥接。下图是官方的 slf4j 桥接策略图：
+![131.dev-package-log-5.png](../../assets/images/04-主流框架/spring/131.dev-package-log-5.png)
+
+从图中应该可以看出，无论你的老项目中使用的是 common-logging 或是直接使用 log4j、java.util.logging，都可以使用对应的桥接 jar 包来解决兼容问题。
+- slf4j 兼容 common-logging
+```xml
+<dependency>
+  <groupId>org.slf4j</groupId>
+  <artifactId>jcl-over-slf4j</artifactId>
+  <version>1.7.12</version>
+</dependency>
+```
+- slf4j 兼容 log4j
+```xml
+<dependency>
+    <groupId>org.slf4j</groupId>
+    <artifactId>log4j-over-slf4j</artifactId>
+    <version>1.7.12</version>
+</dependency>
+```
+- slf4j 兼容 java.util.logging
+```xml
+<dependency>
+    <groupId>org.slf4j</groupId>
+    <artifactId>jul-to-slf4j</artifactId>
+    <version>1.7.12</version>
+</dependency>
+```
+- spring 集成 slf4j
+
+做 java web 开发，基本离不开 spring 框架。很遗憾，spring 使用的日志解决方案是 common-logging + log4j。
+
+所以，你需要一个桥接 jar 包：logback-ext-spring。
+```xml
+<dependency>
+  <groupId>ch.qos.logback</groupId>
+  <artifactId>logback-classic</artifactId>
+  <version>1.1.3</version>
+</dependency>
+<dependency>
+  <groupId>org.logback-extensions</groupId>
+  <artifactId>logback-ext-spring</artifactId>
+  <version>0.1.2</version>
+</dependency>
+<dependency>
+  <groupId>org.slf4j</groupId>
+  <artifactId>jcl-over-slf4j</artifactId>
+  <version>1.7.12</version>
+</dependency>
+```
+这里有一点需要注意，对于日志门面的话jcl 和slf4j之间互相转化桥接就好了，为什么还会对特定的日志系统例如log4j专门做一个桥接包呢？这是因为有些项目可能并没有用jcl门面接口而是直接用了log4j的原生接口。
+- 1. 首先，澄清 Log4j 和 JCL 的关系
+	- **JCL（Commons Logging）** 是一个日志门面（抽象层），它本身不实现日志功能，而是动态绑定到底层日志实现（如 Log4j、JDK Logging 等）。
+	- **Log4j 1.x** 是一个具体的日志实现（日志库），它提供了自己的 API（如 `org.apache.log4j.Logger`）。项目可以直接使用 Log4j 的 API，而不通过 JCL。
+	  - 示例：直接调用 Log4j 的代码：
+		```java
+		import org.apache.log4j.Logger; // 直接使用 Log4j API
+		public class MyClass {
+			private static final Logger logger = Logger.getLogger(MyClass.class);
+			public void method() {
+				logger.debug("This is a log message"); // 直接调用 Log4j
+			}
+		}
+		```
+	- 虽然 JCL 可以配置为使用 Log4j 作为底层实现，但很多老项目可能直接依赖 Log4j API，而不是通过 JCL 门面。这意味着：
+	  - 如果代码直接使用 Log4j API，那么 JCL 门面根本不会被涉及，因此 `jcl-over-slf4j` 桥接包对这类代码无效。
+
+- 2. 为什么需要专门的桥接包（如 `log4j-over-slf4j`）？
+	- **目的**：为了将直接使用 Log4j API 的代码重定向到 SLF4J。
+	  - `log4j-over-slf4j` 提供了一个“伪装”的 Log4j API（例如，它包含一个 `org.apache.log4j.Logger` 类），但这个类内部会调用 SLF4J API。这样，当老代码直接使用 Log4j API 时，实际日志操作会被 SLF4J 处理。
+	  - 类似地，`jul-to-slf4j` 用于重定向直接使用 `java.util.logging` 的代码，而 `jcl-over-slf4j` 用于重定向使用 JCL 门面的代码。
+	- **如果没有 `log4j-over-slf4j`**：直接使用 Log4j API 的代码会继续调用原始的 Log4j 库，导致：
+	  - 日志无法统一通过 SLF4J 管理（例如，无法使用 SLF4J 的绑定机制切换到 Logback 或其他实现）。
+	  - 可能产生依赖冲突或重复配置。
+
+3. 举例说明桥接包的使用场景
+	假设有一个老项目，混合使用了多种日志方式：
+	- 部分代码直接使用 Log4j API（如 `import org.apache.log4j.Logger`）。
+	- 部分代码使用 JCL 门面（如 `import org.apache.commons.logging.Log`）。
+	- 您现在想统一迁移到 SLF4J + Logback（现代组合）。
+
+	这时，您需要：
+	1. **添加 SLF4J 门面和实现**（如 Logback）：
+	   ```xml
+	   <dependency>
+		   <groupId>org.slf4j</groupId>
+		   <artifactId>slf4j-api</artifactId>
+		   <version>1.7.32</version>
+	   </dependency>
+	   <dependency>
+		   <groupId>ch.qos.logback</groupId>
+		   <artifactId>logback-classic</artifactId>
+		   <version>1.2.6</version>
+	   </dependency>
+	   ```
+	2. **添加桥接包来重定向旧日志调用**：
+	   - 对于直接使用 Log4j 的代码：添加 `log4j-over-slf4j`。
+	   - 对于使用 JCL 的代码：添加 `jcl-over-slf4j`。
+	   - 对于使用 JUL 的代码：添加 `jul-to-slf4j`（并需配合 JVM 参数配置）。
+	3. **移除原始的日志库依赖**（如 Log4j 1.x 的 JAR），避免冲突。
+
+-4. 总结：为什么不能只靠 `jcl-over-slf4j`？
+	- **`jcl-over-slf4j` 仅处理通过 JCL 门面的调用**：如果代码直接使用 Log4j API（不经过 JCL），这个桥接包不起作用。
+	- **Log4j 有自己的独立生态**：许多项目（尤其是早期项目）直接使用 Log4j API，而不是通过 JCL。因此，需要专门的 `log4j-over-slf4j` 来覆盖这种情况。
+	- **桥接包是“分层次”的**：每个桥接包针对特定的日志 API 层（JCL 门面、Log4j 实现层、JUL 实现层），确保所有旧代码都能统一到 SLF4J。
+
+-实践建议
+	- 在迁移时，检查项目代码中导入的日志类：
+	  - 如果看到 `import org.apache.log4j.*`，就需要 `log4j-over-slf4j`。
+	  - 如果看到 `import org.apache.commons.logging.*`，就需要 `jcl-over-slf4j`。
+	- SLF4J 官方文档将这种模式称为“桥接”（bridging）或“重定向”（redirection），旨在解决遗留日志系统的兼容问题。
+##### common-logging 绑定日志组件
+- common-logging + log4j
+
+添加依赖到 pom.xml 中即可。
+```xml
+<dependency>
+  <groupId>commons-logging</groupId>
+  <artifactId>commons-logging</artifactId>
+  <version>1.2</version>
+</dependency>
+<dependency>
+  <groupId>log4j</groupId>
+  <artifactId>log4j</artifactId>
+  <version>1.2.17</version>
+</dependency>
+```
+#### 22.1.2.6 日志库配置 - 针对于日志框架
+##### log4j2 配置
+log4j2 基本配置形式如下：
+```xml
+<?xml version="1.0" encoding="UTF-8"?>;
+<Configuration>
+  <Properties>
+    <Property name="name1">value</property>
+    <Property name="name2" value="value2"/>
+  </Properties>
+  <Filter type="type" ... />
+  <Appenders>
+    <Appender type="type" name="name">
+      <Filter type="type" ... />
+    </Appender>
+    ...
+  </Appenders>
+  <Loggers>
+    <Logger name="name1">
+      <Filter type="type" ... />
+    </Logger>
+    ...
+    <Root level="level">
+      <AppenderRef ref="name"/>
+    </Root>
+  </Loggers>
+</Configuration>
+```
+配置示例：
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="debug" strict="true" name="XMLConfigTest"
+               packages="org.apache.logging.log4j.test">
+  <Properties>
+    <Property name="filename">target/test.log</Property>
+  </Properties>
+  <Filter type="ThresholdFilter" level="trace"/>
+ 
+  <Appenders>
+    <Appender type="Console" name="STDOUT">
+      <Layout type="PatternLayout" pattern="%m MDC%X%n"/>
+      <Filters>
+        <Filter type="MarkerFilter" marker="FLOW" onMatch="DENY" onMismatch="NEUTRAL"/>
+        <Filter type="MarkerFilter" marker="EXCEPTION" onMatch="DENY" onMismatch="ACCEPT"/>
+      </Filters>
+    </Appender>
+    <Appender type="Console" name="FLOW">
+      <Layout type="PatternLayout" pattern="%C{1}.%M %m %ex%n"/><!-- class and line number -->
+      <Filters>
+        <Filter type="MarkerFilter" marker="FLOW" onMatch="ACCEPT" onMismatch="NEUTRAL"/>
+        <Filter type="MarkerFilter" marker="EXCEPTION" onMatch="ACCEPT" onMismatch="DENY"/>
+      </Filters>
+    </Appender>
+    <Appender type="File" name="File" fileName="${filename}">
+      <Layout type="PatternLayout">
+        <Pattern>%d %p %C{1.} [%t] %m%n</Pattern>
+      </Layout>
+    </Appender>
+  </Appenders>
+ 
+  <Loggers>
+    <Logger name="org.apache.logging.log4j.test1" level="debug" additivity="false">
+      <Filter type="ThreadContextMapFilter">
+        <KeyValuePair key="test" value="123"/>
+      </Filter>
+      <AppenderRef ref="STDOUT"/>
+    </Logger>
+ 
+    <Logger name="org.apache.logging.log4j.test2" level="debug" additivity="false">
+      <AppenderRef ref="File"/>
+    </Logger>
+ 
+    <Root level="trace">
+      <AppenderRef ref="STDOUT"/>
+    </Root>
+  </Loggers>
+ 
+</Configuration>
+```
+##### logback 配置
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+ 
+<!-- logback中一共有5种有效级别，分别是TRACE、DEBUG、INFO、WARN、ERROR，优先级依次从低到高 -->
+<configuration scan="true" scanPeriod="60 seconds" debug="false">
+ 
+  <property name="DIR_NAME" value="spring-helloworld"/>
+ 
+  <!-- 将记录日志打印到控制台 -->
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] [%-5p] %c{36}.%M - %m%n</pattern>
+    </encoder>
+  </appender>
+ 
+  <!-- RollingFileAppender begin -->
+  <appender name="ALL" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <!-- 根据时间来制定滚动策略 -->
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>${user.dir}/logs/${DIR_NAME}/all.%d{yyyy-MM-dd}.log</fileNamePattern>
+      <maxHistory>30</maxHistory>
+    </rollingPolicy>
+ 
+    <!-- 根据文件大小来制定滚动策略 -->
+    <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+      <maxFileSize>30MB</maxFileSize>
+    </triggeringPolicy>
+ 
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] [%-5p] %c{36}.%M - %m%n</pattern>
+    </encoder>
+  </appender>
+ 
+  <appender name="ERROR" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <!-- 根据时间来制定滚动策略 -->
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>${user.dir}/logs/${DIR_NAME}/error.%d{yyyy-MM-dd}.log</fileNamePattern>
+      <maxHistory>30</maxHistory>
+    </rollingPolicy>
+ 
+    <!-- 根据文件大小来制定滚动策略 -->
+    <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+      <maxFileSize>10MB</maxFileSize>
+    </triggeringPolicy>
+ 
+    <filter class="ch.qos.logback.classic.filter.LevelFilter">
+      <level>ERROR</level>
+      <onMatch>ACCEPT</onMatch>
+      <onMismatch>DENY</onMismatch>
+    </filter>
+ 
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] [%-5p] %c{36}.%M - %m%n</pattern>
+    </encoder>
+  </appender>
+ 
+  <appender name="WARN" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <!-- 根据时间来制定滚动策略 -->
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>${user.dir}/logs/${DIR_NAME}/warn.%d{yyyy-MM-dd}.log</fileNamePattern>
+      <maxHistory>30</maxHistory>
+    </rollingPolicy>
+ 
+    <!-- 根据文件大小来制定滚动策略 -->
+    <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+      <maxFileSize>10MB</maxFileSize>
+    </triggeringPolicy>
+ 
+    <filter class="ch.qos.logback.classic.filter.LevelFilter">
+      <level>WARN</level>
+      <onMatch>ACCEPT</onMatch>
+      <onMismatch>DENY</onMismatch>
+    </filter>
+ 
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] [%-5p] %c{36}.%M - %m%n</pattern>
+    </encoder>
+  </appender>
+ 
+  <appender name="INFO" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <!-- 根据时间来制定滚动策略 -->
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>${user.dir}/logs/${DIR_NAME}/info.%d{yyyy-MM-dd}.log</fileNamePattern>
+      <maxHistory>30</maxHistory>
+    </rollingPolicy>
+ 
+    <!-- 根据文件大小来制定滚动策略 -->
+    <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+      <maxFileSize>10MB</maxFileSize>
+    </triggeringPolicy>
+ 
+    <filter class="ch.qos.logback.classic.filter.LevelFilter">
+      <level>INFO</level>
+      <onMatch>ACCEPT</onMatch>
+      <onMismatch>DENY</onMismatch>
+    </filter>
+ 
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] [%-5p] %c{36}.%M - %m%n</pattern>
+    </encoder>
+  </appender>
+ 
+  <appender name="DEBUG" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <!-- 根据时间来制定滚动策略 -->
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>${user.dir}/logs/${DIR_NAME}/debug.%d{yyyy-MM-dd}.log</fileNamePattern>
+      <maxHistory>30</maxHistory>
+    </rollingPolicy>
+ 
+    <!-- 根据文件大小来制定滚动策略 -->
+    <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+      <maxFileSize>10MB</maxFileSize>
+    </triggeringPolicy>
+ 
+    <filter class="ch.qos.logback.classic.filter.LevelFilter">
+      <level>DEBUG</level>
+      <onMatch>ACCEPT</onMatch>
+      <onMismatch>DENY</onMismatch>
+    </filter>
+ 
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] [%-5p] %c{36}.%M - %m%n</pattern>
+    </encoder>
+  </appender>
+ 
+  <appender name="TRACE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <!-- 根据时间来制定滚动策略 -->
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>${user.dir}/logs/${DIR_NAME}/trace.%d{yyyy-MM-dd}.log</fileNamePattern>
+      <maxHistory>30</maxHistory>
+    </rollingPolicy>
+ 
+    <!-- 根据文件大小来制定滚动策略 -->
+    <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+      <maxFileSize>10MB</maxFileSize>
+    </triggeringPolicy>
+ 
+    <filter class="ch.qos.logback.classic.filter.LevelFilter">
+      <level>TRACE</level>
+      <onMatch>ACCEPT</onMatch>
+      <onMismatch>DENY</onMismatch>
+    </filter>
+ 
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] [%-5p] %c{36}.%M - %m%n</pattern>
+    </encoder>
+  </appender>
+ 
+  <appender name="SPRING" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <!-- 根据时间来制定滚动策略 -->
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>${user.dir}/logs/${DIR_NAME}/springframework.%d{yyyy-MM-dd}.log
+      </fileNamePattern>
+      <maxHistory>30</maxHistory>
+    </rollingPolicy>
+ 
+    <!-- 根据文件大小来制定滚动策略 -->
+    <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+      <maxFileSize>10MB</maxFileSize>
+    </triggeringPolicy>
+ 
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] [%-5p] %c{36}.%M - %m%n</pattern>
+    </encoder>
+  </appender>
+  <!-- RollingFileAppender end -->
+ 
+  <!-- logger begin -->
+  <!-- 本项目的日志记录，分级打印 -->
+  <logger name="org.zp.notes.spring" level="TRACE" additivity="false">
+    <appender-ref ref="STDOUT"/>
+    <appender-ref ref="ERROR"/>
+    <appender-ref ref="WARN"/>
+    <appender-ref ref="INFO"/>
+    <appender-ref ref="DEBUG"/>
+    <appender-ref ref="TRACE"/>
+  </logger>
+ 
+  <!-- SPRING框架日志 -->
+  <logger name="org.springframework" level="WARN" additivity="false">
+    <appender-ref ref="SPRING"/>
+  </logger>
+ 
+  <root level="TRACE">
+    <appender-ref ref="ALL"/>
+  </root>
+  <!-- logger end -->
+ 
+</configuration>
+```
+##### log4j 配置
+完整的 log4j.xml 参考示例
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE log4j:configuration SYSTEM "log4j.dtd">
+ 
+<log4j:configuration xmlns:log4j='http://jakarta.apache.org/log4j/'>
+ 
+  <appender name="STDOUT" class="org.apache.log4j.ConsoleAppender">
+    <layout class="org.apache.log4j.PatternLayout">
+      <param name="ConversionPattern"
+             value="%d{yyyy-MM-dd HH:mm:ss,SSS\} [%-5p] [%t] %c{36\}.%M - %m%n"/>
+    </layout>
+ 
+    <!--过滤器设置输出的级别-->
+    <filter class="org.apache.log4j.varia.LevelRangeFilter">
+      <param name="levelMin" value="debug"/>
+      <param name="levelMax" value="fatal"/>
+      <param name="AcceptOnMatch" value="true"/>
+    </filter>
+  </appender>
+ 
+ 
+  <appender name="ALL" class="org.apache.log4j.DailyRollingFileAppender">
+    <param name="File" value="${user.dir}/logs/spring-common/jcl/all"/>
+    <param name="Append" value="true"/>
+    <!-- 每天重新生成日志文件 -->
+    <param name="DatePattern" value="'-'yyyy-MM-dd'.log'"/>
+    <!-- 每小时重新生成日志文件 -->
+    <!--<param name="DatePattern" value="'-'yyyy-MM-dd-HH'.log'"/>-->
+    <layout class="org.apache.log4j.PatternLayout">
+      <param name="ConversionPattern"
+             value="%d{yyyy-MM-dd HH:mm:ss,SSS\} [%-5p] [%t] %c{36\}.%M - %m%n"/>
+    </layout>
+  </appender>
+ 
+  <!-- 指定logger的设置，additivity指示是否遵循缺省的继承机制-->
+  <logger name="org.zp.notes.spring" additivity="false">
+    <level value="error"/>
+    <appender-ref ref="STDOUT"/>
+    <appender-ref ref="ALL"/>
+  </logger>
+ 
+  <!-- 根logger的设置-->
+  <root>
+    <level value="warn"/>
+    <appender-ref ref="STDOUT"/>
+  </root>
+</log4j:configuration>
+```
+#### 22.1.2.7 日志库API - 针对于日志门面
+##### slf4j 用法
+使用 slf4j 的 API 很简单。使用LoggerFactory初始化一个Logger实例，然后调用 Logger 对应的打印等级函数就行了。
+```java
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+ 
+public class App {
+    private static final Logger log = LoggerFactory.getLogger(App.class);
+    public static void main(String[] args) {
+        String msg = "print log, current level: {}";
+        log.trace(msg, "trace");
+        log.debug(msg, "debug");
+        log.info(msg, "info");
+        log.warn(msg, "warn");
+        log.error(msg, "error");
+    }
+}
+```
+##### common-logging 用法
+common-logging 用法和 slf4j 几乎一样，但是支持的打印等级多了一个更高级别的：fatal。
+
+此外，common-logging 不支持{}替换参数，你只能选择拼接字符串这种方式了。
+```java
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+ 
+public class JclTest {
+    private static final Log log = LogFactory.getLog(JclTest.class);
+ 
+    public static void main(String[] args) {
+        String msg = "print log, current level: ";
+        log.trace(msg + "trace");
+        log.debug(msg + "debug");
+        log.info(msg + "info");
+        log.warn(msg + "warn");
+        log.error(msg + "error");
+        log.fatal(msg + "fatal");
+    }
+}
+```
+#### 22.1.2.8 日志库选型与改造
+##### 对Java日志组件选型的建议
+slf4j已经成为了Java日志组件的明星选手，可以完美替代JCL，使用JCL桥接库也能完美兼容一切使用JCL作为日志门面的类库，现在的新系统已经没有不使用slf4j作为日志API的理由了。
+
+日志记录服务方面，log4j在功能上输于logback和log4j2，在性能方面log4j2则全面超越log4j和logback。所以新系统应该在logback和log4j2中做出选择，对于性能有很高要求的系统，应优先考虑log4j2
+##### 对日志架构使用比较好的实践
+- 总是使用Log Facade（日志门面），而不是具体Log Implementation具体日志实现）
+
+正如之前所说的，使用 Log Facade 可以方便的切换具体的日志实现。而且，如果依赖多个项目，使用了不同的Log Facade，还可以方便的通过 Adapter 转接到同一个实现上。如果依赖项目使用了多个不同的日志实现，就麻烦的多了。
+
+具体来说，现在推荐使用 Log4j-API 或者 SLF4j，不推荐继续使用 JCL。
+- 只添加一个 Log Implementation依赖
+
+毫无疑问，项目中应该只使用一个具体的 Log Implementation，建议使用 Logback 或者Log4j2。如果有依赖的项目中，使用的 Log Facade不支持直接使用当前的 Log Implementation，就添加合适的桥接器依赖。具体的桥接关系可以看上一篇文章的图。
+
+- <a id='具体的日志实现依赖应该设置为optional和使用runtime scope'>具体的日志实现依赖应该设置为optional和使用runtime scope</a>
+
+在项目中，Log Implementation的依赖强烈建议设置为runtime scope，并且设置为optional。例如项目中使用了 SLF4J 作为 Log Facade，然后想使用 Log4j2 作为 Implementation，那么使用 maven 添加依赖的时候这样设置:
+```xml
+<dependency>
+    <groupId>org.apache.logging.log4j</groupId>
+    <artifactId>log4j-core</artifactId>
+    <version>${log4j.version}</version>
+    <scope>runtime</scope>
+    <optional>true</optional>
+</dependency>
+<dependency>
+    <groupId>org.apache.logging.log4j</groupId>
+    <artifactId>log4j-slf4j-impl</artifactId>
+    <version>${log4j.version}</version>
+    <scope>runtime</scope>
+    <optional>true</optional>
+</dependency>
+```
+设为optional，依赖不会传递，这样如果你是个lib项目，然后别的项目使用了你这个lib，不会被引入不想要的Log Implementation 依赖；
+
+Scope设置为runtime，是为了防止开发人员在项目中直接使用Log Implementation中的类，而不使用Log Facade中的类。
+- 如果有必要, 排除依赖的第三方库中的Log Impementation依赖
+
+这是很常见的一个问题，第三方库的开发者未必会把具体的日志实现或者桥接器的依赖设置为optional，然后你的项目继承了这些依赖——具体的日志实现未必是你想使用的，比如他依赖了Log4j，你想使用Logback，这时就很尴尬。另外，如果不同的第三方依赖使用了不同的桥接器和Log实现，也极容易形成环。
+
+这种情况下，推荐的处理方法，是使用exclude来排除所有的这些Log实现和桥接器的依赖，只保留第三方库里面对Log Facade的依赖。
+
+比如阿里的JStorm就没有很好的处理这个问题，依赖jstorm会引入对Logback和log4j-over-slf4j的依赖，如果你想在自己的项目中使用Log4j或其他Log实现的话，就需要加上excludes:
+```xml
+<dependency>
+    <groupId>com.alibaba.jstorm</groupId>
+    <artifactId>jstorm-core</artifactId>
+    <version>2.1.1</version>
+    <exclusions>
+        <exclusion>
+            <groupId>org.slf4j</groupId>
+            <artifactId>log4j-over-slf4j</artifactId>
+        </exclusion>
+        <exclusion>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
+```
+- 避免为不会输出的log付出代价
+
+Log库都可以灵活的设置输出界别，所以每一条程序中的log，都是有可能不会被输出的。这时候要注意不要额外的付出代价。
+
+先看两个有问题的写法：
+```java
+logger.debug("start process request, url: " + url);
+logger.debug("receive request: {}", toJson(request));
+```
+第一条是直接做了字符串拼接，所以即使日志级别高于debug也会做一个字符串连接操作；
+
+第二条虽然用了SLF4J/Log4j2 中的懒求值方式来避免不必要的字符串拼接开销，但是toJson()这个函数却是都会被调用并且开销更大。
+
+推荐的写法如下:
+```java
+logger.debug("start process request, url:{}", url); // SLF4J/LOG4J2
+logger.debug("receive request: {}", () -> toJson(request)); // LOG4J2
+logger.debug(() -> "receive request: " + toJson(request)); // LOG4J2
+if (logger.isDebugEnabled()) { // SLF4J/LOG4J2
+    logger.debug("receive request: " + toJson(request)); 
+}
+```
+- 日志格式中最好不要使用行号，函数名等字段
+
+原因是，为了获取语句所在的函数名，或者行号，log库的实现都是获取当前的stacktrace，然后分析取出这些信息，而获取stacktrace的代价是很昂贵的。如果有很多的日志输出，就会占用大量的CPU。在没有特殊需要的情况下，建议不要在日志中输出这些这些字段。
+
+最后， log中不要输出稀奇古怪的字符！
+
+部分开发人员为了方便看到自己的log，会在log语句中加上醒目的前缀，比如:
+```java
+logger.debug("========================start process request=============");
+```
+虽然对于自己来说是方便了，但是如果所有人都这样来做的话，那log输出就没法看了！正确的做法是使用grep 来看只自己关心的日志。
+#### 22.1.2.9 对现有系统日志架构的改造建议
+
+如果现有系统使用JCL作为日志门面，又确实面临着JCL的ClassLoader机制带来的问题，完全可以引入slf4j并通过桥接库将JCL api输出的日志桥接至slf4j，再通过适配库适配至现有的日志输出服务（如log4j），如下图：
+![132.dev-package-log-4.png](../../assets/images/04-主流框架/spring/132.dev-package-log-4.png)
+
+这样做不需要任何代码级的改造，就可以解决JCL的ClassLoader带来的问题，但没有办法享受日志模板等slf4j的api带来的优点。不过之后在现系统上开发的新功能就可以使用slf4j的api了，老代码也可以分批进行改造。
+
+如果现有系统使用JCL作为日志门面，又头疼JCL不支持logback和log4j2等新的日志服务，也可以通过桥接库以slf4j替代JCL，但同样无法直接享受slf4j api的优点。
+
+如果想要使用slf4j的api，那么就不得不进行代码改造了，当然改造也可以参考1中提到的方式逐步进行。
+
+如果现系统面临着log4j的性能问题，可以使用Apache Logging提供的log4j到log4j2的桥接库log4j-1.2-api，把通过log4j api输出的日志桥接至log4j2。这样可以最快地使用上log4j2的先进性能，但组件中缺失了slf4j，对后续进行日志架构改造的灵活性有影响。另一种办法是先把log4j桥接至slf4j，再使用slf4j到log4j2的适配库。这样做稍微麻烦了一点，但可以逐步将系统中的日志输出标准化为使用slf4j的api，为后面的工作打好基础。
+#### 22.1.10 对于<a href='#具体的日志实现依赖应该设置为optional和使用runtime scope'>具体的日志实现依赖应该设置为optional和使用runtime scope</a>这一点的补充说明
+
+##### 1. Maven Scope（作用域）详解
+
+###### 主要的Scope类型：
+
+| Scope | 编译期可用 | 测试期可用 | 运行期可用 | 是否传递 | 典型用途 |
+|-------|-----------|-----------|-----------|----------|----------|
+| **compile** | ✅ | ✅ | ✅ | ✅ | 默认值，项目核心依赖 |
+| **provided** | ✅ | ✅ | ❌ | ❌ | 容器/环境提供的依赖（如Servlet API） |
+| **runtime** | ❌ | ✅ | ✅ | ✅ | 运行期需要但编译期不需要（如JDBC驱动） |
+| **test** | ❌ | ✅ | ❌ | ❌ | 仅测试使用 |
+
+###### 为什么日志实现建议用`runtime` scope？
+
+```xml
+<dependency>
+    <groupId>org.apache.logging.log4j</groupId>
+    <artifactId>log4j-core</artifactId>
+    <version>${log4j.version}</version>
+    <scope>runtime</scope>
+    <optional>true</optional>
+</dependency>
+```
+
+**背后的逻辑：**
+1. **防止直接使用具体实现类**：如果设置为`compile`，开发人员可能会错误地导入`org.apache.log4j.Logger`而不是`org.slf4j.Logger`
+2. **符合"面向接口编程"原则**：编译期只依赖门面API（SLF4J），运行期才绑定具体实现
+3. **强制使用门面**：编译时无法访问具体实现类，只能使用门面API
+
+##### 2. Optional（可选依赖）详解
+
+###### Optional的作用：
+- **阻止依赖传递**：当你的项目被其他项目依赖时，标记为`optional=true`的依赖**不会传递**给依赖你的项目
+- **避免污染依赖树**：防止强制下游项目使用你选择的日志实现
+
+###### 为什么日志实现要用`optional`？
+
+**场景示例：**
+- 项目A（库项目）依赖SLF4J + Log4j2
+- 项目B（应用项目）依赖项目A，但想使用Logback
+
+如果项目A中Log4j2没有设为optional：
+```
+项目B → 项目A → Log4j2（强制传递）
+```
+项目B被迫使用Log4j2，即使它想用Logback
+
+如果项目A中Log4j2设为optional：
+```
+项目B → 项目A（不传递Log4j2）
+项目B可以自由选择Logback
+```
+
+##### 3. 分析Spring Boot Starter Logging的配置
+
+您观察到的Spring Boot配置确实使用了`compile` scope，这与"最佳实践"似乎矛盾。让我解释原因：
+
+###### Spring Boot的特殊情况：
+
+```xml
+<dependency>
+  <groupId>ch.qos.logback</groupId>
+  <artifactId>logback-classic</artifactId>
+  <version>1.2.11</version>
+  <scope>compile</scope>  <!-- 注意：这里是compile -->
+</dependency>
+```
+
+**为什么Spring Boot使用compile scope？**
+
+1. **Spring Boot是应用框架，不是库**：
+   - 您的项目是**最终应用**，不是要被其他项目依赖的库
+   - 应用项目可以自由选择具体的日志实现，不需要考虑依赖传递问题
+
+2. **Spring Boot的"约定优于配置"理念**：
+   - Spring Boot为应用提供了默认的、完整的日志解决方案
+   - 它假设大多数应用会使用这个默认配置（Logback）
+
+3. **桥接包的特殊性**：
+   - `log4j-to-slf4j`、`jul-to-slf4j`这些桥接包需要在编译期就介入
+   - 它们需要重定向其他日志系统的调用，所以编译期就必须可用
+
+###### 什么时候应该用runtime/optional？
+
+| 项目类型 | Scope建议 | Optional建议 | 原因 |
+|---------|-----------|-------------|------|
+| **库项目（Library）** | runtime | true | 避免强制下游使用特定实现 |
+| **应用项目（Application）** | compile | false | 最终应用需要完整的运行时依赖 |
+| **框架（如Spring Boot）** | compile | false | 提供完整的默认解决方案 |
+
+##### 4. 实践建议总结
+
+###### 对于库项目（会被其他项目依赖）：
+```xml
+<!-- 门面API - 必须传递 -->
+<dependency>
+    <groupId>org.slf4j</groupId>
+    <artifactId>slf4j-api</artifactId>
+    <version>1.7.32</version>
+    <!-- 默认compile scope，需要传递 -->
+</dependency>
+
+<!-- 具体实现 - 不传递 -->
+<dependency>
+    <groupId>ch.qos.logback</groupId>
+    <artifactId>logback-classic</artifactId>
+    <version>1.2.6</version>
+    <scope>runtime</scope>
+    <optional>true</optional>  <!-- 关键：不传递 -->
+</dependency>
+```
+
+###### 对于应用项目（最终部署）：
+```xml
+<!-- 可以使用compile scope，因为不会被其他项目依赖 -->
+<dependency>
+    <groupId>ch.qos.logback</groupId>
+    <artifactId>logback-classic</artifactId>
+    <version>1.2.6</version>
+    <scope>compile</scope>  <!-- 或省略（默认compile） -->
+</dependency>
+```
+
+##### 5. 验证依赖传递的方法
+
+您可以使用Maven命令查看依赖树：
+```bash
+mvn dependency:tree
+```
+
+观察：
+- 标记为`optional=true`的依赖是否出现在依赖树中
+- 不同scope的依赖在什么阶段可用
+
+**总结：** Spring Boot使用`compile` scope是因为它面向的是最终应用开发者，提供"开箱即用"的体验。而"最佳实践"中建议的`runtime` + `optional`更多适用于会被其他项目依赖的库项目。两者并不矛盾，只是适用场景不同。
+## 22.2 配置时考虑点
+> 在配置日志时需要考虑哪些因素？
+
+- 支持日志路径，日志level等配置
+- 日志控制配置通过application.yml下发
+- 按天生成日志，当天的日志>50MB回滚
+- 最多保存10天日志
+- 生成的日志中Pattern自定义
+- Pattern中添加用户自定义的MDC字段，比如用户信息(当前日志是由哪个用户的请求产生)，request信息。此种方式可以通过AOP切面控制，在MDC中添加requestID，在spring-logback.xml中配置Pattern。
+- 根据不同的运行环境设置Profile - dev，test，product
+- 对控制台，Err和全量日志分别配置
+- 对第三方包路径日志控制
+## 22.3 实现范例
+> 如下两个例子基本包含了上述的考虑点:
+
+### 22.3.1 综合范例
+- application.yml
+```yml
+logging:
+  level:
+    root: debug
+  path: C:/data/logs/springboot-logback-demo
+server:
+  port: 8080
+spring:
+  application:
+    name: springboot-logback-demo
+debug: false
+```
+- Spring-logback.xml
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- 日志根目录-->
+    <springProperty scope="context" name="LOG_HOME" source="logging.path" defaultValue="/data/logs/springboot-logback-demo"/>
+
+    <!-- 日志级别 -->
+    <springProperty scope="context" name="LOG_ROOT_LEVEL" source="logging.level.root" defaultValue="DEBUG"/>
+
+    <!--  标识这个"STDOUT" 将会添加到这个logger -->
+    <springProperty scope="context" name="STDOUT" source="log.stdout" defaultValue="STDOUT"/>
+
+    <!-- 日志文件名称-->
+    <property name="LOG_PREFIX" value="spring-boot-logback" />
+
+    <!-- 日志文件编码-->
+    <property name="LOG_CHARSET" value="UTF-8" />
+
+    <!-- 日志文件路径+日期-->
+    <property name="LOG_DIR" value="${LOG_HOME}/%d{yyyyMMdd}" />
+
+    <!--对日志进行格式化-->
+    <property name="LOG_MSG" value="- | [%X{requestUUID}] | [%d{yyyyMMdd HH:mm:ss.SSS}] | [%level] | [${HOSTNAME}] | [%thread] | [%logger{36}] | --> %msg|%n "/>
+
+    <!--文件大小，默认10MB-->
+    <property name="MAX_FILE_SIZE" value="50MB" />
+
+    <!-- 配置日志的滚动时间 ，表示只保留最近 10 天的日志-->
+    <property name="MAX_HISTORY" value="10"/>
+
+    <!--输出到控制台-->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <!-- 输出的日志内容格式化-->
+        <layout class="ch.qos.logback.classic.PatternLayout">
+            <pattern>${LOG_MSG}</pattern>
+        </layout>
+    </appender>
+
+    <!--输出到文件-->
+    <appender name="0" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    </appender>
+
+    <!-- 定义 ALL 日志的输出方式:-->
+    <appender name="FILE_ALL" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!--日志文件路径，日志文件名称-->
+        <File>${LOG_HOME}/all_${LOG_PREFIX}.log</File>
+
+        <!-- 设置滚动策略，当天的日志大小超过 ${MAX_FILE_SIZE} 文件大小时候，新的内容写入新的文件， 默认10MB -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+
+            <!--日志文件路径，新的 ALL 日志文件名称，“ i ” 是个变量 -->
+            <FileNamePattern>${LOG_DIR}/all_${LOG_PREFIX}%i.log</FileNamePattern>
+
+            <!-- 配置日志的滚动时间 ，表示只保留最近 10 天的日志-->
+            <MaxHistory>${MAX_HISTORY}</MaxHistory>
+
+            <!--当天的日志大小超过 ${MAX_FILE_SIZE} 文件大小时候，新的内容写入新的文件， 默认10MB-->
+            <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+                <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
+            </timeBasedFileNamingAndTriggeringPolicy>
+
+        </rollingPolicy>
+
+        <!-- 输出的日志内容格式化-->
+        <layout class="ch.qos.logback.classic.PatternLayout">
+            <pattern>${LOG_MSG}</pattern>
+        </layout>
+    </appender>
+
+    <!-- 定义 ERROR 日志的输出方式:-->
+    <appender name="FILE_ERROR" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!-- 下面为配置只输出error级别的日志 -->
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <OnMismatch>DENY</OnMismatch>
+            <OnMatch>ACCEPT</OnMatch>
+        </filter>
+        <!--日志文件路径，日志文件名称-->
+        <File>${LOG_HOME}/err_${LOG_PREFIX}.log</File>
+
+        <!-- 设置滚动策略，当天的日志大小超过 ${MAX_FILE_SIZE} 文件大小时候，新的内容写入新的文件， 默认10MB -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+
+            <!--日志文件路径，新的 ERR 日志文件名称，“ i ” 是个变量 -->
+            <FileNamePattern>${LOG_DIR}/err_${LOG_PREFIX}%i.log</FileNamePattern>
+
+            <!-- 配置日志的滚动时间 ，表示只保留最近 10 天的日志-->
+            <MaxHistory>${MAX_HISTORY}</MaxHistory>
+
+            <!--当天的日志大小超过 ${MAX_FILE_SIZE} 文件大小时候，新的内容写入新的文件， 默认10MB-->
+            <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+                <maxFileSize>${MAX_FILE_SIZE}</maxFileSize>
+            </timeBasedFileNamingAndTriggeringPolicy>
+        </rollingPolicy>
+
+        <!-- 输出的日志内容格式化-->
+        <layout class="ch.qos.logback.classic.PatternLayout">
+            <Pattern>${LOG_MSG}</Pattern>
+        </layout>
+    </appender>
+
+    <!-- additivity 设为false,则logger内容不附加至root ，配置以配置包下的所有类的日志的打印，级别是 ERROR-->
+    <logger name="org.springframework"     level="ERROR" />
+    <logger name="org.apache.commons"      level="ERROR" />
+    <logger name="org.apache.zookeeper"    level="ERROR"  />
+    <logger name="com.alibaba.dubbo.monitor" level="ERROR"/>
+    <logger name="com.alibaba.dubbo.remoting" level="ERROR" />
+
+    <!-- ${LOG_ROOT_LEVEL} 日志级别 -->
+    <root level="${LOG_ROOT_LEVEL}">
+
+        <!-- 标识这个"${STDOUT}"将会添加到这个logger -->
+        <appender-ref ref="${STDOUT}"/>
+
+        <!-- FILE_ALL 日志输出添加到 logger -->
+        <appender-ref ref="FILE_ALL"/>
+
+        <!-- FILE_ERROR 日志输出添加到 logger -->
+        <appender-ref ref="FILE_ERROR"/>
+    </root>
+
+</configuration>
+```
+- Profile 相关的配置可以参考:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/base.xml" />
+    
+     <!-- roll by day -->
+     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">   
+    	<rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">   
+      		<fileNamePattern>logs/springboot-logback-demo.%d{yyyy-MM-dd}.log</fileNamePattern>   
+      		<maxHistory>30</maxHistory>  
+    	</rollingPolicy>   
+    	<encoder>   
+      		<pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{35} - %msg%n</pattern>   
+    	</encoder>  
+  	</appender> 
+   
+    <!-- dev -->
+	<logger name="org.springframework.web" level="INFO"/>
+		<root level="INFO">
+		<appender-ref ref="FILE" />
+	</root>
+
+    <!-- test or production -->
+    <springProfile name="test,prod">
+        <logger name="org.springframework.web" level="INFO"/>
+        <logger name="com.pdai.springboot" level="INFO"/>
+        <root level="INFO">
+        	<appender-ref ref="FILE" />
+        </root>
+    </springProfile>
+  	 
+</configuration>
+```
+### 22.3.2 在配置前可以参考如下文章
+https://www.cnblogs.com/warking/p/5710303.html
+
+### 22.3.3 我们有两个配置：一个是Spring-logback.xml，另一个是Profile相关的配置。它们都是Logback的配置文件，但是它们之间的关系需要明确。
+
+这两个配置示例展示了**两种不同的Logback配置方式**，它们之间是**替代关系**而不是同时使用的关系。让我详细解释：
+
+#### 1. 两种配置方式的区别
+
+##### 第一种：`Spring-logback.xml`（完整的自定义配置）
+- **特点**：完全自定义所有配置，从零开始定义所有appender、logger等
+- **适用场景**：需要高度定制化日志行为，不依赖Spring Boot默认配置
+- **配置方式**：独立完整的配置文件
+
+##### 第二种：Profile相关配置（基于Spring Boot默认配置的扩展）
+- **特点**：基于Spring Boot默认配置，只做局部修改和扩展
+- **关键代码**：
+  ```xml
+  <include resource="org/springframework/boot/logging/logback/base.xml" />
+  ```
+- **适用场景**：大部分使用Spring Boot默认配置，只需要针对不同环境做调整
+
+#### 2. 为什么是替代关系？
+
+在实际项目中，**你只会选择其中一种方式**，原因如下：
+
+##### 第一种方式的优缺点：
+**优点**：
+- 完全控制日志行为
+- 可以定义复杂的滚动策略、过滤规则等
+- 适合有特殊日志需求的项目
+
+**缺点**：
+- 配置复杂，需要自己处理所有细节
+- 失去了Spring Boot的"约定优于配置"优势
+
+##### 第二种方式的优缺点：
+**优点**：
+- 简单，基于Spring Boot的成熟默认配置
+- 支持Profile，不同环境不同配置
+- 维护成本低
+
+**缺点**：
+- 定制能力相对有限
+
+#### 3. 具体配置对比分析
+
+##### 第一种方式的核心配置：
+```xml
+<!-- 完全自定义，没有使用Spring Boot默认配置 -->
+<appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+<appender name="FILE_ALL" class="ch.qos.logback.core.rolling.RollingFileAppender">
+<appender name="FILE_ERROR" class="ch.qos.logback.core.rolling.RollingFileAppender">
+```
+
+##### 第二种方式的核心配置：
+```xml
+<!-- 继承Spring Boot默认配置 -->
+<include resource="org/springframework/boot/logging/logback/base.xml" />
+
+<!-- 只添加或覆盖需要的部分 -->
+<appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <!-- 基于默认配置进行扩展 -->
+</appender>
+```
+
+#### 4. Spring Boot的日志配置加载机制
+
+Spring Boot按以下顺序查找日志配置：
+1. `logback-spring.xml`（推荐，支持Spring Profile）
+2. `logback.xml`
+3. 如果都没找到，使用Spring Boot默认配置
+
+##### 推荐的文件命名：
+```bash
+# 支持Spring Profile的配置（推荐）
+src/main/resources/logback-spring.xml
+
+# 或不支持Profile的配置
+src/main/resources/logback.xml
+```
+
+#### 5. 如何选择？
+
+##### 选择第一种方式（完全自定义）的情况：
+- 项目有特殊的日志需求（如按模块分文件、复杂的过滤规则）
+- 团队有成熟的日志配置规范
+- 需要与现有系统日志格式保持一致
+
+##### 选择第二种方式（基于默认配置扩展）的情况：
+- 新项目，希望快速上手
+- 不同环境（dev/test/prod）需要不同的日志级别
+- 大部分默认配置已满足需求，只需要小调整
+
+#### 6. 实际应用示例
+
+##### 如果你选择第二种方式（推荐大多数Spring Boot项目）：
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- 引入Spring Boot默认配置 -->
+    <include resource="org/springframework/boot/logging/logback/base.xml"/>
+    
+    <!-- 开发环境：详细日志 -->
+    <springProfile name="dev">
+        <logger name="com.yourpackage" level="DEBUG"/>
+        <root level="DEBUG">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+    
+    <!-- 生产环境：关键日志 -->
+    <springProfile name="prod">
+        <logger name="com.yourpackage" level="INFO"/>
+        <root level="INFO">
+            <appender-ref ref="FILE"/>
+        </root>
+    </springProfile>
+</configuration>
+```
+
+#### 总结
+
+这两个配置示例展示了**两种不同的设计哲学**：
+- **第一个**：完全控制，适合有特殊需求的场景
+- **第二个**：约定优于配置，适合大多数标准Spring Boot项目
+
+在实际项目中，你应该根据具体需求选择其中一种，而不是同时使用。对于大多数Spring Boot项目，**第二种方式（基于默认配置+Profile）是更推荐的做法**，因为它更简单、更符合Spring Boot的设计理念。
+## 22.4 Pattern中配置MDC（Mapped Diagnostic Context）
+
+### 1. 什么是MDC？
+
+MDC是**线程本地存储**，可以在同一个请求的整个调用链中传递上下文信息，他是Slf4J提供的一个类。比如：
+- 请求ID（Request ID）
+- 用户ID
+- 会话信息
+- 业务关键参数
+
+### 2. Pattern中配置MDC字段
+
+在您的`spring-logback.xml`中，已经可以看到MDC的使用：
+
+```xml
+<property name="LOG_MSG" 
+          value="- | [%X{requestUUID}] | [%d{yyyyMMdd HH:mm:ss.SSS}] | [%level] | [${HOSTNAME}] | [%thread] | [%logger{36}] | --> %msg|%n "/>
+```
+
+**关键点：`%X{requestUUID}`** 就是读取MDC中`requestUUID`这个key的值。
+
+#### 可用的MDC Pattern表达式：
+- `%X{key}` - 获取指定key的MDC值
+- `%X` - 获取所有MDC键值对
+- `%mdc{key}` - 同上，另一种写法
+
+### 3. 可以添加哪些自定义MDC字段？
+
+**几乎任何与请求相关的上下文信息都可以**：
+
+| 字段类型 | 示例key | 用途 |
+|---------|---------|------|
+| **请求追踪** | `requestId`, `traceId`, `spanId` | 分布式追踪 |
+| **用户信息** | `userId`, `username`, `tenantId` | 用户身份识别 |
+| **请求上下文** | `clientIp`, `userAgent`, `requestURI` | 请求来源分析 |
+| **业务参数** | `orderId`, `productId`, `actionType` | 业务操作追踪 |
+| **环境信息** | `appName`, `env`, `version` | 环境标识 |
+
+### 4. 如何在代码中设置MDC字段？
+
+#### 方式一：使用拦截器/过滤器（推荐）
+
+```java
+@Component
+public class LoggingInterceptor implements HandlerInterceptor {
+    
+    @Override
+    public boolean preHandle(HttpServletRequest request, 
+                           HttpServletResponse response, Object handler) {
+        // 生成请求ID
+        String requestId = UUID.randomUUID().toString();
+        String userId = getUserIdFromRequest(request); // 从token等获取用户ID
+        
+        // 设置MDC
+        MDC.put("requestUUID", requestId);
+        MDC.put("userId", userId);
+        MDC.put("clientIp", request.getRemoteAddr());
+        MDC.put("requestURI", request.getRequestURI());
+        MDC.put("userAgent", request.getHeader("User-Agent"));
+        
+        return true;
+    }
+    
+    @Override
+    public void afterCompletion(HttpServletRequest request,
+                              HttpServletResponse response, Object handler, Exception ex) {
+        // 请求完成后清理MDC，防止内存泄漏
+        MDC.clear();
+    }
+    
+    private String getUserIdFromRequest(HttpServletRequest request) {
+        // 实际项目中从JWT token或session中获取
+        return "user123";
+    }
+}
+```
+
+#### 方式二：使用AOP切面
+
+```java
+@Aspect
+@Component
+public class LoggingAspect {
+    
+    @Around("execution(* com.yourpackage.controller..*(..))")
+    public Object logMethod(ProceedingJoinPoint joinPoint) throws Throwable {
+        // 方法执行前设置业务相关的MDC
+        MDC.put("method", joinPoint.getSignature().getName());
+        MDC.put("className", joinPoint.getTarget().getClass().getSimpleName());
+        
+        try {
+            return joinPoint.proceed();
+        } finally {
+            // 清理业务相关的MDC字段，但保留请求级别的字段
+            MDC.remove("method");
+            MDC.remove("className");
+        }
+    }
+}
+```
+
+#### 方式三：在业务代码中动态设置
+
+```java
+@Service
+public class OrderService {
+    
+    public void createOrder(OrderDTO order) {
+        // 设置业务相关的MDC
+        MDC.put("orderId", order.getId());
+        MDC.put("customerId", order.getCustomerId());
+        
+        try {
+            // 业务逻辑
+            logger.info("创建订单");
+        } finally {
+            // 清理业务MDC
+            MDC.remove("orderId");
+            MDC.remove("customerId");
+        }
+    }
+}
+```
+
+### 5. 完整的Pattern配置示例
+
+```xml
+<property name="LOG_MSG" 
+          value="[%d{yyyy-MM-dd HH:mm:ss.SSS}] [%X{requestUUID}] [%X{userId}] [%X{clientIp}] [%thread] %-5level %logger{36} - %msg%n"/>
+
+<!-- 或者更详细的版本 -->
+<property name="DETAILED_LOG_MSG" 
+          value="%d{yyyy-MM-dd HH:mm:ss.SSS} | %X{requestUUID} | %X{userId} | %X{tenantId} | %X{clientIp} | %-5level | %thread | %logger{50} | %msg%n"/>
+```
+
+### 6. 注册拦截器配置
+
+```java
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+    
+    @Autowired
+    private LoggingInterceptor loggingInterceptor;
+    
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(loggingInterceptor)
+                .addPathPatterns("/**");
+    }
+}
+```
+
+### 7. 生成的日志效果
+
+配置后，你的日志会显示类似这样的格式：
+```
+2024-01-15 14:30:25.123 | abc-request-123 | user456 | tenant01 | 192.168.1.100 | INFO | http-nio-8080-exec-1 | com.example.OrderController | 用户下单成功
+```
+
+### 8. 重要注意事项
+
+#### 必须清理MDC！
+```java
+// 在finally块中清理，或使用try-with-resources模式
+try {
+    MDC.put("key", "value");
+    // 业务逻辑
+} finally {
+    MDC.remove("key"); // 或者 MDC.clear()
+}
+```
+
+#### 异步场景处理：
+如果使用线程池，MDC不会自动传递，需要手动处理：
+
+```java
+// 包装Runnable传递MDC
+public class MDCRunnable implements Runnable {
+    private final Map<String, String> context = MDC.getCopyOfContextMap();
+    private final Runnable delegate;
+    
+    public MDCRunnable(Runnable delegate) {
+        this.delegate = delegate;
+    }
+    
+    @Override
+    public void run() {
+        if (context != null) {
+            MDC.setContextMap(context);
+        }
+        try {
+            delegate.run();
+        } finally {
+            MDC.clear();
+        }
+    }
+}
+
+// 使用
+executor.execute(new MDCRunnable(() -> {
+    // 异步任务，可以访问MDC
+}));
+```
+
+### 总结
+
+通过MDC，你可以：
+1. **在Pattern中配置**：使用`%X{key}`格式
+2. **设置丰富的信息**：请求ID、用户信息、业务参数等
+3. **实现请求链路追踪**：同一个请求的所有日志都有相同的requestId
+4. **便于日志分析**：可以按用户、请求等维度筛选日志
+
+这种配置让日志从"发生了什么"升级到"谁在什么情况下发生了什么"，极大提升了日志的实用价值。
+# 二十三、SpringBoot入门 - 配置热部署devtools工具
+## 23.1 准备知识点
+### 23.1.1 什么是热部署和热加载？
+> 热部署和热加载是在应用正在运行的时候，自动更新（重新加载或者替换class等）应用的一种能力。（PS：spring-boot-devtools提供的方案也是要重启的，只是无需手动重启能实现自动加载而已。）
+
+严格意义上，我们需要区分下热部署和热加载, 对于Java项目而言：
+- 热部署
+  - 在服务器运行时重新部署项目
+  - 它是直接重新加载整个应用，这种方式会释放内存，比热加载更加干净彻底，但同时也更费时间。
+- 热加载
+    - 在运行时重新加载class，从而升级应用。
+    - 热加载的实现原理主要依赖java的类加载机制，在实现方式可以概括为在容器启动的时候起一条后台线程，定时的检测类文件的时间戳变化，如果类的时间戳变掉了，则将类重新载入。
+    - 对比反射机制，反射是在运行时获取类信息，通过动态的调用来改变程序行为； 热加载则是在运行时通过重新加载改变类信息，直接改变程序行为。
+### 23.1.2 什么是LiveLoad？
+LiveLoad是提供浏览器客户端自动加载更新的工具，分为LiveLoad服务器和Liveload浏览器插件两部分； devtools中已经集成了LiveLoad服务器，所以如果我们开发的是web应用，并且期望浏览器自动刷新， 这时候可以考虑LiveLoad.
+![133.springboot-hello-devtool-1.png](../../assets/images/04-主流框架/spring/133.springboot-hello-devtool-1.png)
+
+同一时间只能运行一个LiveReload服务器。 开始应用程序之前，请确保没有其他LiveReload服务器正在运行。如果从IDE启动多个应用程序，则只有第一个应用程序将支持LiveReload。
+## 23.2 配置devtools实现热部署
+> 我们通过如下配置来实现自动重启方式的热部署。
+### 23.2.1 POM配置
+添加spring-boot-devtools的依赖
+```xml
+<dependencies>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-devtools</artifactId>
+        <optional>true</optional> <!-- 可以防止将devtools依赖传递到其他模块中 -->
+    </dependency>
+</dependencies>
+```
+### 23.2.2 IDEA配置
+> 如果你使用IDEA开发工具，通常有如下两种方式：
+- 方式一： **无任何配置时，手动触发重启更新（Ctrl+F9）**
+![134.springboot-hello-devtool-5.png](../../assets/images/04-主流框架/spring/134.springboot-hello-devtool-5.png)
+
+（也可以用mvn compile编译触发重启更新）
+- 方式二： **IDEA需开启运行时编译，自动重启更新**
+
+设置1：
+
+File->Setting->Build,Execution,Deployment->Compile
+
+勾选：Make project automatically
+![135.springboot-hello-devtool-7.png](../../assets/images/04-主流框架/spring/135.springboot-hello-devtool-7.png)
+
+设置2：快捷键：ctrl+alt+shift+/
+
+选择：Registry
+
+勾选：compiler.automake.allow.when.app.running
+
+新版本的IDEA可以在File->setting->Advanced Setttings里面的第一个设置：
+![136.springboot-hello-devtool-8.png](../../assets/images/04-主流框架/spring/136.springboot-hello-devtool-8.png)
+### 23.2.3 application.yml配置
+```yml
+spring:
+  devtools:
+    restart:
+      enabled: true  #设置开启热部署
+      additional-paths: src/main/java #重启目录
+      exclude: WEB-INF/**
+  thymeleaf:
+    cache: false #使用Thymeleaf模板引擎，关闭缓存
+```
+### 23.2.4 使用LiveLoad
+spring-boot-devtools模块包含嵌入式LiveReload服务器，可以在资源更改时用于触发浏览器刷新。 LiveReload浏览器扩展程序支持Chrome，Firefox和Safari，你可以从livereload.com免费下载。
+![137.springboot-hello-devtool-3.png](../../assets/images/04-主流框架/spring/137.springboot-hello-devtool-3.png)
+
+或者从浏览器插件中心下载，比如firefox:
+![138.springboot-hello-devtool-2.png](../../assets/images/04-主流框架/spring/138.springboot-hello-devtool-2.png)
+
+安装完之后，可以通过如下图标管理
+![139.springboot-hello-devtool-4.png](../../assets/images/04-主流框架/spring/139.springboot-hello-devtool-4.png)
+
+如果你不想在应用程序运行时启动LiveReload服务器，则可以将spring.devtools.livereload.enabled属性设置为false 。
+
+同一时间只能运行一个LiveReload服务器。 开始应用程序之前，请确保没有其他LiveReload服务器正在运行。如果从IDE启动多个应用程序，则只有第一个应用程序将支持LiveReload。
+## 23.3 进一步理解
+### 23.3.1 devtool的原理？为何会自动重启？
+> 为什么同样是重启应用，为什么不手动重启，而是建议使用spring-boot-devtools进行热部署重启？
+
+spring-boot-devtools使用了两个类加载器ClassLoader，一个ClassLoader加载不会发生更改的类（第三方jar包），另一个ClassLoader（restart ClassLoader）加载会更改的类（自定义的类）。
+
+后台启动一个**文件监听线程（File Watcher），监测的目录中的文件发生变动时， 原来的restart ClassLoader被丢弃，将会重新加载新的restart ClassLoader。**
+
+因为文件变动后，第三方jar包不再重新加载，只加载自定义的类，加载的类比较少，所以重启比较快。
+
+这也是为什么，同样是重启应用，为什么不手动重启，建议使用spring-boot-devtools进行热部署重启。
+
+在自动重启中有几点需要注意:
+- 自动重启会记录日志的
+
+（记录在什么情况下重启的日志）
+
+可以通过如下关闭
+```yml
+spring:
+  devtools:
+    restart:
+      log-condition-evaluation-delta: false
+```
+- 排除一些不需要自动重启的资源
+
+某些资源在更改时不一定需要触发重新启动。默认情况下，改变资源/META-INF/maven，/META-INF/resources，/resources，/static，/public，或/templates不触发重新启动，但确会触发现场重装。如果要自定义这些排除项，可以使用该spring.devtools.restart.exclude属性。例如，要仅排除/static，/public你将设置以下属性：
+```yml
+spring:
+  devtools:
+    restart:
+      exclude: "static/**,public/**"
+```
+如果要保留这些默认值并添加其他排除项，请改用该spring.devtools.restart.additional-exclude属性。
+- 自定义重启类加载器
+
+重启功能是通过使用两个类加载器来实现的。对于大多数应用程序，这种方法效果很好。但是，它有时会导致类加载问题。
+
+默认情况下，IDE 中的任何打开项目都使用“重启”类加载器加载，任何常规.jar文件都使用“基本”类加载器加载。如果你处理一个多模块项目，并且不是每个模块都导入到你的 IDE 中，你可能需要自定义一些东西。为此，你可以创建一个META-INF/spring-devtools.properties文件。
+
+该spring-devtools.properties文件可以包含以restart.exclude和为前缀的属性restart.include。该include元素是应该被push到“重启”的类加载器的项目，以及exclude要素是应该向下poll到“Base”类加载器的项目。该属性的值是应用于类路径的正则表达式模式，如以下示例所示：
+```yml
+restart:
+  exclude:
+    companycommonlibs: "/mycorp-common-[\\w\\d-\\.]+\\.jar"
+  include:
+    projectcommon: "/mycorp-myproj-[\\w\\d-\\.]+\\.jar"
+```
+更多相关的信息可以在<a href='https://docs.spring.io/spring-boot/reference/using/devtools.html#using.devtools'>这里</a>查看。
+### 23.3.2 devtool是否会被打包进Jar？
+> devtool原则上来说应该是只在开发调试的时候使用，而在生产环境运行jar包时是不需要的，所以Spring打包会不会把它打进JAR吗？
+- 默认情况下，不会被打包进JAR
+
+运行打包的应用程序时，开发人员工具会**自动禁用**。如果你通过 java -jar或者其他特殊的类加载器进行启动时，都会被认为是“生产环境的应用”。
+- 如果我们期望远程调试应用
+（生产环境勿用，只有在受信任的网络上运行或使用 SSL 进行保护时，才应启用它）
+
+在这种情况下，devtool也具备远程调试的能力：远程客户端应用程序旨在从你的 IDE 中运行。你需要org.springframework.boot.devtools.RemoteSpringApplication使用与你连接的远程项目相同的类路径运行。应用程序的唯一必需参数是它连接到的远程 URL。
+
+例如，如果使用 Eclipse 或 Spring Tools，并且你有一个my-app已部署到 Cloud Foundry 的名为的项目，执行以下操作：
+1. 选择Run Configurations…​从Run菜单。
+2. 创建一个新的Java Application“启动配置”。
+3. 浏览my-app项目。
+4. 使用org.springframework.boot.devtools.RemoteSpringApplication作为主类。
+5. 添加https://myapp.cfapps.io到Program arguments（或任何你的远程 URL）。
+
+正在运行的远程客户端可能类似于以下列表：
+```java
+  .   ____          _                                              __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _          ___               _      \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` |        | _ \___ _ __  ___| |_ ___ \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| []::::::[]   / -_) '  \/ _ \  _/ -_) ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, |        |_|_\___|_|_|_\___/\__\___|/ / / /
+ =========|_|==============|___/===================================/_/_/_/
+ :: Spring Boot Remote :: 2.5.4
+
+2015-06-10 18:25:06.632  INFO 14938 --- [           main] o.s.b.devtools.RemoteSpringApplication   : Starting RemoteSpringApplication on pwmbp with PID 14938 (/Users/pwebb/projects/spring-boot/code/spring-boot-project/spring-boot-devtools/target/classes started by pwebb in /Users/pwebb/projects/spring-boot/code)
+2015-06-10 18:25:06.671  INFO 14938 --- [           main] s.c.a.AnnotationConfigApplicationContext : Refreshing org.springframework.context.annotation.AnnotationConfigApplicationContext@2a17b7b6: startup date [Wed Jun 10 18:25:06 PDT 2015]; root of context hierarchy
+2015-06-10 18:25:07.043  WARN 14938 --- [           main] o.s.b.d.r.c.RemoteClientConfiguration    : The connection to http://localhost:8080 is insecure. You should use a URL starting with 'https://'.
+2015-06-10 18:25:07.074  INFO 14938 --- [           main] o.s.b.d.a.OptionalLiveReloadServer       : LiveReload server is running on port 35729
+2015-06-10 18:25:07.130  INFO 14938 --- [           main] o.s.b.devtools.RemoteSpringApplication   : Started RemoteSpringApplication in 0.74 seconds (JVM running for 1.105)
+```
+### 23.3.3 devtool为何会默认禁用缓存选项？
+> Spring Boot 支持的**一些库使用缓存来提高性能**。例如，模板引擎缓存已编译的模板以避免重复解析模板文件。此外，Spring MVC 可以在提供静态资源时向响应添加 HTTP 缓存标头。
+
+虽然缓存在**生产中非常有益，但在开发过程中可能会适得其反**，使你无法看到刚刚在应用程序中所做的更改。出于这个原因， spring-boot-devtools 默认禁用缓存选项。
+
+比如Thymeleaf 提供了spring.thymeleaf.cache来设置模板引擎的缓存，使用spring-boot-devtools模块时是不需要手动设置这些属性的，因为spring-boot-devtools会自动进行设置。
+
+那么会自动设置哪些配置呢？你可以在DevToolsPropertyDefaultsPostProcessor类找到对应的默认配置。
+```java
+public class DevToolsPropertyDefaultsPostProcessor implements EnvironmentPostProcessor {
+
+	static {
+		Map<String, Object> properties = new HashMap<>();
+		properties.put("spring.thymeleaf.cache", "false");
+		properties.put("spring.freemarker.cache", "false");
+		properties.put("spring.groovy.template.cache", "false");
+		properties.put("spring.mustache.cache", "false");
+		properties.put("server.servlet.session.persistent", "true");
+		properties.put("spring.h2.console.enabled", "true");
+		properties.put("spring.web.resources.cache.period", "0");
+		properties.put("spring.web.resources.chain.cache", "false");
+		properties.put("spring.template.provider.cache", "false");
+		properties.put("spring.mvc.log-resolved-exception", "true");
+		properties.put("server.error.include-binding-errors", "ALWAYS");
+		properties.put("server.error.include-message", "ALWAYS");
+		properties.put("server.error.include-stacktrace", "ALWAYS");
+		properties.put("server.servlet.jsp.init-parameters.development", "true");
+		properties.put("spring.reactor.debug", "true");
+		PROPERTIES = Collections.unmodifiableMap(properties);
+	}
+```
+当然如果你不想被应用属性被spring-boot-devtools默认设置， 可以通过spring.devtools.add-properties到false你application.yml中。
+### 23.3.4 devtool是否可以给所有Springboot应用做全局的配置？
+> 可以通过将spring-boot-devtools.yml文件添加到$HOME/.config/spring-boot目录来**配置全局 devtools 设置。**
+
+添加到这些文件的任何属性都适用于你机器上使用 devtools 的所有Spring Boot 应用程序。例如，要将重新启动配置为始终使用触发器文件，你需要将以下属性添加到你的spring-boot-devtools文件中：
+
+```yml
+spring:
+  devtools:
+    restart:
+      trigger-file: ".reloadtrigger"
+```
+### 23.3.5 如果我不用devtool，还有什么选择？
+> 如果我不用devtool，还有什么选择？
+
+在实际的开发过程中，我也不会去使用devtool工具, 因为：
+- devtool本身基于重启方式，这种仍然不是真正的热替换方案，JRebel才是（它是收费的）
+- 开发调试最重要的还是一种权衡
+  - 自动重启的开销如果和手动重启没有什么太大差别，那么还不如手动重启（按需重启）
+  - 多数情况下，如果是**方法内部的修改或者静态资源的修改**，在IDEA中是可以通过ReCompile（Ctrl + Shift + F9）进行热更的
+![140.springboot-hello-devtool-6.png](../../assets/images/04-主流框架/spring/140.springboot-hello-devtool-6.png)
+- 此外还有一个工具spring loaded， 可实现修改类文件的热部署，具体可看其<a href='https://github.com/spring-projects/spring-loaded'>github地址</a>上的说明。
+# 二十四、SpringBoot入门 - 开发中还有哪些常用注解
+### @SpringBootApplication
+
+```java
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Documented
+@Inherited
+@Configuration
+@EnableAutoConfiguration
+@ComponentScan
+public @interface SpringBootApplication {
+    /**
+     * Exclude specific auto-configuration classes such that they will never be applied.
+     * @return the classes to exclude
+     */
+    Class<?>[] exclude() default {};
+}
+```
+
+- 定义在main方法入口类处，用于启动Spring Boot应用项目
+
+### @EnableAutoConfiguration
+
+- 让Spring Boot根据类路径中的jar包依赖当前项目进行自动配置
+- 在`src/main/resources`的`META-INF/spring.factories`中配置：
+
+```
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+org.springframework.boot.autoconfigure.admin.SpringApplicationAdminJmxAutoConfiguration,\
+org.springframework.boot.autoconfigure.aop.AopAutoConfiguration
+```
+
+- 若有多个自动配置，用","隔开
+
+#### 这里值得注意的是这个自动加载的顺序问题：
+
+Spring Boot会按从高到低的优先级加载配置文件，**高优先级的配置会覆盖低优先期的配置**
+```java
+# 1. 命令行参数（最高优先级）
+java -jar app.jar --server.port=8081 --spring.profiles.active=prod
+
+# 2. Java系统属性（System.getProperties()）
+-Dserver.port=8082
+
+# 3. 操作系统环境变量
+export SERVER_PORT=8083
+
+# 4. 打包在jar包外部的特定profile的配置文件
+file:./config/application-{profile}.properties
+
+# 5. 打包在jar包内部的特定profile的配置文件
+classpath:/config/application-{profile}.properties
+
+# 6. 打包在jar包外部的application.properties
+file:./config/application.properties
+
+# 7. 打包在jar包内部的application.properties
+classpath:/config/application.properties
+
+# 8. 打包在jar包外部的application.yml
+file:./application.yml
+
+# 9. 打包在jar包内部的application.yml
+classpath:/application.yml
+
+# 10. @PropertySource注解指定的文件（最低优先级）
+```
+**配置加载的三大层级**：
+1. **启动参数层级**：命令行参数、系统属性、环境变量（最高优先级，应用启动前决定）
+2. **配置文件层级**：bootstrap.properties、application.properties等（应用上下文初始化时加载）
+3. **自动配置层级**：@EnableAutoConfiguration、@Configuration等（Bean创建阶段，受代码注解控制）
+
+#### 自动配置类的顺序控制
+
+自动配置类可以通过以下注解控制顺序：
+
+```java
+@AutoConfigureOrder(Ordered.HIGHEST_PRECEDENCE)  // 最高优先级
+@AutoConfigureBefore(DataSourceAutoConfiguration.class)  // 在某个配置之前
+@AutoConfigureAfter(JacksonAutoConfiguration.class)      // 在某个配置之后
+public class MyAutoConfiguration {
+    // 配置内容
+}
+```
+#### springCloud也有类似的配置方式(@BootstrapConfiguration注解)
+- 同样在`src/main/resources`的`META-INF/spring.factories`中配置：
+```
+# Bootstrap components
+org.springframework.cloud.bootstrap.BootstrapConfiguration=\
+com.test.modules.middleware.rmq.config.RabbitMQConfiguration
+```
+这里配置的执行优先级要高于ApplicaitionContext的创建的
+```java
+// 1. 启动SpringApplication
+SpringApplication.run(MyApplication.class, args);
+
+// 2. 初始化Bootstrap Context（如果使用了Spring Cloud）
+//    - 加载bootstrap.properties
+//    - 执行@BootstrapConfiguration标注的配置类
+
+// 3. 创建Main Application Context
+//    - 加载application.properties（按优先级顺序）
+//    - 执行@Configuration标注的配置类
+
+// 4. 执行自动配置 (@EnableAutoConfiguration)
+//    - 从spring.factories加载自动配置类
+//    - 按@AutoConfigureOrder、@AutoConfigureBefore/After排序
+//    - 应用条件注解(@ConditionalOnXxx)过滤
+
+// 5. 启动完成，应用Ready
+```
+#### @BootstrapConfiguration 和 @EnableAutoConfiguration 的关系
+
+1. 上下文层级关系
+
+```java
+// Spring Cloud应用的上下文结构：
+Bootstrap Context (父上下文)
+    ↓ 包含 @BootstrapConfiguration 配置类
+    ↓ 加载 bootstrap.properties
+Application Context (子上下文, 继承父上下文)  
+    ↓ 包含 @EnableAutoConfiguration 配置类
+    ↓ 加载 application.properties
+```
+
+2. 配置文件的共存方式
+
+虽然它们使用相似的配置文件名称，但**加载时机和用途不同**：
+
+```properties
+# bootstrap.properties - 用于Bootstrap Context
+spring.application.name=my-service
+spring.cloud.config.uri=http://config-server:8888
+# 这些配置在应用启动最早阶段加载
+
+# application.properties - 用于Application Context  
+server.port=8080
+spring.datasource.url=jdbc:mysql://localhost/db
+# 这些配置在Bootstrap Context之后加载
+```
+#### 配置覆盖
+相同类型比较 properties 优先级高
+
+当同一个配置属性在 bootstrap.properties 和 bootstrap.yml 文件中都存在时，那么 properties 中的配置会被加载，而忽略 yml 文件中的配置（即优先级高的配置覆盖优先级低的配置），不同配置相互互补。此处 application(.properties/yml) 同理。
+
+不同类型比较 applicatioin 覆盖 bootstrap
+ 但当同一配置在 bootstrap 和 application 中都存在时，那么虽然优先加载 bootstrap 但是会被 applicatioin 中的配置覆盖，此时则变成了低优先级覆盖高优先的配置
+
+原文参考：https://blog.csdn.net/m0_53428367/article/details/135004826
+
+### @ImportResource
+
+- 加载xml配置，一般是放在启动main类上
+
+```java
+@ImportResource("classpath*:/spring/*.xml")   // 单个文件
+
+@ImportResource({"classpath*:/spring/1.xml","classpath*:/spring/2.xml"})   // 多个文件
+```
+
+### @Value
+
+- `application.properties`定义属性，直接使用@Value注入即可
+
+```java
+public class A{
+    @Value("${push.start:0}")    // 如果缺失，默认值为0
+    private Long id;
+}
+```
+
+### @ConfigurationProperties(prefix="person")
+
+- @ConfigurationProperties` 是 Spring Boot 中非常重要的一个注解，它的主要作用是**将配置文件中的属性值批量绑定到 Java Bean 上**。
+
+```java
+@ConfigurationProperties(prefix="person")
+public class PersonProperties {
+    private String name;
+    private int age;
+}
+```
+```yml
+person:
+  name: "test"
+  age: 18
+```
+
+| 特性 | @ConfigurationProperties | @Value |
+|------|--------------------------|---------|
+| 批量绑定 | ✅ 支持 | ❌ 单个属性 |
+| 类型安全 | ✅ 强类型 | ⚠️ 需要类型转换 |
+| 嵌套属性 | ✅ 支持 | ❌ 不支持 |
+| 松绑定 | ✅ 支持 | ❌ 严格匹配 |
+| 数据校验 | ✅ 支持JSR-303 | ❌ 不支持 |
+| 默认值 | ✅ 类字段默认值 | ✅ SpEL表达式 |
+
+### @EnableConfigurationProperties
+
+- 用`@EnableConfigurationProperties`注解使`@ConfigurationProperties`生效，并从IOC容器中获取bean
+- 参考：[详细说明](https://blog.csdn.net/u010502101/article/details/78758330)
+```java
+package com.example.demo;
+import org.springframework.boot.SpringApplication;
+import 
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.ComponentScan;
+
+//@SpringBootApplication
+@ComponentScan
+/*@EnableConfigurationProperties注解是用来开启对@ConfigurationProperties注解配置Bean的支持。
+也就是@EnableConfigurationProperties注解告诉Spring Boot 使能支持@ConfigurationProperties*/
+@EnableConfigurationProperties
+public class Springboot3Application {
+
+    public static void main(String[] args) throws Exception {
+
+        ConfigurableApplicationContext context = SpringApplication.run(Springboot3Application.class, args);
+        /*@ConfigurationProperties注解和@EnableConfigurationProperties配合使用*/
+        System.out.println(context.getBean(ComponentProperties.class));
+        context.close();
+    }
+}
+```
+### @RestController
+
+- 组合`@Controller`和`@ResponseBody`，当你开发一个和页面交互数据的控制时，比如bbs-web的api接口需要此注解
+
+### @RequestMapping("/api2/copper")
+
+- 用来映射web请求（访问路径和参数）、处理类和方法，可以注解在类或方法上
+- 注解在方法上的路径会继承注解在类上的路径
+- `produces`属性：定制返回的response的媒体类型和字符集，或需返回值是json对象
+
+```java
+@RequestMapping(value="/api2/copper", produces="application/json;charset=UTF-8", method = RequestMethod.POST)
+```
+
+### @RequestParam
+
+- 获取request请求的参数值
+
+```java
+public List<CopperVO> getOpList(HttpServletRequest request,
+                                @RequestParam(value = "pageIndex", required = false) Integer pageIndex,
+                                @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+}
+```
+
+### @ResponseBody
+
+- 支持将返回值放在response体内，而不是返回一个页面
+- 比如Ajax接口，可以用此注解返回数据而不是页面
+- 此注解可以放置在返回值前或方法前
+
+**另一个玩法**：可以不用`@ResponseBody`，继承`FastJsonHttpMessageConverter`类并对`writeInternal`方法扩展，在spring响应结果时，再次拦截、加工结果
+
+```java
+// stringResult: json返回结果
+// HttpOutputMessage outputMessage
+
+byte[] payload = stringResult.getBytes();
+outputMessage.getHeaders().setContentType(META_TYPE);
+outputMessage.getHeaders().setContentLength(payload.length);
+outputMessage.getBody().write(payload);
+outputMessage.getBody().flush();
+```
+
+### @Bean
+
+- `@Bean(name="bean的名字", initMethod="初始化时调用方法名字", destroyMethod="close")`
+- 定义在方法上，在容器内初始化一个bean实例类
+
+```java
+@Bean(destroyMethod="close")
+@ConditionalOnMissingBean
+public PersonService registryService() {
+    return new PersonService();
+}
+```
+
+### @Service
+
+- 用于标注业务层组件
+
+### @Controller
+
+- 用于标注控制层组件（如struts中的action）
+
+### @Repository
+
+- 用于标注数据访问组件，即DAO组件
+
+### @Component
+
+- 泛指组件，当组件不好归类的时候，我们可以使用这个注解进行标注
+
+### @PostConstruct
+
+- spring容器初始化时，要执行该方法
+
+```java
+@PostConstruct  
+public void init() {   
+}
+```
+
+### @PathVariable
+
+- 用来获得请求url中的动态参数
+
+```java
+@Controller  
+public class TestController {  
+    @RequestMapping(value="/user/{userId}/roles/{roleId}", method = RequestMethod.GET)  
+    public String getLogin(@PathVariable("userId") String userId,  
+                         @PathVariable("roleId") String roleId) {
+        System.out.println("User Id : " + userId);  
+        System.out.println("Role Id : " + roleId);  
+        return "hello";  
+    }  
+}
+```
+
+### @ComponentScan
+
+- 注解会告知Spring扫描指定的包来初始化Spring
+
+```java
+@ComponentScan(basePackages = "com.bbs.xx")
+```
+
+### @EnableZuulProxy
+
+- 路由网关的主要目的是为了让所有的微服务对外只有一个接口，我们只需访问一个网关地址，即可由网关将所有的请求代理到不同的服务中
+- Spring Cloud是通过Zuul来实现的，支持自动路由映射到在Eureka Server上注册的服务
+- Spring Cloud提供了注解`@EnableZuulProxy`来启用路由代理
+
+### @Autowired
+
+- 在默认情况下使用`@Autowired`注释进行自动注入时，Spring容器中匹配的候选Bean数目必须有且仅有一个
+- 当找不到一个匹配的Bean时，Spring容器将抛出`BeanCreationException`异常，并指出必须至少拥有一个匹配的Bean
+- 当不能确定Spring容器中一定拥有某个类的Bean时，可以在需要自动注入该类Bean的地方可以使用`@Autowired(required = false)`，这等于告诉Spring：在找不到匹配Bean时也不报错
+- `@Autowired`注解注入map、list与`@Qualifier`：
+
+对于不唯一的Bean，使用@Autowired时可以用List和Map等进行接收
+1. 用数组接收
+```java
+public class MovieRecommender {
+
+    @Autowired
+    private MovieCatalog[] movieCatalogs;
+
+    // ...
+}
+```
+2. 用Set接收
+```java
+public class MovieRecommender {
+
+    private Set<MovieCatalog> movieCatalogs;
+
+    @Autowired
+    public void setMovieCatalogs(Set<MovieCatalog> movieCatalogs) {
+        this.movieCatalogs = movieCatalogs;
+    }
+
+    // ...
+}
+```
+3. 用Map接收（即使是类型化的 Map 实例也可以被自动注入，只要预期的key类型是 String。map的值包含所有预期类型的Bean，而key则包含相应的Bean名称，正如下面的例子所示。）
+```java
+public class MovieRecommender {
+
+    private Map<String, MovieCatalog> movieCatalogs;
+
+    @Autowired
+    public void setMovieCatalogs(Map<String, MovieCatalog> movieCatalogs) {
+        this.movieCatalogs = movieCatalogs;
+    }
+
+    // ...
+}
+```
+下面结合我项目代码做一个例子：(caffeine进行缓存配置，存在多个配置)
+```java
+@Configuration
+@EnableCaching
+public class CacheConfig {
+
+    //写入后5分钟过期
+    @Bean("fiveMinutesTermCache")
+    @Primary
+    public CacheManager fiveMinutesTermCache() {
+        CaffeineCacheManager manager = new CaffeineCacheManager();
+        manager.setCaffeine(Caffeine.newBuilder()
+                .recordStats() // 开启统计
+                .expireAfterWrite(5, TimeUnit.MINUTES));
+        return manager;
+    }
+
+    // 定义2小时缓存
+    @Bean("twoHoursTermCache")
+    public CacheManager twoHoursTermCache() {
+        CaffeineCacheManager manager = new CaffeineCacheManager();
+        manager.setCaffeine(Caffeine.newBuilder()
+                .recordStats() // 开启统计
+                .expireAfterWrite(2, TimeUnit.HOURS));
+        return manager;
+    }
+
+    // 定义5天的缓存
+    @Bean("fiveDaysTermCache")
+    public CacheManager fiveDaysTermCache() {
+        CaffeineCacheManager manager = new CaffeineCacheManager();
+        manager.setCaffeine(Caffeine.newBuilder()
+                .recordStats() // 开启统计
+                .expireAfterWrite(5, TimeUnit.DAYS));
+        return manager;
+    }
+
+}
+```
+接口进行缓存监控：
+```java
+@RestController
+@RequestMapping("/cache")
+@Api(tags = "caffeine缓存管理", value = "caffeine缓存管理相关接口", protocols = "http", hidden = true)
+@ApiIgnore
+public class CacheMonitorController {
+
+    @Resource //用map接收
+    private Map<String, CacheManager> cacheManagerMap;
+
+    @GetMapping("/stats")
+    public Map<String, Object> getCacheStats() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (MapUtils.isNotEmpty(cacheManagerMap)) {
+            for (Map.Entry<String, CacheManager> cacheManager : cacheManagerMap.entrySet()) {
+                result.put(cacheManager.getKey(), buildCacheInfo(cacheManager.getValue()));
+            }
+        }
+        return result;
+    }
+
+    private Map<String, Object> buildCacheInfo(CacheManager manager) {
+        Map<String, Object> cacheInfo = new LinkedHashMap<>();
+        manager.getCacheNames().forEach(name -> {
+            Cache cache = manager.getCache(name);
+            com.github.benmanes.caffeine.cache.Cache<Object, Object> caffeineCache =
+                    (com.github.benmanes.caffeine.cache.Cache<Object, Object>) cache.getNativeCache();
+
+            Map<String, Object> stats = new LinkedHashMap<>();
+            stats.put("size", caffeineCache.estimatedSize());
+
+            List<Map<String, Object>> entries = new ArrayList<>();
+            caffeineCache.asMap().forEach((key, value) -> {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("key", key);
+                entry.put("value", value);
+                // 剩余时间获取
+                caffeineCache.policy().expireAfterWrite().ifPresent(policy -> {
+                    Optional<Duration> durationOpt = policy.ageOf(key);
+                    if (durationOpt.isPresent()) {
+                        //1.查询当前设置的过期时间
+                        Duration expiresDuration = policy.getExpiresAfter();
+                        //2.获取当前key已经存活的时间
+                        Duration survivalDuration = durationOpt.get();
+                        //3.获取剩余时间
+                        Duration remainDuration = expiresDuration.minus(survivalDuration);
+                        //4.剩余时间计算
+                        entry.put("ttlMillis", remainDuration.toMillis());
+                        //5.剩余时间格式化
+                        entry.put("ttlHuman", formatDuration(remainDuration));
+                    }
+                });
+
+                entries.add(entry);
+            });
+            stats.put("entries", entries);
+
+            cacheInfo.put(name, stats);
+        });
+        return cacheInfo;
+    }
+
+    // 辅助方法：格式化时间显示
+    private String formatDuration(Duration duration) {
+        return String.format("%d天 %02d:%02d:%02d",
+                duration.toDays(),
+                duration.toHours() % 24,
+                duration.toMinutes() % 60,
+                duration.getSeconds() % 60);
+    }
+}
+```
+
+[详细说明](https://blog.csdn.net/ethunsex/article/details/66475792)
+
+### @Configuration
+
+```java
+@Configuration("name") // 表示这是一个配置信息类,可以给这个配置类也起一个名称
+@ComponentScan("spring4") // 类似于xml中的<context:component-scan base-package="spring4"/>
+public class Config {
+    @Autowired // 自动注入，如果容器中有多个符合的bean时，需要进一步明确
+    @Qualifier("compent") // 进一步指明注入bean名称为compent的bean
+    private Compent compent;
+
+    @Bean // 类似于xml中的<bean id="newbean" class="spring4.Compent"/>
+    public Compent newbean(){
+        return new Compent();
+    }   
+}
+```
+
+### @Import(Config1.class)
+
+- 导入Config1配置类里实例化的bean
+
+```java
+@Configuration
+public class CDConfig {
+    @Bean   // 将SgtPeppers注册为 SpringContext中的bean
+    public CompactDisc compactDisc() {
+        return new CompactDisc();  // CompactDisc类型的
+    }
+}
+
+@Configuration
+@Import(CDConfig.class)  // 导入CDConfig的配置
+public class CDPlayerConfig {
+    @Bean(name = "cDPlayer")
+    public CDPlayer cdPlayer(CompactDisc compactDisc) {  
+        // 这里会注入CompactDisc类型的bean
+        // 这里注入的这个bean是CDConfig.class中的CompactDisc类型的那个bean
+        return new CDPlayer(compactDisc);
+    }
+}
+```
+
+### @Order
+
+- `@Order(1)`，值越小优先级超高，越先运行
+
+### @ConditionalOnExpression
+
+```java
+@Configuration
+@ConditionalOnExpression("${enabled:false}")
+public class BigpipeConfiguration {
+    @Bean
+    public OrderMessageMonitor orderMessageMonitor(ConfigContext configContext) {
+        return new OrderMessageMonitor(configContext);
+    }
+}
+```
+
+- 开关为true的时候才实例化bean
+
+### @ConditionalOnProperty
+
+- 这个注解能够控制某个`@Configuration`是否生效
+- 具体操作是通过其两个属性`name`以及`havingValue`来实现的，其中`name`用来从`application.properties`中读取某个属性值，如果该值为空，则返回false；如果值不为空，则将该值与`havingValue`指定的值进行比较，如果一样则返回true；否则返回false
+- 如果返回值为false，则该configuration不生效；为true则生效
+- 参考：[详细说明](https://blog.csdn.net/dalangzhonghangxing/article/details/78420057)
+
+### @ConditionalOnClass
+
+- 该注解的参数对应的类必须存在，否则不解析该注解修饰的配置类
+
+```java
+@Configuration
+@ConditionalOnClass({Gson.class})
+public class GsonAutoConfiguration {
+    public GsonAutoConfiguration() {
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public Gson gson() {
+        return new Gson();
+    }
+}
+```
+
+### @ConditionalOnMissingClass({ApplicationManager.class})
+
+- 如果存在它修饰的类的bean，则不需要再创建这个bean
+
+### @ConditionalOnMissingBean(name = "example")
+
+- 表示如果name为"example"的bean存在，该注解修饰的代码块不执行
+# 二十五、▶SpringBoot接口 - 如何统一接口封装
+## 25.1 RESTful API接口?
+- 什么是 REST？
+
+Representational State Transfer，翻译是“表现层状态转化”。可以总结为一句话：**REST 是所有 Web 应用都应该遵守的架构设计指导原则。**
+
+面向资源是 REST 最明显的特征，对于同一个资源的一组不同的操作。资源是服务器上一个可命名的抽象概念，资源是以名词为核心来组织的，首先关注的是名词。REST 要求，必须通过统一的接口来对资源执行各种操作。对于每个资源只能执行一组有限的操作。
+- 什么是 RESTful API？
+
+**符合 REST 设计标准的 API**，即 RESTful API。REST 架构设计，遵循的各项标准和准则，就是 HTTP 协议的表现，换句话说，HTTP 协议就是属于 REST 架构的设计模式。比如，无状态，请求-响应。
+
+Restful相关文档可以参考 https://restfulapi.net/
+## 25.2 为什么要统一封装接口
+> 现在大多数项目采用前后分离的模式进行开发，统一返回方便前端进行开发和封装，以及出现时给出响应编码和信息
+
+以查询某个用户接口而言，如果没有封装, 返回结果如下
+```json
+{
+  "userId": 1,
+  "userName": "赵一"
+}
+```
+如果封装了，返回正常的结果如下：
+```json
+{
+  "timestamp": 11111111111,
+  "status": 200,
+  "message": "success",
+  "data": {
+    "userId": 1,
+    "userName": "赵一"
+  }
+}
+```
+异常返回结果如下：
+```json
+{
+  "timestamp": 11111111111,
+  "status": 10001,
+  "message": "User not exist",
+  "data": null
+}
+```
+## 25.3 实现案例
+> 如何实现上面的封装呢？
+### 25.3.1 状态码封装
+
+这里以常见的状态码为例，包含responseCode 和 description两个属性。
+
+如果还有其它业务状态码，也可以放到这个类中。
+```java
+
+@Getter
+@AllArgsConstructor
+public enum ResponseStatus {
+
+    SUCCESS("200", "success"),
+    FAIL("500", "failed"),
+
+    HTTP_STATUS_200("200", "ok"),
+    HTTP_STATUS_400("400", "request error"),
+    HTTP_STATUS_401("401", "no authentication"),
+    HTTP_STATUS_403("403", "no authorities"),
+    HTTP_STATUS_500("500", "server error");
+
+    public static final List<ResponseStatus> HTTP_STATUS_ALL = Collections.unmodifiableList(
+            Arrays.asList(HTTP_STATUS_200, HTTP_STATUS_400, HTTP_STATUS_401, HTTP_STATUS_403, HTTP_STATUS_500
+            ));
+
+    /**
+     * response code
+     */
+    private final String responseCode;
+
+    /**
+     * description.
+     */
+    private final String description;
+
+}
+```
+### 25.3.2 返回内容封装
+包含公共的接口返回时间，状态status, 消息message， 以及数据data。
+
+考虑到数据的序列化（比如在网络上传输），这里data有时候还会extends Serializable。
+```java
+@Data
+@Builder
+public class ResponseResult<T> {
+
+    /**
+     * response timestamp.
+     */
+    private long timestamp;
+
+    /**
+     * response code, 200 -> OK.
+     */
+    private String status;
+
+    /**
+     * response message.
+     */
+    private String message;
+
+    /**
+     * response data.
+     */
+    private T data;
+
+    /**
+     * response success result wrapper.
+     *
+     * @param <T> type of data class
+     * @return response result
+     */
+    public static <T> ResponseResult<T> success() {
+        return success(null);
+    }
+
+    /**
+     * response success result wrapper.
+     *
+     * @param data response data
+     * @param <T>  type of data class
+     * @return response result
+     */
+    public static <T> ResponseResult<T> success(T data) {
+        return ResponseResult.<T>builder().data(data)
+                .message(ResponseStatus.SUCCESS.getDescription())
+                .status(ResponseStatus.SUCCESS.getResponseCode())
+                .timestamp(System.currentTimeMillis())
+                .build();
+    }
+
+    /**
+     * response error result wrapper.
+     *
+     * @param message error message
+     * @param <T>     type of data class
+     * @return response result
+     */
+    public static <T extends Serializable> ResponseResult<T> fail(String message) {
+        return fail(null, message);
+    }
+
+    /**
+     * response error result wrapper.
+     *
+     * @param data    response data
+     * @param message error message
+     * @param <T>     type of data class
+     * @return response result
+     */
+    public static <T> ResponseResult<T> fail(T data, String message) {
+        return ResponseResult.<T>builder().data(data)
+                .message(message)
+                .status(ResponseStatus.FAIL.getResponseCode())
+                .timestamp(System.currentTimeMillis())
+                .build();
+    }
+
+}
+```
+### 25.3.3 接口返回时调用
+在接口返回时调用, 以用户接口为例
+```java
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @Autowired
+    private IUserService userService;
+
+    /**
+     * @param user user param
+     * @return user
+     */
+    @ApiOperation("Add/Edit User")
+    @PostMapping("add")
+    public ResponseResult<User> add(User user) {
+        if (user.getId()==null || !userService.exists(user.getId())) {
+            user.setCreateTime(LocalDateTime.now());
+            user.setUpdateTime(LocalDateTime.now());
+            userService.save(user);
+        } else {
+            user.setUpdateTime(LocalDateTime.now());
+            userService.update(user);
+        }
+        return ResponseResult.success(userService.find(user.getId()));
+    }
+
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User One")
+    @GetMapping("edit/{userId}")
+    public ResponseResult<User> edit(@PathVariable("userId") Long userId) {
+        return ResponseResult.success(userService.find(userId));
+    }
+}
+```
+### 25.3.4：优化(使用@RestControllerAdvice统一处理返回值进行封装)
+```java
+@RestControllerAdvice
+public class ResponseWrapperHandler implements ResponseBodyAdvice<Object> {
+    @Override
+    public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
+        //对于swagger资源为静态资源，不进行统一封装处理
+        //1.获取当前Controller类的包名
+        String packageName = returnType.getContainingClass().getPackage().getName();
+        //2.排除Swagger/actuator相关Controller（springfox.documentation为swagger2，org.springdoc.web为swagger3）
+        boolean isExclusion =
+                packageName.startsWith("springfox.documentation") ||  // SpringFox
+                        packageName.startsWith("org.springdoc.web") ||          // SpringDoc
+                        packageName.startsWith("org.springframework.boot.actuate")//actuator
+                ;
+        return !isExclusion && !returnType.getParameterType().isAssignableFrom(BaseResponse.class)
+                && !returnType.hasMethodAnnotation(IgnoreResponseWrapper.class);
+    }
+
+    @Override
+    public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType,
+                                  Class<? extends HttpMessageConverter<?>> selectedConverterType,
+                                  ServerHttpRequest request, ServerHttpResponse response) {
+        //响应体需要返回字符串类型时转化为json
+        if (body instanceof String) {
+            response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+            return JacksonTool.object2Json(new BaseResponse<>(body));
+        }
+
+        // 已经包装的响应-避免重复包装
+        if (body instanceof BaseResponse) {
+            return body;
+        }
+
+        return new BaseResponse<>(body);
+    }
+}
+```
+### 25.3.5 优化：统一异常拦截
+```java
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+    private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    /**
+     * 捕获和处理参数验证中的方法参数无效异常MethodArgumentNotValidException case: JSON格式的包装类异常，如@ResponsBody @Valid User user
+     *
+     * @param e 异常对象
+     * @return 基础返回类型，增加了解析后的错误信息
+     */
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler({MethodArgumentNotValidException.class})
+    public BaseResponse<Map<String, String>> methodArgumentNotValidExceptionHandler(
+            MethodArgumentNotValidException e) {
+        BindingResult result = e.getBindingResult();
+        Map<String, String> errorMap = new HashMap<>();
+        setErrorMap(result, errorMap);
+        logger.error(BaseErrorCode.ERR_PARAMS_IS_ILLEGAL.getCode() + ":" + I18nUtil.getI18nValueByErrorCode(BaseErrorCode.ERR_PARAMS_IS_ILLEGAL.getCode()), e);
+        return new BaseResponse<>(BaseErrorCode.ERR_PARAMS_IS_ILLEGAL.getCode(),
+                I18nUtil.getI18nValueByErrorCode(BaseErrorCode.ERR_PARAMS_IS_ILLEGAL.getCode()) + e.getMessage());
+    }
+
+    /**
+     * 捕获和处理参数验证中的异常BindException case：表单格式的包装类异常，如@Valid User user
+     *
+     * @param e 异常对象
+     * @return 基础返回类型，增加了解析后的错误信息
+     */
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler({BindException.class})
+    public BaseResponse<Map<String, String>> bindExceptionHandler(BindException e) {
+        BindingResult result = e.getBindingResult();
+        Map<String, String> errorMap = new HashMap<>();
+        setErrorMap(result, errorMap);
+        logger.error(BaseErrorCode.ERR_PARAMS_IS_ILLEGAL.getCode() + ":" + I18nUtil.getI18nValueByErrorCode(BaseErrorCode.ERR_PARAMS_IS_ILLEGAL.getCode()), e);
+        return new BaseResponse<>(BaseErrorCode.ERR_PARAMS_IS_ILLEGAL.getCode(),
+                I18nUtil.getI18nValueByErrorCode(BaseErrorCode.ERR_PARAMS_IS_ILLEGAL.getCode()));
+    }
+
+
+    /**
+     * 捕获运行时的异常BusinessException
+     *
+     * @param e 异常对象
+     * @return 基础返回类型，增加了解析后的错误信息
+     */
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler({BaseException.class})
+    public BaseResponse<?> bindExceptionHandler(BaseException e) {
+        logger.error(e.getCode() + ":" + e.getMsg(), e);
+        return new BaseResponse<>(e.getCode(), e.getMsg());
+    }
+
+    /**
+     * 捕获和处理参数验证中的违反实体定义的约束异常ConstraintViolationException case：@RequestParam的原生注解异常
+     *
+     * @param e 异常对象
+     * @return 基础返回类型，增加了解析后的错误信息
+     */
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(value = {ConstraintViolationException.class})
+    public BaseResponse<Map<String, String>> constraintViolationExceptionHandler(
+            ConstraintViolationException e) {
+        logger.error(BaseErrorCode.ERR_PARAMS_IS_ILLEGAL.getCode() + ":" + I18nUtil.getI18nValueByErrorCode(BaseErrorCode.ERR_PARAMS_IS_ILLEGAL.getCode()), e);
+        return new BaseResponse<>(BaseErrorCode.ERR_PARAMS_IS_ILLEGAL.getCode(),
+                I18nUtil.getI18nValueByErrorCode(BaseErrorCode.ERR_PARAMS_IS_ILLEGAL.getCode()));
+    }
+
+    /**
+     * 处理请求方法不支持异常
+     *
+     * @param ex 异常对象
+     * @return 标准化错误响应
+     */
+    @ResponseStatus(HttpStatus.METHOD_NOT_ALLOWED)
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public BaseResponse<?> handleHttpRequestMethodNotSupported(
+            HttpRequestMethodNotSupportedException ex,
+            HttpServletRequest request) {
+
+        // 构建错误信息明细
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("path", request.getRequestURI());
+        details.put("attemptedMethod", ex.getMethod());
+        details.put("supportedMethods", ex.getSupportedHttpMethods());
+        logger.error(BaseErrorCode.ERR_METHOD_NOT_ALLOWED.getCode() + ":" + I18nUtil.getI18nValueByErrorCode(BaseErrorCode.ERR_METHOD_NOT_ALLOWED.getCode()) + JacksonTool.object2Json(details), ex);
+        return new BaseResponse<>(
+                BaseErrorCode.ERR_METHOD_NOT_ALLOWED.getCode(),
+                I18nUtil.getI18nValueByErrorCode(BaseErrorCode.ERR_METHOD_NOT_ALLOWED.getCode(), JacksonTool.object2Json(details))
+        );
+    }
+
+    /**
+     * 捕获未处理的系统级异常
+     */
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    @ExceptionHandler(value = Exception.class)
+    public BaseResponse<?> systemExceptionHandler(Exception e) {
+        logger.error(BaseErrorCode.ERR_SYSTEM_ERROR.getCode() + ":" + I18nUtil.getI18nValueByErrorCode(BaseErrorCode.ERR_SYSTEM_ERROR.getCode()), e);
+        return new BaseResponse<>(
+                BaseErrorCode.ERR_SYSTEM_ERROR.getCode(),
+                I18nUtil.getI18nValueByErrorCode(BaseErrorCode.ERR_SYSTEM_ERROR.getCode()) + CommonConstant.COLON + e.getMessage()
+        );
+    }
+
+
+    private void setErrorMap(BindingResult result, Map<String, String> errorMap) {
+        for (ObjectError error : result.getAllErrors()) {
+            String msg = error.getDefaultMessage();
+            String objectName = StringUtils.trim(error.getObjectName());
+            if (StringUtils.isNotBlank(objectName)) {
+                objectName += ".";
+            }
+            if (error instanceof FieldError) {
+                // fieldError
+                String field = StringUtils.trim(((FieldError) error).getField());
+                if (StringUtils.isNotBlank(field)) {
+                    field += ".";
+                }
+                errorMap.put(objectName + field, msg);
+            } else {
+                // 普通Error
+                String code = error.getCode();
+                errorMap.put(objectName + code, msg);
+            }
+        }
+    }
+
+
+}
+```
+# 二十六、SpringBoot接口 - 如何对参数进行校验
+## 26.1 什么是不优雅的参数校验
+后端对前端传过来的参数也是需要进行校验的，如果在controller中直接校验需要用大量的if else做判断
+
+以添加用户的接口为例，需要对前端传过来的参数进行校验， 如下的校验就是不优雅的：
+```java
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @PostMapping("add")
+    public ResponseEntity<String> add(User user) {
+        if(user.getName()==null) {
+            return ResponseResult.fail("user name should not be empty");
+        } else if(user.getName().length()<5 || user.getName().length()>50){
+            return ResponseResult.fail("user name length should between 5-50");
+        }
+        if(user.getAge()< 1 || user.getAge()> 150) {
+            return ResponseResult.fail("invalid age");
+        }
+        // ...
+        return ResponseEntity.ok("success");
+    }
+}
+```
+针对这个普遍的问题，Java开发者在Java API规范 (JSR303) 定义了Bean校验的标准validation-api，但没有提供实现。
+
+hibernate validation是对这个规范的实现，并增加了校验注解如@Email、@Length等。
+
+Spring Validation是对hibernate validation的二次封装，用于支持spring mvc参数自动校验。
+
+接下来，我们以springboot项目为例，介绍Spring Validation的使用。
+
+## 26.2 实现案例
+> 本例子采用 spring validation 对参数绑定进行校验，主要给你提供参数校验的思路。针对接口统一的错误信息（比如绑定参数检查的错误）封装请看SpringBoot接口 - 如何统一异常处理。
+### 26.2.1 POM
+添加pom依赖
+```xml
+<!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-validation -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-validation</artifactId>
+</dependency>
+```
+### 26.2.2 请求参数封装
+单一职责，所以将查询用户的参数封装到UserParam中， 而不是User（数据库实体）本身。
+
+对每个参数字段添加validation注解约束和message。
+```java
+@Data
+@Builder
+@ApiModel(value = "User", subTypes = {AddressParam.class})
+public class UserParam implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    @NotEmpty(message = "could not be empty")
+    private String userId;
+
+    @NotEmpty(message = "could not be empty")
+    @Email(message = "invalid email")
+    private String email;
+
+    @NotEmpty(message = "could not be empty")
+    @Pattern(regexp = "^(\\d{6})(\\d{4})(\\d{2})(\\d{2})(\\d{3})([0-9]|X)$", message = "invalid ID")
+    private String cardNo;
+
+    @NotEmpty(message = "could not be empty")
+    @Length(min = 1, max = 10, message = "nick name should be 1-10")
+    private String nickName;
+
+    @NotEmpty(message = "could not be empty")
+    @Range(min = 0, max = 1, message = "sex should be 0-1")
+    private int sex;
+
+    @Max(value = 100, message = "Please input valid age")
+    private int age;
+
+    @Valid
+    private AddressParam address;
+
+}
+```
+### 26.2.3 Controller中获取参数绑定结果
+使用@Valid或者@Validated注解，参数校验的值放在BindingResult中
+```java
+@Slf4j
+@Api(value = "User Interfaces", tags = "User Interfaces")
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    /**
+     * http://localhost:8080/user/add .
+     *
+     * @param userParam user param
+     * @return user
+     */
+    @ApiOperation("Add User")
+    @ApiImplicitParam(name = "userParam", type = "body", dataTypeClass = UserParam.class, required = true)
+    @PostMapping("add")
+    public ResponseEntity<String> add(@Valid @RequestBody UserParam userParam, BindingResult bindingResult) {
+        if (bindingResult.hasErrors()) {
+            List<ObjectError> errors = bindingResult.getAllErrors();
+            errors.forEach(p -> {
+                FieldError fieldError = (FieldError) p;
+                log.error("Invalid Parameter : object - {},field - {},errorMessage - {}", fieldError.getObjectName(), fieldError.getField(), fieldError.getDefaultMessage());
+            });
+            return ResponseEntity.badRequest().body("invalid parameter");
+        }
+        return ResponseEntity.ok("success");
+    }
+}
+```
+### 26.2.4 校验结果
+POST访问添加User的请求 后台输出参数绑定错误信息：（包含哪个对象，哪个字段，什么样的错误描述）
+```java
+2021-09-16 10:37:05.173 ERROR 21216 --- [nio-8080-exec-8] t.p.s.v.controller.UserController        : Invalid Parameter : object - userParam,field - nickName,errorMessage - could not be empty
+2021-09-16 10:37:05.176 ERROR 21216 --- [nio-8080-exec-8] t.p.s.v.controller.UserController        : Invalid Parameter : object - userParam,field - email,errorMessage - could not be empty
+2021-09-16 10:37:05.176 ERROR 21216 --- [nio-8080-exec-8] t.p.s.v.controller.UserController        : Invalid Parameter : object - userParam,field - cardNo,errorMessage - could not be empty
+```
+## 26.3 进一步理解
+### 26.3.1 Validation分组校验？
+> 上面的例子中，其实存在一个问题，UserParam既可以作为addUser的参数（id为空），又可以作为updateUser的参数（id不能为空），这时候怎么办呢？分组校验登场。
+```java
+@Data
+@Builder
+@ApiModel(value = "User", subTypes = {AddressParam.class})
+public class UserParam implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    @NotEmpty(message = "could not be empty") // 这里定为空，对于addUser时是不合适的
+    private String userId;
+
+}
+```
+这时候可以使用Validation分组
+- 先定义分组（无需实现接口）
+```java
+public interface AddValidationGroup {
+}
+public interface EditValidationGroup {
+}
+```
+- 在UserParam的userId字段添加分组
+```java
+@Data
+@Builder
+@ApiModel(value = "User", subTypes = {AddressParam.class})
+public class UserParam implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    @NotEmpty(message = "{user.msg.userId.notEmpty}", groups = {EditValidationGroup.class}) // 这里
+    private String userId;
+
+}
+```
+- controller中的接口使用校验时使用分组
+
+PS:**需要使用@Validated注解**
+```java
+@Slf4j
+@Api(value = "User Interfaces", tags = "User Interfaces")
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    /**
+     * http://localhost:8080/user/add .
+     *
+     * @param userParam user param
+     * @return user
+     */
+    @ApiOperation("Add User")
+    @ApiImplicitParam(name = "userParam", type = "body", dataTypeClass = UserParam.class, required = true)
+    @PostMapping("add")
+    public ResponseEntity<UserParam> add(@Validated(AddValidationGroup.class) @RequestBody UserParam userParam) {
+        return ResponseEntity.ok(userParam);
+    }
+
+    /**
+     * http://localhost:8080/user/add .
+     *
+     * @param userParam user param
+     * @return user
+     */
+    @ApiOperation("Edit User")
+    @ApiImplicitParam(name = "userParam", type = "body", dataTypeClass = UserParam.class, required = true)
+    @PostMapping("edit")
+    public ResponseEntity<UserParam> edit(@Validated(EditValidationGroup.class) @RequestBody UserParam userParam) {
+        return ResponseEntity.ok(userParam);
+    }
+}
+```
+### 26.3.2 @Validated和@Valid什么区别？
+> 细心的你会发现，上个例子中用的是@Validated, 而不是@Valid，那它们之间的区别是什么呢？
+
+在检验Controller的入参是否符合规范时，使用@Validated或者@Valid在基本验证功能上没有太多区别。但是在分组、注解地方、嵌套验证等功能上两个有所不同：
+
+- 分组
+  - @Validated：提供了一个分组功能，可以在入参验证时，根据不同的分组采用不同的验证机制，这个网上也有资料，不详述。
+  - @Valid：作为标准JSR-303规范，还没有吸收分组的功能。
+- 注解地方
+  - @Validated：可以用在类型、方法和方法参数上。但是不能用在成员属性（字段）上
+  - @Valid：可以用在方法、构造函数、方法参数和成员属性（字段）上
+- 嵌套类型
+  - 比如本文例子中的address是user的一个嵌套属性, 只能用@Valid
+```java
+@Data
+@Builder
+@ApiModel(value = "User", subTypes = {AddressParam.class})
+public class UserParam implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    @Valid // 这里只能用@Valid
+    private AddressParam address;
+
+}
+```
+### 26.3.3 有哪些常用的校验？
+> 从以下三类理解。
+- JSR303/JSR-349: JSR303是一项标准,只提供规范不提供实现，规定一些校验规范即校验注解，如@Null，@NotNull，@Pattern，位于javax.validation.constraints包下。JSR-349是其的升级版本，添加了一些新特性。
+```java
+@AssertFalse            被注释的元素只能为false
+@AssertTrue             被注释的元素只能为true
+@DecimalMax             被注释的元素必须小于或等于{value}
+@DecimalMin             被注释的元素必须大于或等于{value}
+@Digits                 被注释的元素数字的值超出了允许范围(只允许在{integer}位整数和{fraction}位小数范围内)
+@Email                  被注释的元素不是一个合法的电子邮件地址
+@Future                 被注释的元素需要是一个将来的时间
+@FutureOrPresent        被注释的元素需要是一个将来或现在的时间
+@Max                    被注释的元素最大不能超过{value}
+@Min                    被注释的元素最小不能小于{value}
+@Negative               被注释的元素必须是负数
+@NegativeOrZero         被注释的元素必须是负数或零
+@NotBlank               被注释的元素不能为空
+@NotEmpty               被注释的元素不能为空
+@NotNull                被注释的元素不能为null
+@Null                   被注释的元素必须为null
+@Past                   被注释的元素需要是一个过去的时间
+@PastOrPresent          被注释的元素需要是一个过去或现在的时间
+@Pattern                被注释的元素需要匹配正则表达式"{regexp}"
+@Positive               被注释的元素必须是正数
+@PositiveOrZero         被注释的元素必须是正数或零
+@Size                   被注释的元素个数必须在{min}和{max}之间
+```
+- hibernate validation：hibernate validation是对这个规范的实现，并增加了一些其他校验注解，如@Email，@Length，@Range等等
+```java
+@CreditCardNumber       被注释的元素不合法的信用卡号码
+@Currency               被注释的元素不合法的货币 (必须是{value}其中之一)
+@EAN                    被注释的元素不合法的{type}条形码
+@Email                  被注释的元素不是一个合法的电子邮件地址  (已过期)
+@Length                 被注释的元素长度需要在{min}和{max}之间
+@CodePointLength        被注释的元素长度需要在{min}和{max}之间
+@LuhnCheck              被注释的元素${validatedValue}的校验码不合法, Luhn模10校验和不匹配
+@Mod10Check             被注释的元素${validatedValue}的校验码不合法, 模10校验和不匹配
+@Mod11Check             被注释的元素${validatedValue}的校验码不合法, 模11校验和不匹配
+@ModCheck               被注释的元素${validatedValue}的校验码不合法, ${modType}校验和不匹配  (已过期)
+@NotBlank               被注释的元素不能为空  (已过期)
+@NotEmpty               被注释的元素不能为空  (已过期)
+@ParametersScriptAssert 被注释的元素执行脚本表达式"{script}"没有返回期望结果
+@Range                  被注释的元素需要在{min}和{max}之间
+@SafeHtml               被注释的元素可能有不安全的HTML内容
+@ScriptAssert           被注释的元素执行脚本表达式"{script}"没有返回期望结果
+@URL                    被注释的元素需要是一个合法的URL
+@DurationMax            被注释的元素必须小于${inclusive == true ? '或等于' : ''}${days == 0 ? '' : days += '天'}${hours == 0 ? '' : hours += '小时'}${minutes == 0 ? '' : minutes += '分钟'}${seconds == 0 ? '' : seconds += '秒'}${millis == 0 ? '' : millis += '毫秒'}${nanos == 0 ? '' : nanos += '纳秒'}
+@DurationMin            被注释的元素必须大于${inclusive == true ? '或等于' : ''}${days == 0 ? '' : days += '天'}${hours == 0 ? '' : hours += '小时'}${minutes == 0 ? '' : minutes += '分钟'}${seconds == 0 ? '' : seconds += '秒'}${millis == 0 ? '' : millis += '毫秒'}${nanos == 0 ? '' : nanos += '纳秒'}
+```
+- spring validation：spring validation对hibernate validation进行了二次封装，在springmvc模块中添加了自动校验，并将校验信息封装进了特定的类中
+### 26.3.4 自定义validation？
+> 如果上面的注解不能满足我们检验参数的要求，我们能不能自定义校验规则呢？ 可以。
+- 定义注解
+```java
+package tech.pdai.springboot.validation.group.validation.custom;
+
+import javax.validation.Constraint;
+import javax.validation.Payload;
+import java.lang.annotation.Documented;
+import java.lang.annotation.Retention;
+import java.lang.annotation.Target;
+
+import static java.lang.annotation.ElementType.*;
+import static java.lang.annotation.RetentionPolicy.RUNTIME;
+
+@Target({ METHOD, FIELD, ANNOTATION_TYPE, CONSTRUCTOR, PARAMETER, TYPE_USE })
+@Retention(RUNTIME)
+@Documented
+@Constraint(validatedBy = {TelephoneNumberValidator.class}) // 指定校验器
+public @interface TelephoneNumber {
+    String message() default "Invalid telephone number";
+    Class<?>[] groups() default { };
+    Class<? extends Payload>[] payload() default { };
+}
+```
+| 参数 | 作用 | 使用频率 |
+|------|------|----------|
+| `message` | 定义校验失败的错误消息 | ⭐⭐⭐⭐⭐（必用） |
+| `groups` | 实现不同场景的校验规则 | ⭐⭐⭐⭐（常用） |
+| `payload` | 携带校验的元数据信息 | ⭐（较少使用） |
+
+**核心理解**：
+1. `message`：告诉用户"哪里错了"
+2. `groups`：告诉框架"什么时候校验"  
+3. `payload`：告诉程序"如何处理这个错误"
+
+- 定义校验器
+```java
+public class TelephoneNumberValidator implements ConstraintValidator<TelephoneNumber, String> {
+    private static final String REGEX_TEL = "0\\d{2,3}[-]?\\d{7,8}|0\\d{2,3}\\s?\\d{7,8}|13[0-9]\\d{8}|15[1089]\\d{8}";
+
+    @Override
+    public boolean isValid(String s, ConstraintValidatorContext constraintValidatorContext) {
+        try {
+            return Pattern.matches(REGEX_TEL, s);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+}
+```
+- 使用
+```java
+@Data
+@Builder
+@ApiModel(value = "User", subTypes = {AddressParam.class})
+public class UserParam implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    @NotEmpty(message = "{user.msg.userId.notEmpty}", groups = {EditValidationGroup.class})
+    private String userId;
+
+    @TelephoneNumber(message = "invalid telephone number") // 这里
+    private String telephone;
+
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
