@@ -16037,6 +16037,1712 @@ model模型
 - 众多基于注释分析的工具无法解析jar包里面的注释(sources jar包)，需要人工配置源码路径，无法满足DevOps构建场景。
 - 部分工具无法支持多模块复杂项目代码分析。
 ### 31.1.2 什么是Smart-Doc？有哪些特性？
+> smart-doc是一款同时支持JAVA REST API和Apache Dubbo RPC接口文档生成的工具，smart-doc在业内率先提出基于JAVA泛型定义推导的理念， 完全基于接口源码来分析生成接口文档，不采用任何注解侵入到业务代码中。你只需要按照java-doc标准编写注释， smart-doc就能帮你生成一个简易明了的Markdown、HTML5、Postman Collection2.0+、OpenAPI 3.0+的文档。
+- 零注解、零学习成本、只需要写标准JAVA注释。
+- 基于源代码接口定义自动推导，强大的返回结构推导。
+- 支持Spring MVC、Spring Boot、Spring Boot Web Flux(controller书写方式)、Feign。
+- 支持Callable、Future、CompletableFuture等异步接口返回的推导。
+- 支持JavaBean上的JSR303参数校验规范，包括分组验证。
+- 对JSON请求参数的接口能够自动生成模拟JSON参数。
+- 对一些常用字段定义能够生成有效的模拟值。
+- 支持生成JSON返回值示例。
+- 支持从项目外部加载源代码来生成字段注释(包括标准规范发布的jar包)。
+- 支持生成多种格式文档：Markdown、HTML5、Asciidoctor、Postman Collection、OpenAPI 3.0。 Up- 开放文档数据，可自由实现接入文档管理系统。
+- 支持导出错误码和定义在代码中的各种字典码到接口文档。
+- 支持Maven、Gradle插件式轻松集成。
+- 支持Apache Dubbo RPC接口文档生成。
+- debug接口调试html5页面完全支持文件上传，下载(@download tag标记下载方法)测试
+## 31.2 实现案例
+> 从smart-doc 1.7.9开始官方提供了Maven插件，可以通过在项目中集成smart-doc的Maven插件，然后运行插件直接生成文档。 我们的案例基于smart-doc-maven-plugin，生成文档。示例参考<a href ='https://smart-doc-group.github.io/#/zh-cn/plugins/maven_plugin'>官方配置文档而写。</a>
+### 31.2.1 配置
+添加maven的插件
+```xml
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-maven-plugin</artifactId>
+        </plugin>
+        <plugin>
+            <groupId>com.github.shalousun</groupId>
+            <artifactId>smart-doc-maven-plugin</artifactId>
+            <version>2.4.8</version>
+            <configuration>
+                <!--指定生成文档的使用的配置文件,配置文件放在自己的项目中-->
+                <configFile>./src/main/resources/smart-doc.json</configFile>
+                <!--指定项目名称，推荐使用动态参数，例如${project.description}-->
+                <!--如果smart-doc.json中和此处都未设置projectName，2.3.4开始，插件自动采用pom中的projectName作为设置-->
+                <!--<projectName>${project.description}</projectName>-->
+                <!--smart-doc实现自动分析依赖树加载第三方依赖的源码，如果一些框架依赖库加载不到导致报错，这时请使用excludes排除掉-->
+                <excludes>
+                    <!--格式为：groupId:artifactId;参考如下-->
+                    <!--也可以支持正则式如：com.alibaba:.* -->
+                    <exclude>com.alibaba:fastjson</exclude>
+                </excludes>
+                <!--includes配置用于配置加载外部依赖源码,配置后插件会按照配置项加载外部源代码而不是自动加载所有，因此使用时需要注意-->
+                <!--smart-doc能自动分析依赖树加载所有依赖源码，原则上会影响文档构建效率，因此你可以使用includes来让插件加载你配置的组件-->
+                <includes>
+                    <!--格式为：groupId:artifactId;参考如下-->
+                    <!--也可以支持正则式如：com.alibaba:.* -->
+                    <include>com.alibaba:fastjson</include>
+                </includes>
+            </configuration>
+            <executions>
+                <execution>
+                    <!--如果不需要在执行编译时启动smart-doc，则将phase注释掉-->
+                    <phase>compile</phase>
+                    <goals>
+                        <!--smart-doc提供了html、openapi、markdown等goal，可按需配置-->
+                        <goal>html</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+</build>
+```
+其中./src/main/resources/smart-doc.json是配置文件。
+```json
+{
+  "serverUrl": "http://127.0.0.1", //服务器地址,非必须。导出postman建议设置成http://{{server}}方便直接在postman直接设置环境变量
+  "pathPrefix": "", //设置path前缀,非必须。如配置Servlet ContextPath 。@since 2.2.3
+  "isStrict": false, //是否开启严格模式
+  "allInOne": true,  //是否将文档合并到一个文件中，一般推荐为true
+  "outPath": "D://md2", //指定文档的输出路径
+  "coverOld": true,  //是否覆盖旧的文件，主要用于markdown文件覆盖
+  "createDebugPage": true,//@since 2.0.0 smart-doc支持创建可以测试的html页面，仅在AllInOne模式中起作用。
+  "packageFilters": "",//controller包过滤，多个包用英文逗号隔开，2.2.2开始需要采用正则：com.test.controller.*
+  "md5EncryptedHtmlName": false,//只有每个controller生成一个html文件时才使用
+  "style":"xt256", //基于highlight.js的代码高设置,可选值很多可查看码云wiki，喜欢配色统一简洁的同学可以不设置
+  "projectName": "pdai-springboot-demo-smart-doc",//配置自己的项目名称，不设置则插件自动获取pom中的projectName
+  "skipTransientField": true,//目前未实现
+  "sortByTitle":false,//接口标题排序，默认为false,@since 1.8.7版本开始
+  "showAuthor":true,//是否显示接口作者名称，默认是true,不想显示可关闭
+  "requestFieldToUnderline":true,//自动将驼峰入参字段在文档中转为下划线格式,//@since 1.8.7版本开始
+  "responseFieldToUnderline":true,//自动将驼峰入参字段在文档中转为下划线格式,//@since 1.8.7版本开始
+  "inlineEnum":true,//设置为true会将枚举详情展示到参数表中，默认关闭，//@since 1.8.8版本开始
+  "recursionLimit":7,//设置允许递归执行的次数用于避免一些对象解析卡主，默认是7，正常为3次以内，//@since 1.8.8版本开始
+  "allInOneDocFileName":"index.html",//自定义设置输出文档名称, @since 1.9.0
+  "requestExample":"true",//是否将请求示例展示在文档中，默认true，@since 1.9.0
+  "responseExample":"true",//是否将响应示例展示在文档中，默认为true，@since 1.9.0
+
+  "ignoreRequestParams":[ //忽略请求参数对象，把不想生成文档的参数对象屏蔽掉，@since 1.9.2
+    "org.springframework.ui.ModelMap"
+  ],
+  "dataDictionaries": [{ //配置数据字典，没有需求可以不设置
+    "title": "http状态码字典", //数据字典的名称
+    "enumClassName": "tech.pdai.springboot.smartdoc.constant.ResponseStatus", //数据字典枚举类名称
+    "codeField": "responseCode",//数据字典字典码对应的字段名称
+    "descField": "description"//数据字典对象的描述信息字典
+  }],
+  "errorCodeDictionaries": [{ //错误码列表，没有需求可以不设置
+    "title": "title",
+    "enumClassName": "tech.pdai.springboot.smartdoc.constant.ResponseStatus", //错误码枚举类
+    "codeField": "responseCode",//错误码的code码字段名称
+    "descField": "description"//错误码的描述信息对应的字段名
+  }],
+  "revisionLogs": [{ //文档变更记录，非必须
+    "version": "1.1", //文档版本号
+    "revisionTime": "2022-07-01 22:12:01", //文档修订时间
+    "status": "update", //变更操作状态，一般为：创建、更新等
+    "author": "pdai", //文档变更作者
+    "remarks": "init user api" //变更描述
+  },{ //文档变更记录，非必须
+    "version": "1.2", //文档版本号
+    "revisionTime": "2022-07-01 22:12:02", //文档修订时间
+    "status": "update", //变更操作状态，一般为：创建、更新等
+    "author": "pdai", //文档变更作者
+    "remarks": "add address api" //变更描述
+  }
+  ],
+  "customResponseFields": [{ //自定义添加字段和注释，一般用户处理第三方jar包库，非必须
+    "name": "code",//覆盖响应码字段
+    "desc": "响应代码",//覆盖响应码的字段注释
+    "ownerClassName": "org.springframework.data.domain.Pageable", //指定你要添加注释的类名
+    "ignore":true, //设置true会被自动忽略掉不会出现在文档中
+    "value": "00000"//设置响应码的值
+  }],
+  "requestHeaders": [{ //设置请求头，没有需求可以不设置
+    "name": "token",//请求头名称
+    "type": "string",//请求头类型
+    "desc": "desc",//请求头描述信息
+    "value":"token请求头的值",//不设置默认null
+    "required": false,//是否必须
+    "since": "-",//什么版本添加的改请求头
+    "pathPatterns": "/app/test/**",//请看https://gitee.com/smart-doc-team/smart-doc/wikis/请求头高级配置?sort_id=4178978
+    "excludePathPatterns":"/app/page/**"//请看https://gitee.com/smart-doc-team/smart-doc/wikis/请求头高级配置?sort_id=4178978
+  },{
+    "name": "appkey",//请求头
+    "type": "string",//请求头类型
+    "desc": "desc",//请求头描述信息
+    "value":"appkey请求头的值",//不设置默认null
+    "required": false,//是否必须
+    "pathPatterns": "/test/add,/testConstants/1.0",//正则表达式过滤请求头,url匹配上才会添加该请求头，多个正则用分号隔开
+    "since": "-"//什么版本添加的改请求头
+  }],
+  "requestParams": [ //设置公共参数，没有需求可以不设置
+    {
+      "name": "configPathParam",//请求名称
+      "type": "string",//请求类型
+      "desc": "desc",//请求描述信息
+      "paramIn": "path", // 参数所在位置 header-请求头, path-路径参数, query-参数
+      "value":"testPath",//不设置默认null
+      "required": false,//是否必须
+      "since": "2.2.3",//什么版本添加的该请求
+      "pathPatterns": "/app/test/**",//请看https://gitee.com/smart-doc-team/smart-doc/wikis/请求高级配置?sort_id=4178978
+      "excludePathPatterns":"/app/page/**"//请看https://gitee.com/smart-doc-team/smart-doc/wikis/请求高级配置?sort_id=4178978
+    }],
+  "responseBodyAdvice":{ //自smart-doc 1.9.8起，非必须项，ResponseBodyAdvice统一返回设置(不要随便配置根据项目的技术来配置)，可用ignoreResponseBodyAdvice tag来忽略
+    "className":"tech.pdai.springboot.smartdoc.entity.ResponseResult" //通用响应体
+  }
+}
+```
+## 31.3 运行测试
+可以通过Maven命令生成文档
+```sh
+//生成html
+mvn -Dfile.encoding=UTF-8 smart-doc:html
+```
+在IDEA中，也可以通过maven插件构建
+![157.springboot-api-smart-doc-1.png](../../assets/images/04-主流框架/spring/157.springboot-api-smart-doc-1.png)
+
+maven构建日志如下
+
+```sh
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] --------------< tech.pdai:115-springboot-demo-smart-doc >---------------
+[INFO] Building 115-springboot-demo-smart-doc 1.0-SNAPSHOT
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] >>> smart-doc-maven-plugin:2.4.8:html (default-cli) > compile @ 115-springboot-demo-smart-doc >>>
+[INFO] 
+[INFO] --- maven-resources-plugin:3.2.0:resources (default-resources) @ 115-springboot-demo-smart-doc ---
+[INFO] Using 'UTF-8' encoding to copy filtered resources.
+[INFO] Using 'UTF-8' encoding to copy filtered properties files.
+[INFO] Copying 0 resource
+[INFO] Copying 1 resource
+[INFO] 
+[INFO] --- maven-compiler-plugin:3.8.1:compile (default-compile) @ 115-springboot-demo-smart-doc ---
+[INFO] Nothing to compile - all classes are up to date
+[INFO] 
+[INFO] <<< smart-doc-maven-plugin:2.4.8:html (default-cli) < compile @ 115-springboot-demo-smart-doc <<<
+[INFO] 
+[INFO] 
+[INFO] --- smart-doc-maven-plugin:2.4.8:html (default-cli) @ 115-springboot-demo-smart-doc ---
+[INFO] ------------------------------------------------------------------------
+[INFO] Smart-doc Start preparing sources at: 2022-07-01 22:43:54
+[INFO] Artifacts that the current project depends on: ["org.springframework.boot:spring-boot-starter-web","org.springframework.boot:spring-boot-configuration-processor","org.projectlombok:lombok"]
+[INFO] Smart-doc has loaded the source code path: [{"path":"D:/git/tech-pdai-spring-demos/115-springboot-demo-smart-doc/src/main/java"}]
+[INFO] Smart-doc Starting Create API Documentation at: 2022-07-01 22:43:54
+[INFO] API documentation is output to => D://md2
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  2.196 s
+[INFO] Finished at: 2022-07-01T22:43:55+08:00
+[INFO] ------------------------------------------------------------------------
+```
+构建后的html如下：
+![158.springboot-api-smart-doc-2.png](../../assets/images/04-主流框架/spring/158.springboot-api-smart-doc-2.png)
+
+也可以看到还自动提供了mock的数据，以及测试接口的按钮。还包含自定义的返回枚举类型等。
+![159.springboot-api-smart-doc-3.png](../../assets/images/04-主流框架/spring/159.springboot-api-smart-doc-3.png)
+## 31.4 生成更多类型的文档
+mart-doc 还支持生成如下类型的文档：
+```sh
+//生成markdown
+mvn -Dfile.encoding=UTF-8 smart-doc:markdown
+//生成adoc
+mvn -Dfile.encoding=UTF-8 smart-doc:adoc
+//生成postman json数据
+mvn -Dfile.encoding=UTF-8 smart-doc:postman
+// 生成 Open Api 3.0+, Since smart-doc-maven-plugin 1.1.5
+mvn -Dfile.encoding=UTF-8 smart-doc:openapi
+```
+## 31.5 进一步理解
+### 31.5.1 注释信息是有限的，smart-doc如何从注释拓展文档内容呢？
+一方面`smart-doc`的实现初衷是通过使用`javadoc`文档注释来去除注解式的侵入，因此`smart-doc`每增加一个功能首先都是去考虑`javadoc`原生的`tag`,
+
+下面对`smart-doc`使用的一些`javadoc`的注释`tag`做介绍。
+
+| Tag名称     | 描述                                                                                   |
+|-------------|----------------------------------------------------------------------------------------|
+| @param      | 对于在 Spring Boot 接口层，对于简单类型的参数必须在使用 @param 时写上注释描述，对于 Entity 类型，smart-doc 则不会检查。 |
+| @deprecated | 可以在注释中用于标记接口已经废弃，作用同 @Deprecated 注解。                                 |
+| @apiNote    | @apiNote 是 JAVA 新增的文档 tag，smart-doc 使用 @apiNote 的注释作为方法的详细描述，因此可以使用 @apiNote 来写一段长注释。如果一个方法不写 @apiNote 注释说明，smart-doc 直接使用方法默认注释填充。 |
+
+
+另一方面，原生的tag是不够的，所以smart-doc又通过自定义tag来支持更多功能的拓展
+
+| Tag名称                   | 描述                                                                                     |
+|---------------------------|------------------------------------------------------------------------------------------|
+| @ignore                   | 用于过滤请求参数对象上的字段，设置后不输出到文档；也可用于方法或Controller上忽略文档输出；还可忽略请求参数。 |
+| @required                 | 标注请求参数字段为必需，设置文档中显示为true（适用于非JSR303验证的场景）。                   |
+| @mock                     | 用于设置基本类型字段的自定义文档值，代替随机值，方便输出交付文档。                           |
+| @dubbo                    | 用于Dubbo API接口类，让smart-doc扫描生成Dubbo RPC接口文档。                               |
+| @restApi                  | 用于Spring Cloud Feign接口，支持smart-doc扫描生成文档。                                   |
+| @order                    | 设置Controller或API入口的自定义排序序号（例如@order 1）。                                  |
+| @ignoreResponseBodyAdvice | 忽略ResponseBodyAdvice设置的包装类。                                                      |
+| @download                 | 标注文件下载方法，生成debug页面时支持文件下载测试（包括请求头参数）。                       |
+| @page                     | 标注渲染静态页面的方法，测试时自动在新浏览器标签显示页面。                                 |
+| @ignoreParams             | 标注方法上忽略特定参数（多个参数用空格隔开），不显示在文档中。                             |
+| @response                 | 标注方法上自定义返回json示例（适用于基础类型响应，如Result<String>）。                     |
+| @tag                      | 用于方法分类，将不同Controller的方法指定到多个分类（从2.2.5版本开始）。                    |
+### 31.5.2 Maven多模块中使用插件有没有比较好的实践？
+> 在独立的Maven项目中使用smart-doc，当前可以说是如丝般爽滑。但是在Maven的多模块项目中使用smart-doc-maven-plugin时，很多同学就有疑问了， smart-doc插件我到底是放在什么地方合适？是放在Maven的根pom.xml中？还是说各个需要生成API接口文档的模块中呢？ 下面就来说说根据不同的项目结构应该怎么放插件。
+
+完全的父子级关系的maven项目：
+```sh
+├─parent
+├──common
+│   pom.xml
+├──web1
+│   pom.xml
+├──web2
+│   pom.xml
+└─pom.xml
+```
+上面的maven结构假设是严格按照父子级来配置的，然后web1和web2都依赖于common， 这种情况下如果跑到web1下或者web2目录下直接执行mvn命令来编译 都是无法完成的。需要在根目录上去执行命令编译命令才能通过，而smart-doc插件会通过类加载器去加载用户配置的一些类，因此是需要调用编译的和执行命令 是一样的。这种情况下建议你建smart-doc-maven-plugin放到根pom.xml中，在web1和web2中放置各自的smart-doc.json配置。 然后通过-pl去指定让smart-doc生成指定 模块的文档。操作命令如下：
+```sh
+# 生成web1模块的api文档
+mvn smart-doc:markdown -Dfile.encoding=UTF-8  -pl :web1 -am
+# 生成web2模块的api文档
+mvn smart-doc:markdown -Dfile.encoding=UTF-8  -pl :web2 -am
+```
+如果不是按照严格父子级构建的项目，还是以上面的结构例子来说。common模块放在类parent中，但是common的pom.xml并没有定义parent。 common模块也很少变更，很多公司内部可能就直接把common单独depoly上传到了公司的Nexus仓库中，这种情况下web1和web2虽然依赖于common， 但是web1和web2都可以在web1和web2目录下用命令编译，这种情况下直接将smart-doc-maven-plugin单独放到web1和web2中是可以做构建生成文档的。
+
+【<a href ='https://gitee.com/smart-doc-team/spring-boot-maven-multiple-module'>多模块测试用例参考</a>】
+
+注意： 怎么去使用插件并没有固定的模式，最重要的是熟练Maven的一些列操作，然后根据自己的项目情况来调整。技巧娴熟就能应对自如。 对于插件的使用，从smart-doc-maven-plugin 1.2.0开始，插件是能够自动分析生成模块的依赖来加载必要的源码，并不会将所有模块的接口文档合并到一个文档中。
+### 31.5.3 如果生成文档时遇到问题，该如何调试？
+> 在使用smart-doc-maven-plugin插件来构建生成API文档的过程中可能会出现一些错误问题。官方文档中提供了调试的方案：
+1. 添加smart-doc依赖
+
+因为smart-doc-maven-plugin最终是使用smart-doc来完成项目的源码分析和文档生成的， 通常情况下真正的调试的代码是smart-doc。但这个过程主要通过smart-doc-maven-plugin来排查。
+```xml
+<dependency>
+     <groupId>com.github.shalousun</groupId>
+     <artifactId>smart-doc</artifactId>
+     <version>[最新版本]</version>
+     <scope>test</scope>
+</dependency>
+
+```
+注意： 使用smart-doc的版本最好和插件依赖的smart-doc版本一致。
+2. 添加断点
+
+添加断点如图所示
+![160.springboot-api-smart-doc-4.png](../../assets/images/04-主流框架/spring/160.springboot-api-smart-doc-4.png)
+
+3. Debug模式运行构建目标
+
+maven插件在idea中运行debug非常简单，操作如下图。
+![161.springboot-api-smart-doc-6.png](../../assets/images/04-主流框架/spring/161.springboot-api-smart-doc-6.png)
+
+这样就可以直接进入断点了。
+
+提示： 上面是通过插件去作为入口调试smart-doc的源码，如果你想调试插件本身的源码执行过程，则将插件的依赖添加到项目依赖中,如下：
+```xml
+<dependency>
+    <groupId>com.github.shalousun</groupId>
+    <artifactId>smart-doc-maven-plugin</artifactId>
+    <version>【maven仓库最新版本】</version>
+</dependency>
+```
+然后通过上面的类似步骤调试smart-doc-maven-plugin的源码
+# 三十二、SpringBoot接口 - 如何访问外部接口
+> 在SpringBoot接口开发中，存在着本模块的代码需要访问外面模块接口或外部url链接的需求, 比如调用外部的地图API或者天气API。那么有哪些方式可以调用外部接口呢？
+## 32.1 什么样的场景需要访问外部接口
+调用其它模块的API，或者其它三方服务，比如调用外部的地图API或者天气API等。
+
+## 32.2 访问外部接口的常见方案
+主要有如下几种方案，其中RestTemplate需要重点掌握。
+### 32.2.1 方案一: 采用原生的Http请求
+在代码中采用原生的http请求，代码参考如下:
+```java
+RequestMapping("/doPostGetJson")
+public String doPostGetJson() throws ParseException {
+   //此处将要发送的数据转换为json格式字符串
+   String jsonText = "{id: 1}";
+   JSONObject json = (JSONObject) JSONObject.parse(jsonText);
+   JSONObject sr = this.doPost(json);
+   System.out.println("返回参数: " + sr);
+   return sr.toString();
+}
+
+public static JSONObject doPost(JSONObject date) {
+   HttpClient client = HttpClients.createDefault();
+   // 要调用的接口方法
+   String url = "http://192.168.1.101:8080/getJson";
+   HttpPost post = new HttpPost(url);
+   JSONObject jsonObject = null;
+   try {
+      StringEntity s = new StringEntity(date.toString());
+      s.setContentEncoding("UTF-8");
+      s.setContentType("application/json");
+      post.setEntity(s);
+      post.addHeader("content-type", "text/xml");
+      HttpResponse res = client.execute(post);
+      String response1 = EntityUtils.toString(res.getEntity());
+      System.out.println(response1);
+      if (res.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
+         String result = EntityUtils.toString(res.getEntity());// 返回json格式: 
+         jsonObject = JSONObject.parseObject(result);
+      }
+   } catch (Exception e) {
+      throw new RuntimeException(e);
+   }
+   return jsonObject;
+}
+```
+### 32.2.2 方案二: 采用Feign进行消费
+1. 在maven项目中添加依赖
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-feign</artifactId>
+    <version>1.2.2.RELEASE</version>
+</dependency>
+```
+2. 编写接口，放置在service层
+
+这里的decisionEngine.url 是配置在properties中的 是ip地址和端口号 decisionEngine.url=http://10.2.1.148:3333 , /decision/person 是接口名字
+```java
+@FeignClient(url = "${decisionEngine.url}",name="engine")
+public interface DecisionEngineService {
+　　@RequestMapping(value="/decision/person",method= RequestMethod.POST)
+　　public JSONObject getEngineMesasge(@RequestParam("uid") String uid,@RequestParam("productCode") String productCode);
+
+}
+```
+3. 在Java的启动类上加上@EnableFeignClients
+```java
+@EnableFeignClients //参见此处
+@EnableDiscoveryClient
+@SpringBootApplication
+@EnableResourceServer
+public class Application   implements CommandLineRunner {
+    private static final Logger LOGGER = LoggerFactory.getLogger(Application.class);
+    @Autowired
+    private AppMetricsExporter appMetricsExporter;
+
+    @Autowired
+    private AddMonitorUnitService addMonitorUnitService;
+
+    public static void main(String[] args) {
+        new SpringApplicationBuilder(Application.class).web(true).run(args);
+    }    
+}
+```
+4. 在代码中调用接口即可
+```java
+@Autowired
+private DecisionEngineService decisionEngineService ;
+// ...
+decisionEngineService.getEngineMesasge("uid" ,  "productCode");
+```
+5. Feign的主要原理
+
+ Feign 是一个**声明式的 HTTP 客户端**，它通过注解和动态代理技术自动处理 HTTP 请求的细节。下面我逐步解释其工作原理：
+
+-  **Feign 的核心机制：动态代理和注解解析**
+   - 当您使用 `@FeignClient` 注解定义接口（如 `DecisionEngineService`）时，Spring 在启动时会通过 `@EnableFeignClients` 扫描这些接口。
+   - Feign 在运行时**动态生成该接口的实现类**（代理对象）。当您调用 `decisionEngineService.getEngineMesasge(...)` 时，实际上是在调用这个代理对象的方法。
+   - 代理方法会根据接口上的注解（如 `@RequestMapping`、`@RequestParam`）自动构建 HTTP 请求：
+     - **URL 拼接**：`@FeignClient(url = "${decisionEngine.url}")` 从配置文件（如 `application.properties`）中读取 `decisionEngine.url` 的值（例如 `http://10.2.1.148:3333/decision/person`），并与 `@RequestMapping` 中的路径组合成完整 URL。
+     - **参数映射**：`@RequestParam` 将方法参数（如 `uid`）转换为 HTTP 请求参数（如 `?uid=value&productCode=value`）。
+     - **HTTP 方法**：`method = RequestMethod.POST` 指定使用 POST 请求。
+
+- 2. **简化了 HTTP 调用流程**
+  - 传统方式需要手动使用 `RestTemplate` 或 `HttpClient` 编写代码来设置 URL、参数、请求头等。Feign 将这些细节封装起来，您只需像调用本地方法一样定义接口，无需关心底层 HTTP 实现。
+  - 示例中，您直接注入 `DecisionEngineService` 并调用方法，Feign 自动完成以下步骤：
+    - 解析注解信息。
+    - 构造 HTTP 请求（包括 URL、参数、方法类型）。
+    - 发送请求到第三方服务（如 `http://10.2.1.148:3333/decision/person`）。
+    - 处理响应并返回结果（这里返回 `JSONObject`）。
+- 3. **Spring 集成提供便利**
+  - `@EnableFeignClients` 启用 Feign 客户端的自动配置，让 Spring 管理这些接口的 Bean 生命周期。
+  - `@Autowired` 依赖注入使得 Feign 客户端像普通 Spring Bean 一样被使用，简化了代码。
+6. 如果请求需要携带cookie/token等信息怎么办?
+
+在 Feign 中传递认证信息（如 Cookie、Token、JWT）有几种标准且优雅的方式。您可以根据不同的场景选择最合适的一种。
+
+下面我为您详细介绍三种最常用的方法，从简单到复杂。
+
+---
+
+- 方法一：使用 `@RequestHeader` 注解（适用于参数明确、固定的场景）
+
+这是最直接的方法，在 Feign 客户端接口的方法参数上直接使用 `@RequestHeader` 注解。
+
+**适用场景**：调用方明确知道 Token 的值，并且能直接作为参数传入。
+
+**代码示例**：
+```java
+@FeignClient(url = "${decisionEngine.url}", name = "engine")
+public interface DecisionEngineService {
+    
+    @RequestMapping(value = "", method = RequestMethod.POST)
+    public JSONObject getEngineMesasge(
+            @RequestHeader("Authorization") String authorizationToken, // 传递 JWT Token
+            @RequestHeader("Cookie") String cookie,                    // 传递 Cookie
+            @RequestParam("uid") String uid,
+            @RequestParam("productCode") String productCode
+    );
+}
+```
+
+**调用方式**：
+```java
+// 在调用处，手动获取并传入 Token 和 Cookie
+String jwtToken = "Bearer eyJhbGciOiJ...";
+String cookie = "sessionId=abc123; user=john";
+decisionEngineService.getEngineMesasge(jwtToken, cookie, "uid", "productCode");
+```
+
+**优点**：简单直观。
+**缺点**：每个需要认证的方法都要重复添加这些参数，调用方每次都要手动获取并传入，代码冗余。
+
+---
+
+- 方法二：实现 `RequestInterceptor` 接口（最推荐、最通用的方式）
+
+这是 **生产环境中最常用、最优雅** 的解决方案。通过实现一个全局的请求拦截器，自动为所有 Feign 请求添加统一的认证头。
+
+**适用场景**：绝大多数情况，特别是认证信息（如 Token）来自当前用户会话或统一的安全上下文（如 Spring Security）。
+
+**实现步骤**：
+
+1.  **创建拦截器类**：创建一个实现了 `feign.RequestInterceptor` 接口的类，并加上 `@Component` 注解，让其被 Spring 管理。
+
+```java
+import feign.RequestInterceptor;
+import feign.RequestTemplate;
+import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+import javax.servlet.http.HttpServletRequest;
+
+@Component
+public class FeignAuthRequestInterceptor implements RequestInterceptor {
+
+    @Override
+    public void apply(RequestTemplate template) {
+        // 1. 从当前请求上下文中获取 HttpServletRequest
+        ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes != null) {
+            HttpServletRequest request = attributes.getRequest();
+
+            // 2. 从当前请求中获取认证信息（例如从请求头中获取）
+            String authorizationHeader = request.getHeader("Authorization");
+            String cookieHeader = request.getHeader("Cookie");
+
+            // 3. 将认证信息设置到新的 Feign 请求头中
+            if (authorizationHeader != null) {
+                template.header("Authorization", authorizationHeader);
+            }
+            if (cookieHeader != null) {
+                template.header("Cookie", cookieHeader);
+            }
+
+            // 或者，如果您使用固定的 Token（例如从配置中心读取）
+            // template.header("Authorization", "Bearer " + yourFixedToken);
+        }
+    }
+}
+```
+
+2.  **修改 Feign 客户端接口**：**移除方法参数中的 `@RequestHeader`**，拦截器会自动处理。
+
+```java
+@FeignClient(url = "${decisionEngine.url}", name = "engine")
+public interface DecisionEngineService {
+    // 方法签名变得非常干净，只关注业务参数
+    @RequestMapping(value = "", method = RequestMethod.POST)
+    public JSONObject getEngineMesasge(@RequestParam("uid") String uid, @RequestParam("productCode") String productCode);
+}
+```
+
+3.  **调用方式保持不变**：
+```java
+// 拦截器会自动工作，无需手动传递 header
+decisionEngineService.getEngineMesasge("uid", "productCode");
+```
+
+**工作原理**：当您的应用（比如一个 Controller）接收到一个带有 `Authorization: Bearer xxx` 头部的请求时，这个头部信息会保存在当前线程的请求上下文中。当在这个线程内调用 Feign 客户端时，拦截器会从上下文中取出这个头部，并自动添加到即将发起的 Feign 请求中。
+
+**优点**：
+- **代码干净**：Feign 接口只关注业务逻辑。
+- **自动传递**：无需手动处理，避免遗漏。
+- **集中管理**：所有认证逻辑在一个地方维护。
+
+---
+
+- 方法三：使用 `@Headers` 注解（适用于固定 Token 的场景）
+
+如果某个 Feign 客户端始终使用一个固定的、不随用户变化的 Token（例如调用某个第三方 API 的通用密钥），可以使用 `@Headers` 注解。
+
+**适用场景**：调用不需要用户级认证的第三方 API，使用统一的 API Key 或静态 Token。
+
+**代码示例**：
+```java
+// 注意：这里用的是 feign 包下的 Headers，不是 Spring 的
+import feign.Headers;
+
+@FeignClient(url = "${decisionEngine.url}", name = "engine")
+@Headers("Authorization: Bearer {staticToken}") // 使用占位符
+public interface DecisionEngineService {
+    
+    @RequestMapping(value = "", method = RequestMethod.POST)
+    public JSONObject getEngineMesasge(@RequestParam("uid") String uid, @RequestParam("productCode") String productCode);
+}
+```
+
+**配置**：在 `application.properties` 中配置静态 Token。
+```properties
+decisionEngine.url=http://10.2.1.148:3333/decision/person
+feign.client.config.engine.staticToken=your-static-token-here
+```
+
+**优点**：配置简单。
+**缺点**：灵活性差，不能根据当前用户动态变化。
+
+---
+
+- 总结与推荐
+
+| 方法 | 优点 | 缺点 | 推荐场景 |
+| :--- | :--- | :--- | :--- |
+| **方法二：`RequestInterceptor`** | **代码干净，自动传递，集中管理** | 需要理解请求上下文 | **生产环境首选**，特别是基于会话或 JWT 的用户级认证 |
+| **方法一：`@RequestHeader`** | 简单直观 | 代码冗余，需手动传递 | 快速原型，或 Token 由调用方显式提供 |
+| **方法三：`@Headers`** | 配置简单 | 不灵活，Token 固定 | 调用使用固定 API Key 的第三方服务 |
+
+**强烈推荐您使用 `RequestInterceptor` 的方式（方法二）**，这是最符合 Spring Boot 设计哲学、最能保证代码质量和可维护性的做法。它能优雅地解决权限令牌的传递问题。
+
+### 32.2.3 方案三: 采用RestTemplate方法
+> 在Spring-Boot开发中，RestTemplate同样提供了对外访问的接口API，这里主要介绍Get和Post方法的使用。Get请求提供了两种方式的接口getForObject 和 getForEntity，getForEntity提供如下三种方法的实现。
+
+#### 32.2.3.1 Get请求之——getForEntity(String url,Class responseType,Object…urlVariables)
+该方法提供了三个参数，其中url为请求的地址，responseType为请求响应body的包装类型，urlVariables为url中的参数绑定，该方法的参考调用如下:
+```java
+// http://USER-SERVICE/user?name={name)
+RestTemplate restTemplate=new RestTemplate();
+Map<String,String> params=new HashMap<>();
+params.put("name","dada");  //
+ResponseEntity<String> responseEntity=restTemplate.getForEntity("http://USERSERVICE/user?name={name}",String.class,params);
+```
+#### 32.2.3.2 Get请求之——getForEntity(URI url,Class responseType)
+该方法使用URI对象来替代之前的url和urlVariables参数来指定访问地址和参数绑定。URI是JDK java.net包下的一个类，表示一个统一资源标识符(Uniform Resource Identifier)引用。参考如下:
+```java
+RestTemplate restTemplate=new RestTemplate();
+UriComponents uriComponents=UriComponentsBuilder.fromUriString("http://USER-SERVICE/user?name={name}")
+    .build()
+    .expand("dodo")
+    .encode();
+URI uri=uriComponents.toUri();
+ResponseEntity<String> responseEntity=restTemplate.getForEntity(uri,String.class).getBody();
+```
+### 32.2.3.3 Get请求之——getForObject
+getForObject方法可以理解为对getForEntity的进一步封装，它通过HttpMessageConverterExtractor对HTTP的请求响应体body内容进行对象转换，实现请求直接返回包装好的对象内容。getForObject方法有如下:
+```java
+getForObject(String url,Class responseType,Object...urlVariables)
+getForObject(String url,Class responseType,Map urlVariables)
+getForObject(URI url,Class responseType)
+```
+### 32.2.3.4 Post 请求
+
+Post请求提供有三种方法，postForEntity、postForObject和postForLocation。其中每种方法都存在三种方法，postForEntity方法使用如下:
+```java
+RestTemplate restTemplate=new RestTemplate();
+User user=newUser("didi",30);
+ResponseEntity<String> responseEntity=restTemplate.postForEntity("http://USER-SERVICE/user",user,String.class); //提交的body内容为user对象，请求的返回的body类型为String
+String body=responseEntity.getBody();
+```
+postForEntity存在如下三种方法的重载
+```java
+postForEntity(String url,Object request,Class responseType,Object... uriVariables)
+postForEntity(String url,Object request,Class responseType,Map uriVariables)
+postForEntity(URI url,Object request，Class responseType)
+```
+postForEntity中的其它参数和getForEntity的参数大体相同在此不做介绍。
+
+## 32.3 进一步理解
+在接口调用中需要注意什么?
+
+需要注意两点：
+
+- 需要设置超时时间
+- 需要自行处理异常
+
+介绍一下feign如何设置超时时间：
+
+Feign 支持设置两种主要的超时时间：
+
+1. **连接超时（Connect Timeout）**：建立 TCP 连接的最大等待时间
+2. **读取超时（Read Timeout）**：从连接建立到接收到完整响应的最大等待时间
+
+---
+
+- 配置方式
+
+1. 方式一：通过配置文件（推荐）
+
+在 `application.yml` 或 `application.properties` 中配置：
+
+**YAML 格式：**
+```yaml
+feign:
+  client:
+    config:
+      # 为特定 Feign 客户端(一个@FeignClient注解声明的接口就是一个Feign客户端)配置（name 对应 @FeignClient 的 name 属性）
+      decision-engine: # 您的 Feign 客户端名称
+        connectTimeout: 5000    # 连接超时：5秒
+        readTimeout: 30000      # 读取超时：30秒
+        loggerLevel: full       # 日志级别，便于调试
+      
+      # 默认配置（对所有 Feign 客户端生效）
+      default:
+        connectTimeout: 3000    # 默认连接超时：3秒
+        readTimeout: 10000      # 默认读取超时：10秒
+```
+
+**Properties 格式：**
+```properties
+# 特定客户端配置
+feign.client.config.decision-engine.connectTimeout=5000
+feign.client.config.decision-engine.readTimeout=30000
+feign.client.config.decision-engine.loggerLevel=full
+
+# 默认配置
+feign.client.config.default.connectTimeout=3000
+feign.client.config.default.readTimeout=10000
+```
+
+2. 方式二：通过代码配置
+
+创建一个配置类，使用 `@Configuration` 注解：
+
+```java
+import feign.Request;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class FeignConfig {
+    
+    @Bean
+    public Request.Options options() {
+        // 连接超时5秒，读取超时30秒
+        return new Request.Options(5000, 30000);
+    }
+}
+```
+
+如果要为特定客户端单独配置，可以在 `@FeignClient` 注解中指定配置类：
+
+```java
+@FeignClient(
+    url = "${decisionEngine.url}", 
+    name = "decision-engine",
+    configuration = DecisionEngineFeignConfig.class  // 指定专用配置类
+)
+public interface DecisionEngineService {
+    // ... 接口方法
+}
+```
+
+专用配置类：
+```java
+public class DecisionEngineFeignConfig {
+    @Bean
+    public Request.Options feignOptions() {
+        return new Request.Options(5000, 30000); // 5秒连接，30秒读取
+    }
+}
+```
+
+---
+
+- 超时异常处理
+
+当超时发生时，Feign 会抛出 `feign.RetryableException`。您应该添加适当的异常处理：
+
+1. 使用 Fallback 机制（推荐）
+
+Feign 支持降级处理，当调用失败（包括超时）时执行备用逻辑。
+
+**启用 Fallback：**
+```yaml
+feign:
+  circuitbreaker:
+    enabled: true  # 需要 spring-cloud-starter-circuitbreaker-resilience4j 依赖
+```
+
+**实现 Fallback 类：**
+```java
+@Component
+public class DecisionEngineServiceFallback implements DecisionEngineService {
+    
+    @Override
+    public JSONObject getEngineMesasge(String uid, String productCode) {
+        // 超时或失败时的备用逻辑
+        JSONObject fallbackResult = new JSONObject();
+        fallbackResult.put("code", "TIMEOUT");
+        fallbackResult.put("message", "决策引擎调用超时，使用默认决策");
+        // 返回默认业务逻辑结果
+        return fallbackResult;
+    }
+}
+```
+
+**在 Feign 客户端中指定 Fallback：**
+```java
+@FeignClient(
+    url = "${decisionEngine.url}", 
+    name = "decision-engine",
+    fallback = DecisionEngineServiceFallback.class  // 指定降级类
+)
+public interface DecisionEngineService {
+    @RequestMapping(value = "", method = RequestMethod.POST)
+    public JSONObject getEngineMesasge(@RequestParam("uid") String uid, 
+                                      @RequestParam("productCode") String productCode);
+}
+```
+
+2. 使用 Try-Catch 包装调用
+
+```java
+@Service
+public class BusinessService {
+    
+    @Autowired
+    private DecisionEngineService decisionEngineService;
+    
+    public JSONObject callEngineWithTimeoutHandling(String uid, String productCode) {
+        try {
+            return decisionEngineService.getEngineMesasge(uid, productCode);
+        } catch (feign.RetryableException e) {
+            // 处理超时异常
+            logger.warn("决策引擎调用超时: {}", e.getMessage());
+            // 返回默认结果或重试逻辑
+            return getDefaultResult();
+        } catch (Exception e) {
+            // 处理其他异常
+            logger.error("决策引擎调用失败: {}", e.getMessage());
+            return getDefaultResult();
+        }
+    }
+    
+    private JSONObject getDefaultResult() {
+        JSONObject result = new JSONObject();
+        result.put("code", "FALLBACK");
+        result.put("message", "使用备用逻辑");
+        return result;
+    }
+}
+```
+
+---
+# 三十三、SpringBoot接口 - 如何保证接口幂等
+> 在以SpringBoot开发Restful接口时，如何防止接口的重复提交呢？ 本文主要介绍接口幂等相关的知识点，并实践常见基于Token实现接口幂等。
+## 33.1 准备知识点
+> 从幂等和防止重复提交，接口幂等和常见的保证幂等的方式等知识点构筑知识体系。
+### 33.1.1 什么是幂等？
+> 幂等原先是数学中的一个概念，表示进行1次变换和进行N次变换产生的效果相同。
+
+当我们讨论接口的幂等性时一般是在说：以相同的请求调用这个接口一次和调用这个接口多次，对系统产生的影响是相同的。如果一个接口满足这个特性，那么我们就说这个 接口是一个幂等接口。
+- **接口幂等和防止重复提交是一回事吗？**
+
+严格来说，并不是。
+
+1. **幂等**: 更多的是在重复请求已经发生，或是无法避免的情况下，采取一定的技术手段让这些重复请求不给系统带来副作用。
+2. **防止重复**: 提交更多的是不让用户发起多次一样的请求。比如说用户在线购物下单时点了提交订单按钮，但是由于网络原因响应很慢，此时用户比较心急多次点击了订单提交按钮。 这种情况下就可能会造成多次下单。一般防止重复提交的方案有：将订单按钮置灰，跳转到结果页等。主要还是从客户端的角度来解决这个问题。
+- **哪些情况下客户端是防止不了重复提交的？**
+
+虽然我们可在客户端做一些防止接口重复提交的事（比如将订单按钮置灰，跳转到结果页等）， 但是如下情况依然客户端是很难控制接口重复提交到后台的，这也进一步表明了接口幂等和防止重复提交不是一回事以及**后端接口保证接口幂等的必要性**所在。
+
+1. **接口超时重试**：接口可能会因为某些原因而调用失败，出于容错性考虑会加上失败重试的机制。如果接口调用一半，再次调用就会因为脏数据的存在而出现异常。
+2. **消息重复消费**：在使用消息中间件来处理消息队列，且手动ack确认消息被正常消费时。如果消费者突然断开连接，那么已经执行了一半的消息会重新放回队列。被其他消费者重新消费时就会导致结果异常，如数据库重复数据，数据库数据冲突，资源重复等。
+3. **请求重发**：网络抖动引发的nginx重发请求，造成重复调用；
+### 33.1.2 什么是接口幂等？
+在HTTP/1.1中，对幂等性进行了定义。
+
+在HTTP/1.1中，对幂等性进行了定义。它描述了一次和多次请求某一个资源对于资源本身应该具有同样的结果（网络超时等问题除外），即第一次请求的时候对资源产生了副作用，但是以后的多次请求都不会再对资源产生副作用。
+
+这里的副作用是不会对结果产生破坏或者产生不可预料的结果。也就是说，其任意多次执行对资源本身所产生的影响均与一次执行的影响相同。
+
+- **对哪些类型的接口需要保证接口幂等？**
+
+我们看下标准的restful请求，幂等情况是怎么样的：
+1. **SELECT查询操作**
+   1. GET：只是获取资源，对资源本身没有任何副作用，天然的幂等性。H
+   2. EAD：本质上和GET一样，获取头信息，主要是探活的作用，具有幂等性。
+   3. OPTIONS：获取当前URL所支持的方法，因此也是具有幂等性的。
+2. **DELETE删除操作**
+   1. 删除的操作，如果从删除的一次和删除多次的角度看，数据并不会变化，这个角度看它是幂等的
+   2. 但是如果，从另外一个角度，删除数据一般是返回受影响的行数，删除一次和多次删除返回的受影响行数是不一样的，所以从这个角度它需要保证幂等。（折中而言DELETE操作通常也会被纳入保证接口幂等的要求）
+3. **ADD/EDIT操作**
+   1. PUT：用于更新资源，有副作用，但是它应该满足幂等性，比如根据id更新数据，调用多次和N次的作用是相同的（根据业务需求而变）。POST：用于添加资源，多次提交很可能产生副作用，比如订单提交，多次提交很可能产生多笔订单。
+## 33.2 常见的保证幂等的方式？
+### 33.2.1 数据库层面
+#### 33.2.1.1 悲观锁
+> 典型的数据库悲观锁：for update
+> 
+> 在执行这个查询时，MySQL 会对符合条件的行加上排他锁，确保在当前事务结束前，其他事务无法修改或读取这些行的最新数据（取决于隔离级别）。
+```sql
+select * from t_order where order_id = trade_no for update;
+```
+为什么加for update就可以?
+- 当线程A执行for update，数据会对当前记录加锁，其他线程执行到此行代码的时候，会等待线程A释放锁之后，才可以获取锁，继续后续操作。
+- 事物提交时，for update获取的锁会自动释放。
+
+具体效果：
+
+ 1. **防止并发修改**
+```sql
+-- 事务A
+BEGIN;
+SELECT * FROM t_order WHERE order_id = '123' FOR UPDATE;  -- 对订单123加锁
+-- 在此期间，其他事务无法修改订单123
+
+-- 事务B（会被阻塞）
+UPDATE t_order SET amount = 100 WHERE order_id = '123';  -- 等待事务A提交
+```
+
+ 2. **保证数据一致性**
+
+常用于需要**先查询后更新**的场景：
+```sql
+-- 典型的扣减库存场景
+BEGIN;
+-- 1. 锁定要操作的行
+SELECT stock FROM products WHERE product_id = 1 FOR UPDATE;
+
+-- 2. 基于查询结果进行业务逻辑
+-- 3. 更新数据
+UPDATE products SET stock = stock - 1 WHERE product_id = 1;
+COMMIT;
+```
+
+
+PS：这种方式很少被使用，因为如果业务处理比较耗时，并发情况下，后面线程会长期处于等待状态，占用了很多线程，让这些线程处于无效等待状态，我们的web服务中的线程数量一般都是有限的，如果大量线程由于获取for update锁处于等待状态，不利于系统并发操作。
+#### 33.2.1.2 唯一ID/索引
+> 针对的是插入操作。
+
+数据库唯一主键的实现主要是利用数据库中主键唯一约束的特性，一般来说唯一主键比较适用于“插入”时的幂等性，其能保证一张表中只能存在一条带该唯一主键的记录。
+
+使用数据库唯一主键完成幂等性时需要注意的是，该主键一般来说并不是使用数据库中自增主键，而是使用分布式 ID 充当主键，这样才能能保证在分布式环境下 ID 的全局唯一性。
+- 去重表
+
+去重表本质上也是一种唯一索引方案。
+
+这种方法适用于在业务中有唯一标的插入场景中，比如在以上的支付场景中，如果一个订单只会支付一次，所以订单ID可以作为唯一标识。这时，我们就可以建一张去重表，并且把唯一标识作为唯一索引，在我们实现时，把创建支付单据和写入去去重表，放在一个事务中，如果重复创建，数据库会抛出唯一约束异常，操作就会回滚。
+#### 33.2.1.3 乐观锁（基于版本号或者时间戳）
+> 针对更新操作。
+- 使用版本号或者时间戳
+
+这种方法适合在更新的场景中，比如我们要更新商品的名字，这时我们就可以在更新的接口中增加一个版本号，来做幂等
+```java
+boolean updateGoodsName(int id,String newName,int version);
+```
+在实现时可以如下
+```sql
+update goods set name=#{newName},version=#{version} where id=#{id} and version<${version}
+```
+- 状态机
+
+本质上也是乐观锁，这种方法适合在有状态机流转的情况下，比如就会订单的创建和付款，订单的付款肯定是在之前，这时我们可以通过在设计状态字段时，使用int类型，并且通过值类型的大小来做幂等，比如订单的创建为0，付款成功为100。付款失败为99
+
+在做状态机更新时，我们就这可以这样控制
+```sql
+update `order` set status=#{status} where id=#{id} and status<#{status}
+```
+### 33.2.2 分布式锁
+分布式锁实现幂等性的逻辑是，在每次执行方法之前判断，是否可以获取到分布式锁，如果可以，则表示为第一次执行方法，否则直接舍弃请求即可。
+
+需要注意的是分布式锁的key必须为业务的唯一标识，通常用redis分布式锁或者zookeeper来实现分布式锁。
+### 33.2.3 Token机制
+
+Token机制是保证接口幂等性的一种常用且有效的方式，特别适用于需要用户交互的场景。
+
+#### 33.2.3.1 Token机制核心思想
+
+Token机制的核心流程是：**服务端生成一个唯一Token，客户端在请求时必须携带这个Token，服务端验证Token的有效性并防止重复使用**。(一个token只能用一次，用不了第二次)
+
+#### 33.2.3.2 Token机制实现流程
+
+```mermaid
+graph TD
+    A[客户端] --> B[请求获取Token]
+    B --> C[服务端生成Token并存储]
+    C --> D[返回Token给客户端]
+    D --> E[客户端携带Token请求业务接口]
+    E --> F{服务端验证Token}
+    F -->|Token有效| G[删除Token并执行业务]
+    F -->|Token无效| H[返回错误提示]
+    G --> I[返回业务结果]
+    H --> J[提示重复提交]
+```
+
+#### 33.2.3.3 Token机制详细实现
+
+##### 1. Token生成与验证服务
+
+```java
+@Service
+public class IdempotentTokenService {
+    
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+    
+    private static final String IDEMPOTENT_TOKEN_PREFIX = "idempotent:token:";
+    private static final long TOKEN_EXPIRE_TIME = 30 * 60; // 30分钟
+    
+    /**
+     * 生成幂等Token
+     * @param businessKey 业务唯一标识，如：userId + 业务类型
+     * @return 生成的Token
+     */
+    public String generateToken(String businessKey) {
+        // 生成唯一Token
+        String token = UUID.randomUUID().toString().replace("-", "");
+        String redisKey = IDEMPOTENT_TOKEN_PREFIX + businessKey + ":" + token;
+        
+        // 存储到Redis，设置过期时间
+        redisTemplate.opsForValue().set(redisKey, "1", Duration.ofSeconds(TOKEN_EXPIRE_TIME));
+        
+        return token;
+    }
+    
+    /**
+     * 验证并消费Token（原子操作）
+     * @param businessKey 业务唯一标识
+     * @param token 客户端传递的Token
+     * @return 是否验证成功
+     */
+    public boolean verifyAndConsumeToken(String businessKey, String token) {
+        String redisKey = IDEMPOTENT_TOKEN_PREFIX + businessKey + ":" + token;
+        
+        // 使用Lua脚本保证原子性：验证Token存在后立即删除
+        String luaScript = 
+            "if redis.call('get', KEYS[1]) == '1' then " +
+            "   return redis.call('del', KEYS[1]) " +
+            "else " +
+            "   return 0 " +
+            "end";
+        
+        Long result = redisTemplate.execute(
+            new DefaultRedisScript<>(luaScript, Long.class),
+            Collections.singletonList(redisKey)
+        );
+        
+        return result != null && result == 1;
+    }
+    
+    /**
+     * 检查Token是否存在（不消费）
+     */
+    public boolean checkTokenExists(String businessKey, String token) {
+        String redisKey = IDEMPOTENT_TOKEN_PREFIX + businessKey + ":" + token;
+        return Boolean.TRUE.equals(redisTemplate.hasKey(redisKey));
+    }
+}
+```
+
+##### 2. 控制器实现
+
+```java
+@RestController
+@RequestMapping("/api/token")
+public class TokenController {
+    
+    @Autowired
+    private IdempotentTokenService tokenService;
+    
+    /**
+     * 获取幂等Token接口
+     */
+    @GetMapping("/generate")
+    public ApiResponse<String> generateToken(@RequestParam String businessType,
+                                           HttpServletRequest request) {
+        // 构建业务唯一键：用户ID + 业务类型
+        String userId = getCurrentUserId(request); // 从Session或JWT中获取
+        String businessKey = userId + ":" + businessType;
+        
+        String token = tokenService.generateToken(businessKey);
+        
+        return ApiResponse.success("Token生成成功", token);
+    }
+    
+    /**
+     * 订单创建接口（使用Token幂等）
+     */
+    @PostMapping("/orders")
+    public ApiResponse<Order> createOrder(@RequestBody @Valid OrderCreateRequest request,
+                                        @RequestHeader("X-Idempotent-Token") String token,
+                                        HttpServletRequest httpRequest) {
+        
+        // 1. 验证Token
+        String userId = getCurrentUserId(httpRequest);
+        String businessKey = userId + ":order_create";
+        
+        if (!tokenService.verifyAndConsumeToken(businessKey, token)) {
+            return ApiResponse.error(ErrorCode.REPEAT_SUBMIT, "请勿重复提交订单");
+        }
+        
+        // 2. 执行业务逻辑
+        Order order = orderService.createOrder(request);
+        
+        return ApiResponse.success("订单创建成功", order);
+    }
+    
+    private String getCurrentUserId(HttpServletRequest request) {
+        // 从JWT Token或Session中获取用户ID
+        // 这里简化为从Header获取
+        return request.getHeader("X-User-Id");
+    }
+}
+```
+
+##### 3. 前端调用示例
+
+```javascript
+class OrderService {
+    // 存储当前Token
+    currentToken = null;
+    
+    // 获取Token
+    async generateToken(businessType) {
+        const response = await fetch(`/api/token/generate?businessType=${businessType}`, {
+            method: 'GET',
+            headers: {
+                'X-User-Id': this.getUserId(),
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            this.currentToken = result.data;
+            return this.currentToken;
+        }
+        throw new Error('获取Token失败');
+    }
+    
+    // 提交订单（自动处理Token）
+    async createOrder(orderData) {
+        if (!this.currentToken) {
+            await this.generateToken('order_create');
+        }
+        
+        const response = await fetch('/api/orders', {
+            method: 'POST',
+            headers: {
+                'X-Idempotent-Token': this.currentToken,
+                'X-User-Id': this.getUserId(),
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(orderData)
+        });
+        
+        const result = await response.json();
+        
+        // 如果Token无效，重新获取并重试
+        if (result.code === 'REPEAT_SUBMIT') {
+            await this.generateToken('order_create');
+            return this.createOrder(orderData); // 重试一次
+        }
+        
+        // 请求成功后清空Token，防止重复使用
+        this.currentToken = null;
+        
+        return result;
+    }
+    
+    getUserId() {
+        // 从本地存储获取用户ID
+        return localStorage.getItem('userId');
+    }
+}
+```
+
+##### 4. 全局异常处理
+
+```java
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+    
+    /**
+     * 幂等Token验证异常处理
+     */
+    @ExceptionHandler(IdempotentException.class)
+    public ApiResponse<Void> handleIdempotentException(IdempotentException e) {
+        return ApiResponse.error(ErrorCode.REPEAT_SUBMIT, e.getMessage());
+    }
+}
+
+// 自定义幂等异常
+public class IdempotentException extends RuntimeException {
+    public IdempotentException(String message) {
+        super(message);
+    }
+}
+
+// 错误码定义
+public enum ErrorCode {
+    SUCCESS("0000", "成功"),
+    REPEAT_SUBMIT("1001", "请勿重复提交"),
+    TOKEN_EXPIRED("1002", "Token已过期"),
+    TOKEN_INVALID("1003", "Token无效");
+    
+    private final String code;
+    private final String message;
+    
+    ErrorCode(String code, String message) {
+        this.code = code;
+        this.message = message;
+    }
+}
+```
+
+#### 33.2.3.4 Token机制的优势
+
+1. **灵活性高**：可以为不同业务生成不同的Token
+2. **安全性好**：Token具有时效性，过期自动失效
+3. **用户体验佳**：前端可以主动获取Token，避免重复提交
+4. **分布式友好**：基于Redis，适合分布式环境
+
+#### 33.2.3.5 Token机制的适用场景
+
+- **表单提交**：订单创建、数据录入等
+- **支付操作**：防止重复支付
+- **重要操作**：账号注销、资金转账等
+- **第三方回调**：防止回调接口被重复调用
+
+## 33.3 实现案例
+
+### 33.3.1 电商订单系统的完整幂等实现
+
+#### 1. 项目结构
+
+```
+src/main/java/com/example/ecommerce/
+├── config/           # 配置类
+├── controller/       # 控制器
+├── service/          # 业务服务
+├── aspect/           # 切面处理
+├── annotation/       # 自定义注解
+├── entity/           # 实体类
+└── utils/            # 工具类
+```
+
+#### 2. 幂等注解定义
+
+```java
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Idempotent {
+    
+    /**
+     * 幂等键的SpEL表达式，如: #orderRequest.userId + ':' + #orderRequest.productId
+     */
+    String key() default "";
+    
+    /**
+     * 业务类型，用于Token生成
+     */
+    String businessType() default "";
+    
+    /**
+     * 过期时间(秒)，默认5分钟
+     */
+    long expire() default 300;
+    
+    /**
+     * 错误消息
+     */
+    String message() default "请勿重复提交";
+    
+    /**
+     * 幂等策略：TOKEN-令牌机制，LOCK-分布式锁，DB-数据库幂等
+     */
+    IdempotentType type() default IdempotentType.TOKEN;
+}
+
+// 幂等策略枚举
+public enum IdempotentType {
+    TOKEN,      // Token令牌机制
+    LOCK,       // 分布式锁
+    DB          // 数据库幂等（唯一索引等）
+}
+```
+
+#### 3. 幂等切面实现
+
+```java
+@Aspect
+@Component
+@Slf4j
+public class IdempotentAspect {
+    
+    @Autowired
+    private IdempotentTokenService tokenService;
+    
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    @Around("@annotation(idempotent)")
+    public Object around(ProceedingJoinPoint joinPoint, Idempotent idempotent) throws Throwable {
+        // 根据策略类型执行不同的幂等控制
+        switch (idempotent.type()) {
+            case TOKEN:
+                return handleTokenStrategy(joinPoint, idempotent);
+            case LOCK:
+                return handleLockStrategy(joinPoint, idempotent);
+            case DB:
+                return handleDbStrategy(joinPoint, idempotent);
+            default:
+                return handleTokenStrategy(joinPoint, idempotent);
+        }
+    }
+    
+    /**
+     * Token策略处理
+     */
+    private Object handleTokenStrategy(ProceedingJoinPoint joinPoint, Idempotent idempotent) throws Throwable {
+        MethodSignature signature = (MethodSignature) joinPoint.getSignature();
+        Method method = signature.getMethod();
+        Object[] args = joinPoint.getArgs();
+        
+        // 从请求头获取Token
+        String token = getTokenFromRequest();
+        if (StringUtils.isEmpty(token)) {
+            throw new IdempotentException("缺少幂等Token");
+        }
+        
+        // 生成业务键
+        String businessKey = generateBusinessKey(idempotent.key(), method, args);
+        String fullBusinessKey = idempotent.businessType() + ":" + businessKey;
+        
+        // 验证并消费Token
+        if (!tokenService.verifyAndConsumeToken(fullBusinessKey, token)) {
+            throw new IdempotentException(idempotent.message());
+        }
+        
+        // 执行业务逻辑
+        return joinPoint.proceed();
+    }
+    
+    /**
+     * 分布式锁策略处理
+     */
+    private Object handleLockStrategy(ProceedingJoinPoint joinPoint, Idempotent idempotent) throws Throwable {
+        MethodSignature signature = (MethodSignature) joinPoint.getSignature();
+        Method method = signature.getMethod();
+        Object[] args = joinPoint.getArgs();
+        
+        String businessKey = generateBusinessKey(idempotent.key(), method, args);
+        String lockKey = "idempotent:lock:" + idempotent.businessType() + ":" + businessKey;
+        
+        // 尝试获取分布式锁
+        boolean locked = tryLock(lockKey, idempotent.expire());
+        if (!locked) {
+            throw new IdempotentException(idempotent.message());
+        }
+        
+        try {
+            return joinPoint.proceed();
+        } finally {
+            releaseLock(lockKey);
+        }
+    }
+    
+    /**
+     * 数据库策略处理（主要依赖唯一索引等）
+     */
+    private Object handleDbStrategy(ProceedingJoinPoint joinPoint, Idempotent idempotent) throws Throwable {
+        // 数据库幂等主要依靠业务逻辑实现，这里只做标记记录
+        log.info("使用数据库幂等策略，业务键: {}", generateBusinessKey(idempotent.key(), 
+            (MethodSignature) joinPoint.getSignature(), joinPoint.getArgs()));
+        
+        return joinPoint.proceed();
+    }
+    
+    // 其他工具方法...
+    private String getTokenFromRequest() {
+        RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
+        if (requestAttributes instanceof ServletRequestAttributes) {
+            HttpServletRequest request = ((ServletRequestAttributes) requestAttributes).getRequest();
+            return request.getHeader("X-Idempotent-Token");
+        }
+        return null;
+    }
+}
+```
+
+#### 4. 订单服务实现
+
+```java
+@Service
+@Slf4j
+public class OrderService {
+    
+    @Autowired
+    private OrderRepository orderRepository;
+    
+    @Autowired
+    private ProductService productService;
+    
+    @Autowired
+    private IdempotentTokenService tokenService;
+    
+    /**
+     * 创建订单 - 使用Token幂等
+     */
+    @Idempotent(
+        key = "#request.userId + ':' + #request.productId",
+        businessType = "order_create", 
+        message = "订单正在处理中，请勿重复提交",
+        type = IdempotentType.TOKEN
+    )
+    @Transactional
+    public Order createOrder(OrderCreateRequest request) {
+        log.info("开始创建订单，用户ID: {}, 商品ID: {}", request.getUserId(), request.getProductId());
+        
+        // 1. 参数校验
+        validateRequest(request);
+        
+        // 2. 检查商品库存（使用悲观锁防止超卖）
+        Product product = productService.getProductForUpdate(request.getProductId());
+        if (product.getStock() < request.getQuantity()) {
+            throw new BusinessException("商品库存不足");
+        }
+        
+        // 3. 生成订单号（保证唯一性）
+        String orderNo = generateOrderNo(request.getUserId());
+        
+        // 4. 创建订单实体
+        Order order = buildOrder(request, orderNo);
+        
+        try {
+            // 5. 保存订单（唯一索引防重）
+            orderRepository.save(order);
+        } catch (DataIntegrityViolationException e) {
+            // 捕获唯一约束异常，实现幂等返回
+            log.warn("订单重复创建，订单号: {}", orderNo);
+            return orderRepository.findByOrderNo(orderNo)
+                .orElseThrow(() -> new BusinessException("订单创建失败"));
+        }
+        
+        // 6. 扣减库存（乐观锁）
+        productService.decreaseStock(request.getProductId(), request.getQuantity());
+        
+        // 7. 记录操作日志
+        log.info("订单创建成功，订单号: {}, 金额: {}", orderNo, order.getAmount());
+        
+        return order;
+    }
+    
+    /**
+     * 支付回调接口 - 使用分布式锁幂等
+     */
+    @Idempotent(
+        key = "#callbackRequest.orderNo",
+        businessType = "payment_callback", 
+        message = "支付回调正在处理中",
+        type = IdempotentType.LOCK,
+        expire = 60 // 支付回调处理时间较短
+    )
+    @Transactional
+    public void handlePaymentCallback(PaymentCallbackRequest callbackRequest) {
+        String orderNo = callbackRequest.getOrderNo();
+        
+        // 1. 查询订单
+        Order order = orderRepository.findByOrderNo(orderNo)
+            .orElseThrow(() -> new BusinessException("订单不存在"));
+        
+        // 2. 检查订单状态（状态机幂等）
+        if (order.getStatus() != OrderStatus.WAITING_PAYMENT) {
+            log.info("订单已处理，当前状态: {}, 订单号: {}", order.getStatus(), orderNo);
+            return; // 幂等返回
+        }
+        
+        // 3. 更新订单状态
+        order.setStatus(OrderStatus.PAID);
+        order.setPayTime(new Date());
+        orderRepository.save(order);
+        
+        // 4. 后续处理：发货、通知等
+        processAfterPayment(order);
+        
+        log.info("支付回调处理完成，订单号: {}", orderNo);
+    }
+    
+    /**
+     * 生成唯一订单号
+     */
+    private String generateOrderNo(Long userId) {
+        // 时间戳 + 用户ID后4位 + 随机数
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String userSuffix = String.format("%04d", userId % 10000);
+        String random = String.valueOf((int)((Math.random() * 9 + 1) * 1000));
+        
+        return timestamp + userSuffix + random;
+    }
+}
+```
+
+#### 5. 控制器层
+
+```java
+@RestController
+@RequestMapping("/api/orders")
+@Validated
+public class OrderController {
+    
+    @Autowired
+    private OrderService orderService;
+    
+    @Autowired
+    private IdempotentTokenService tokenService;
+    
+    /**
+     * 获取订单创建Token
+     */
+    @GetMapping("/token")
+    public ApiResponse<String> getOrderToken(@RequestParam Long productId) {
+        // 从安全上下文获取用户ID
+        Long userId = SecurityUtils.getCurrentUserId();
+        String businessKey = userId + ":" + productId;
+        
+        String token = tokenService.generateToken("order_create:" + businessKey);
+        return ApiResponse.success("Token获取成功", token);
+    }
+    
+    /**
+     * 创建订单
+     */
+    @PostMapping("/create")
+    public ApiResponse<Order> createOrder(@RequestBody @Valid OrderCreateRequest request,
+                                        @RequestHeader("X-Idempotent-Token") String token) {
+        // Token验证在切面中自动完成
+        Order order = orderService.createOrder(request);
+        return ApiResponse.success("订单创建成功", order);
+    }
+    
+    /**
+     * 支付回调接口（外部调用）
+     */
+    @PostMapping("/payment/callback")
+    public ApiResponse<Void> paymentCallback(@RequestBody @Valid PaymentCallbackRequest request) {
+        // 验证签名等安全措施
+        if (!verifySignature(request)) {
+            return ApiResponse.error("签名验证失败");
+        }
+        
+        try {
+            orderService.handlePaymentCallback(request);
+            return ApiResponse.success("处理成功");
+        } catch (IdempotentException e) {
+            // 幂等异常，返回成功
+            return ApiResponse.success("重复请求，已处理");
+        }
+    }
+    
+    private boolean verifySignature(PaymentCallbackRequest request) {
+        // 支付签名验证逻辑
+        return true;
+    }
+}
+```
+
+#### 6. 配置文件
+
+```yaml
+# application.yml
+spring:
+  redis:
+    host: localhost
+    port: 6379
+    password: 
+    database: 0
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 8
+        max-wait: -1ms
+        max-idle: 8
+        min-idle: 0
+
+# 幂等配置
+idempotent:
+  token:
+    expire-time: 1800    # Token过期时间30分钟
+    prefix: "idempotent:token:"
+  lock:
+    expire-time: 300     # 锁过期时间5分钟
+    prefix: "idempotent:lock:"
+
+# 日志配置
+logging:
+  level:
+    com.example.ecommerce.aspect.IdempotentAspect: DEBUG
+```
+
+#### 7. 测试用例
+
+```java
+@SpringBootTest
+@Slf4j
+class OrderServiceTest {
+    
+    @Autowired
+    private OrderService orderService;
+    
+    @Autowired
+    private IdempotentTokenService tokenService;
+    
+    @Test
+    void testCreateOrderIdempotent() {
+        OrderCreateRequest request = new OrderCreateRequest();
+        request.setUserId(1001L);
+        request.setProductId(2001L);
+        request.setQuantity(2);
+        
+        // 生成Token
+        String businessKey = "1001:2001";
+        String token = tokenService.generateToken("order_create:" + businessKey);
+        
+        // 模拟设置请求头
+        MockHttpServletRequest mockRequest = new MockHttpServletRequest();
+        mockRequest.addHeader("X-Idempotent-Token", token);
+        
+        // 第一次调用 - 应该成功
+        Order order1 = orderService.createOrder(request);
+        assertNotNull(order1);
+        
+        // 第二次调用 - 应该抛出幂等异常
+        assertThrows(IdempotentException.class, () -> {
+            orderService.createOrder(request);
+        });
+    }
+    
+    @Test
+    void testConcurrentOrderCreation() throws InterruptedException {
+        int threadCount = 5;
+        CountDownLatch latch = new CountDownLatch(threadCount);
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger failCount = new AtomicInteger(0);
+        
+        OrderCreateRequest request = new OrderCreateRequest();
+        request.setUserId(1002L);
+        request.setProductId(2002L);
+        request.setQuantity(1);
+        
+        for (int i = 0; i < threadCount; i++) {
+            new Thread(() -> {
+                try {
+                    String token = tokenService.generateToken("order_create:1002:2002");
+                    // 设置Token到ThreadLocal等
+                    orderService.createOrder(request);
+                    successCount.incrementAndGet();
+                } catch (IdempotentException e) {
+                    failCount.incrementAndGet();
+                    log.info("幂等拦截: {}", e.getMessage());
+                } finally {
+                    latch.countDown();
+                }
+            }).start();
+        }
+        
+        latch.await(5, TimeUnit.SECONDS);
+        
+        // 只有一个请求应该成功
+        assertEquals(1, successCount.get());
+        assertEquals(threadCount - 1, failCount.get());
+    }
+}
+```
+
+### 33.3.2 案例总结
+
+这个完整的电商订单系统幂等实现展示了：
+
+1. **多策略支持**：Token机制、分布式锁、数据库幂等
+2. **注解驱动**：使用自定义注解简化幂等控制
+3. **切面编程**：非侵入式实现，业务代码保持简洁
+4. **完整流程**：从前端Token获取到后端业务处理
+5. **异常处理**：完善的错误处理和日志记录
+6. **测试覆盖**：单元测试和并发测试
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
