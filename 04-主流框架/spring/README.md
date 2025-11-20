@@ -8819,6 +8819,8 @@ Spring Boot强烈推荐并简化了注解方式。你只需要编写异常处理
 - **ModelAndView 的逻辑视图名——> ViewResolver**，ViewResolver 将把逻辑视图名解析为具体的View，通过这种策 略模式，很容易更换其他视图技术；
 - **View——>渲染**，View 会根据传进来的Model 模型数据进行渲染，此处的Model 实际是一个Map 数据结构，因此 很容易支持其他视图技术；
 - **返回控制权给DispatcherServlet**，由DispatcherServlet 返回响应给用户，到此一个流程结束。
+  
+上述扩展点(HandlerMapping、HandlerAdapter、ExceptionResolver)可以通过<a href ='#WebMvcRegistrations'>WebMvcRegistrations</a>实现
 ### 15.1.2  doGet入口
 > 我们以上个demo中这个GET请求为例，请求URL是http://localhost:8080/011_spring_framework_demo_springmvc_war_exploded/user
 
@@ -13384,217 +13386,2657 @@ public class UserParam implements Serializable {
 
 }
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# 二十七、SpringBoot接口 - 如何参数校验国际化
+## 27.1 什么是国际化
+软件的国际化：软件开发时，要使它能同时应对世界不同地区和国家的访问，并针对不同地区和国家的访问，提供相应的、符合来访者阅读习惯的页面或数据。国际化又称为 i18n：internationalization
+## 27.2 实现案例
+> 这里实现一个案例: 语言切换和国际化（中英文）验证信息。
+### 27.2.1 定义资源文件
+在Resources下添加如下：
+![141.springboot-interface-param-4.png](../../assets/images/04-主流框架/spring/141.springboot-interface-param-4.png)
+填写名称和资源语言类型
+![142.springboot-interface-param-3.png](../../assets/images/04-主流框架/spring/142.springboot-interface-param-3.png)
+添加中英文对应的message
+![143.springboot-interface-param-5.png](../../assets/images/04-主流框架/spring/143.springboot-interface-param-5.png)
+### 27.2.2 使用message
+```java
+@Data
+@Builder
+@ApiModel(value = "User", subTypes = {AddressParam.class})
+public class UserParam implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    @NotEmpty(message = "{user.msg.userId.notEmpty}") // 这里
+    private String userId;
+```
+### 27.2.3 中英文切换拦截
+由于默认是拦截request参数获取locale参数来实现的切换语言，这里我们可以改下，优先从header中获取，如果没有获取到再从request参数中获取（LocaleChangeInterceptor默认是从请求参数中获取的，子类CustomLocaleChangeInterceptor从请求头中获取）。
+```java
+package tech.pdai.springboot.validation.i18n.config;
+
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.lang.NonNull;
+import org.springframework.util.ObjectUtils;
+import org.springframework.web.servlet.LocaleResolver;
+import org.springframework.web.servlet.i18n.LocaleChangeInterceptor;
+import org.springframework.web.servlet.support.RequestContextUtils;
+
+/**
+ * custom locale change interceptor.
+ *
+ * @author pdai
+ */
+@Slf4j
+public class CustomLocaleChangeInterceptor extends LocaleChangeInterceptor {
+
+    /**
+     * try to get locale from header, if not exist then get it from request parameter.
+     *
+     * @param request  request
+     * @param response response
+     * @param handler  handler
+     * @return bool
+     * @throws ServletException ServletException
+     */
+    @Override
+    public boolean preHandle(HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull Object handler) throws ServletException {
+        //从请求头中获取参数(getParamName()为该类属性，通过拦截器实现设置)
+        String newLocale = request.getHeader(getParamName());
+        if (newLocale!=null) {
+            if (checkHttpMethods(request.getMethod())) {
+                LocaleResolver localeResolver = RequestContextUtils.getLocaleResolver(request);
+                if (localeResolver==null) {
+                    throw new IllegalStateException("No LocaleResolver found: not in a DispatcherServlet request?");
+                }
+                try {
+                    localeResolver.setLocale(request, response, parseLocaleValue(newLocale));
+                } catch (IllegalArgumentException ex) {
+                    if (isIgnoreInvalidLocale()) {
+                        log.debug("Ignoring invalid locale value [" + newLocale + "]: " + ex.getMessage());
+                    } else {
+                        throw ex;
+                    }
+                }
+            }
+            return true;
+        } else {
+            return super.preHandle(request, response, handler);
+        }
+    }
+
+    private boolean checkHttpMethods(String currentMethod) {
+        String[] configuredMethods = getHttpMethods();
+        if (ObjectUtils.isEmpty(configuredMethods)) {
+            return true;
+        }
+        for (String configuredMethod : configuredMethods) {
+            if (configuredMethod.equalsIgnoreCase(currentMethod)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+```
+初始化相关配置
+```java
+package tech.pdai.springboot.validation.i18n.config;
+
+import java.util.Locale;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.boot.validation.MessageInterpolatorFactory;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.support.ResourceBundleMessageSource;
+import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
+import org.springframework.web.servlet.LocaleResolver;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import org.springframework.web.servlet.i18n.LocaleChangeInterceptor;
+import org.springframework.web.servlet.i18n.SessionLocaleResolver;
+
+/**
+ * This class is for web config.
+ *
+ * @author pdai
+ */
+@Configuration
+@RequiredArgsConstructor
+public class WebConfig implements WebMvcConfigurer {
+
+    /**
+     * lang param name in header, default to 'locale'.
+     */
+    // 设置默认请求参数locale，后续携带该字符的请求头或者请求参数
+    private static final String LANGUAGE_PARAM_NAME = LocaleChangeInterceptor.DEFAULT_PARAM_NAME;
+
+    /**
+     * message source.
+     */
+    private final ResourceBundleMessageSource resourceBundleMessageSource;
+
+    /**
+     * default locale.
+     *
+     * @return locale resolver
+     */
+    @Bean
+    public LocaleResolver localeResolver() {
+        SessionLocaleResolver localeResolver = new SessionLocaleResolver();
+        localeResolver.setDefaultLocale(Locale.SIMPLIFIED_CHINESE);
+        return localeResolver;
+    }
+
+    /**
+     * local validator factory bean.
+     *
+     * @return LocalValidatorFactoryBean
+     */
+    @Bean
+    public LocalValidatorFactoryBean localValidatorFactoryBean() {
+        LocalValidatorFactoryBean factoryBean = new LocalValidatorFactoryBean();
+        MessageInterpolatorFactory interpolatorFactory = new MessageInterpolatorFactory();
+        factoryBean.setMessageInterpolator(interpolatorFactory.getObject());
+        factoryBean.setValidationMessageSource(resourceBundleMessageSource);
+        return factoryBean;
+    }
+
+    /**
+     * locale change interceptor.
+     *
+     * @return LocaleChangeInterceptor
+     */
+    @Bean
+    public LocaleChangeInterceptor localeChangeInterceptor() {
+        LocaleChangeInterceptor interceptor = new CustomLocaleChangeInterceptor();
+        interceptor.setParamName(LANGUAGE_PARAM_NAME);
+        return interceptor;
+    }
+
+    /**
+     * register locale change interceptor.
+     *
+     * @param registry registry
+     */
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(localeChangeInterceptor());
+    }
+}
+```
+## 27.3 校验
+- 设置语言是中文
+![144.springboot-interface-param-7.png](../../assets/images/04-主流框架/spring/144.springboot-interface-param-7.png)
+
+查看校验结果
+![145.springboot-interface-param-6.png](../../assets/images/04-主流框架/spring/145.springboot-interface-param-6.png)
+
+## 扩展：我在项目中如何实现的多语言
+由于特殊情况，我需要将多语言实现在指定目录下，按照规范来说，例如在zh_CN文件夹下的properties文件就是中文多语言，en_US文件夹下的properties文件就是英文。所以这里涉及自定义多语言文件的解析规则。下面是我的实现方式
+### 1.继承ReloadableResourceBundleMessageSource，重写calculateAllFilenames方法
+```java
+public class TransReloadableResourceBundleMessageSource extends ReloadableResourceBundleMessageSource {
+
+    private static final Logger logger = LoggerFactory.getLogger(TransReloadableResourceBundleMessageSource.class);
+
+    @Value("${i18n.back-end.location}")
+    private String i18nPath;
+
+    private final ConcurrentMap<String, List<String>> cachedFilenamesMap = new ConcurrentHashMap<>();
+
+    //自定义多语言文件读取逻辑
+    @Override
+    protected List<String> calculateAllFilenames(String basename, Locale locale) {
+        String language = locale.getLanguage();
+        String country = locale.getCountry();
+        String variant = locale.getVariant();
+        String cacheFilenamesKey;
+        if (country.length() > 0 && variant.length() > 0) {
+            cacheFilenamesKey = language + "_" + country + "_" + variant;
+        } else if (country.length() > 0) {
+            cacheFilenamesKey = language + "_" + country;
+        } else {
+            cacheFilenamesKey = language;
+        }
+        List<String> cachedFilenames = this.cachedFilenamesMap.get(cacheFilenamesKey);
+        if (cachedFilenames != null) {
+            return cachedFilenames;
+        }
+        List<String> filenames = new LinkedList<>();
+        Resource resource = new FileSystemResource(i18nPath);
+        if (resource.exists()) {
+            try {
+                if (resource.getFile().isDirectory()) {
+                    File[] localeDirs = resource.getFile().listFiles();
+                    if (localeDirs == null || localeDirs.length == 0) {
+                        return filenames;
+                    }
+                    Arrays.stream(localeDirs).forEach(localeDir -> {
+                        String localeDirName = localeDir.getName();
+                        String[] parts = localeDirName.split("_");
+                        Locale currentDirLocale;
+                        if (parts.length == 1) {
+                            currentDirLocale = new Locale(parts[0]);
+                        } else if (parts.length == 2) {
+                            currentDirLocale = new Locale(parts[0], parts[1]);
+                        } else {
+                            currentDirLocale = new Locale(parts[0], parts[1], parts[2]);
+                        }
+
+                        if (localeDirName.equals(cacheFilenamesKey)) {
+                            filenames.addAll(0, getLocaleFilenames(localeDir, currentDirLocale));
+                        } else if (parts[0].equals("en")) {
+                            filenames.addAll(filenames.size(), getLocaleFilenames(localeDir, currentDirLocale));
+                        }
+                    });
+                }
+            } catch (IOException e) {
+                logger.debug("file error:", e);
+            }
+        }
+
+        if (filenames.size() == 1 && filenames.get(0).contains("en_US") && !"en".equals(language)) {
+            return filenames;
+        }
+        if (filenames.size() > 0) {
+            cachedFilenamesMap.put(cacheFilenamesKey, filenames);
+        }
+        return filenames;
+    }
+
+    private List<String> getLocaleFilenames(File localeDir, Locale locale) {
+        List<String> filenames = new LinkedList<>();
+        File[] languageFiles = localeDir.listFiles();
+        if (languageFiles != null && languageFiles.length > 0) {
+            for (File languageFile : languageFiles) {
+                String realBasename = languageFile.toURI().toString().replace(".properties", "");
+                List<String> calculatedFileNames = super.calculateAllFilenames(realBasename, locale);
+                filenames.addAll(calculatedFileNames);
+            }
+        }
+        return filenames;
+    }
+
+    @Override
+    protected List<String> calculateFilenamesForLocale(String basename, Locale locale) {
+        return Collections.emptyList();
+    }
+}
+```
+### 2.自定义LocaleResolver
+```java
+public class HeaderLocaleResolver implements LocaleResolver {
+    private static final Logger logger = LoggerFactory.getLogger(HeaderLocaleResolver.class);
+
+    private static final String LANGUAGE_HEADER = "X-Locale";
+    private static final Locale DEFAULT_LOCALE = Locale.US;
+
+    @Override
+    public Locale resolveLocale(HttpServletRequest request) {
+        logger.debug("=== Resolving locale for " + request.getRequestURI() + "===");
+        Locale currentLanguage = DEFAULT_LOCALE;
+        String language = request.getHeader(LANGUAGE_HEADER);
+        if (StringUtils.isNotEmpty(language)) {
+            try {
+                currentLanguage = LocaleUtils.parseLocale(language);
+            } catch (Exception ignored) {
+                logger.info("=== Can't resolving locale for " + request.getRequestURI() + " Use default locale en_US ===");
+            }
+        }
+        LocaleContextHolder.setLocale(currentLanguage);
+        return currentLanguage;
+    }
+
+    @Override
+    public void setLocale(HttpServletRequest request, HttpServletResponse response, Locale locale) {
+    }
+}
+```
+### 3.装配自定义的MessageSource和LocaleResolver
+```java
+@Configuration
+public class I18nConfig {
+
+    @Value("${i18n.back-end.location}")
+    private String backEndLocation;
+
+    @Bean
+    public MessageSource messageSource() {
+
+        TransReloadableResourceBundleMessageSource messageSource = new TransReloadableResourceBundleMessageSource();
+        messageSource.setBasename("file:" + backEndLocation + "/messages");
+        messageSource.setDefaultEncoding("UTF-8");
+        messageSource.setDefaultLocale(Locale.US);
+        messageSource.setCacheSeconds(3600);
+        return messageSource;
+    }
+
+    @Bean
+    public LocaleResolver localeResolver() {
+        return new HeaderLocaleResolver();
+    }
+}
+```
+### 4.实现多语言类型的ThreadLocal
+```java
+public class LocaleContextHolder {
+    private static final ThreadLocal<Locale> localeHolder = new ThreadLocal<>();
+
+    public static void setLocale(Locale locale) {
+        if (locale == null) {
+            localeHolder.remove();
+        } else {
+            localeHolder.set(locale);
+        }
+    }
+
+    public static Locale getLocale() {
+        Locale locale = localeHolder.get();
+        return locale != null ? locale : Locale.US; // 默认英文
+    }
+
+    public static void clear() {
+        localeHolder.remove();
+    }
+}
+```
+### 5.自定义拦截器
+```java
+public class LocaleInterceptor implements HandlerInterceptor {
+
+    private static HeaderLocaleResolver headerLocaleResolver;
+
+
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+
+        if (headerLocaleResolver == null) {
+            headerLocaleResolver = SpringContextHolder.getBean(HeaderLocaleResolver.class);
+        }
+        headerLocaleResolver.resolveLocale(request);
+        return true;
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
+                                Object handler, Exception ex) {
+        LocaleContextHolder.clear();
+    }
+}
+```
+### 6.注册连接器
+```java
+@Configuration
+public class WebMvcConfig implements WebMvcConfigurer {
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new LocaleInterceptor()).order(Ordered.HIGHEST_PRECEDENCE);
+    }
+}
+```
+上述代码我并没有使用spring提供的LocaleChangeInterceptor 去处理多语言类型缓存。而由于我们已经重写了MessageSource，天然的就能够实现vaild按照我们指定的多语言规则实现
+# 二十八、SpringBoot接口 - 如何统一异常处理
+## 28.1 为什么要优雅的处理异常
+如果我们不统一的处理异常，经常会在controller层有大量的异常处理的代码， 比如：
+```java
+@Slf4j
+@Api(value = "User Interfaces", tags = "User Interfaces")
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    /**
+     * http://localhost:8080/user/add .
+     *
+     * @param userParam user param
+     * @return user
+     */
+    @ApiOperation("Add User")
+    @ApiImplicitParam(name = "userParam", type = "body", dataTypeClass = UserParam.class, required = true)
+    @PostMapping("add")
+    public ResponseEntity<String> add(@Valid @RequestBody UserParam userParam) {
+        // 每个接口充斥着大量的异常处理
+        try {
+            // do something
+        } catch(Exception e) {
+            return ResponseEntity.fail("error");
+        }
+        return ResponseEntity.ok("success");
+    }
+}
+```
+那怎么实现统一的异常处理，特别是结合参数校验等封装？
+
+## 28.2 实现案例
+简单展示通过@ControllerAdvice进行统一异常处理。
+
+### 28.2.1 @ControllerAdvice异常统一处理
+对于400参数错误异常
+```java
+/**
+ * Global exception handler.
+ *
+ * @author pdai
+ */
+@Slf4j
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    /**
+     * exception handler for bad request.
+     *
+     * @param e
+     *            exception
+     * @return ResponseResult
+     */
+    @ResponseBody
+    @ResponseStatus(code = HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(value = { BindException.class, ValidationException.class, MethodArgumentNotValidException.class })
+    public ResponseResult<ExceptionData> handleParameterVerificationException(@NonNull Exception e) {
+        ExceptionData.ExceptionDataBuilder exceptionDataBuilder = ExceptionData.builder();
+        log.warn("Exception: {}", e.getMessage());
+        if (e instanceof BindException) {
+            BindingResult bindingResult = ((MethodArgumentNotValidException) e).getBindingResult();
+            bindingResult.getAllErrors().stream().map(DefaultMessageSourceResolvable::getDefaultMessage)
+                    .forEach(exceptionDataBuilder::error);
+        } else if (e instanceof ConstraintViolationException) {
+            if (e.getMessage() != null) {
+                exceptionDataBuilder.error(e.getMessage());
+            }
+        } else {
+            exceptionDataBuilder.error("invalid parameter");
+        }
+        return ResponseResultEntity.fail(exceptionDataBuilder.build(), "invalid parameter");
+    }
+
+}
+```
+对于自定义异常
+```java
+/**
+ * handle business exception.
+ *
+ * @param businessException
+ *            business exception
+ * @return ResponseResult
+ */
+@ResponseBody
+@ExceptionHandler(BusinessException.class)
+public ResponseResult<BusinessException> processBusinessException(BusinessException businessException) {
+    log.error(businessException.getLocalizedMessage(), businessException);
+    // 这里可以屏蔽掉后台的异常栈信息，直接返回"business error"
+    return ResponseResultEntity.fail(businessException, businessException.getLocalizedMessage());
+}
+```
+对于其它异常
+```java
+/**
+ * handle other exception.
+ *
+ * @param exception
+ *            exception
+ * @return ResponseResult
+ */
+@ResponseBody
+@ExceptionHandler(Exception.class)
+public ResponseResult<Exception> processException(Exception exception) {
+    log.error(exception.getLocalizedMessage(), exception);
+    // 这里可以屏蔽掉后台的异常栈信息，直接返回"server error"
+    return ResponseResultEntity.fail(exception, exception.getLocalizedMessage());
+}
+```
+### 28.2.2 Controller接口
+（接口中无需处理异常）
+```java
+@Slf4j
+@Api(value = "User Interfaces", tags = "User Interfaces")
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    /**
+     * http://localhost:8080/user/add .
+     *
+     * @param userParam user param
+     * @return user
+     */
+    @ApiOperation("Add User")
+    @ApiImplicitParam(name = "userParam", type = "body", dataTypeClass = UserParam.class, required = true)
+    @PostMapping("add")
+    public ResponseEntity<UserParam> add(@Valid @RequestBody UserParam userParam) {
+        return ResponseEntity.ok(userParam);
+    }
+}
+```
+### 28.2.3 运行测试
+这里用postman测试下
+![146.springboot-exception-1.png](../../assets/images/04-主流框架/spring/146.springboot-exception-1.png)
+## 28.3 进一步理解
+### 28.3.1 @ControllerAdvice还可以怎么用？
+除了通过@ExceptionHandler注解用于全局异常的处理之外，@ControllerAdvice还有两个用法：
+#### 28.3.1.1 @InitBinder注解（定制 Web 数据绑定和验证）
+`@InitBinder` 注解是 Spring MVC 框架中的一个重要注解，主要用于**定制 Web 数据绑定和验证**。它的主要作用如下：
+
+1. **自定义数据绑定规则**
+- **字段限制**：允许指定哪些字段可以被绑定（白名单），或哪些字段禁止绑定（黑名单）。
+  ```java
+  @InitBinder
+  public void initBinder(WebDataBinder binder) {
+      binder.setAllowedFields("id", "name");  // 只允许绑定 id 和 name 字段
+      // binder.setDisallowedFields("password"); // 禁止绑定 password 字段
+  }
+  ```
+- **防止恶意攻击**：避免前端传递非法字段（如 `admin=true`）篡改后端数据。
+
+---
+
+2. **注册自定义属性编辑器（PropertyEditor）**
+用于处理特定类型的参数转换，例如：
+- **日期格式转换**：
+  ```java
+  @InitBinder
+  public void initBinder(WebDataBinder binder) {
+      SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+      binder.registerCustomEditor(Date.class, new CustomDateEditor(dateFormat, true));
+  }
+  ```
+  此时前端传递的字符串（如 `"2023-10-01"`）会自动转换为 `Date` 类型。
+    ```java
+    @GetMapping("testDate")
+    public Date processApi(Date date) {//直接用Date对象接收即可
+        return date;
+    }
+    ```
+    单独定义 `Advice` 类实现上面的日期格式转换就可以全局的实现对 Controller 中RequestMapping标识的方法中的所有Date类型的参数都会被作相应的处理。
+---
+
+1. **自定义验证器（Validator）**
+可以为特定控制器方法绑定自定义验证逻辑：
+```java
+@InitBinder
+public void initBinder(WebDataBinder binder) {
+    binder.setValidator(new UserValidator()); // 绑定 User 对象的自定义验证器
+}
+```
+
+---
+
+4. **作用范围**
+- **控制器级别**：仅对当前控制器中的请求处理方法生效。
+- **方法级别**：可通过 `@RequestMapping` 方法单独配置不同的绑定规则。
+
+---
+
+5. **适用场景**
+- 需要限制前端传递的字段（如更新用户信息时只允许修改昵称，而非权限字段）。
+- 处理复杂类型参数（如日期、枚举、自定义对象）的转换。
+- 为特定控制器定制验证逻辑。
+
+---
+
+6. **注意事项**
+- `@InitBinder` 方法会在每次请求到达控制器时被调用，**不宜包含耗时逻辑**。
+- 对于全局数据绑定配置，推荐使用 `@ControllerAdvice` 结合 `@InitBinder`
+--- 
+
+7. **使用方式**
+- 我们通常将@InitBinder注解的方法放在控制器（Controller）中，这样它就会对该控制器中的所有请求处理方法生效。
+```java
+@Controller
+public class UserController {
+
+    @InitBinder
+    public void initBinder(WebDataBinder binder, WebRequest request) {
+        binder.setAllowedFields("id", "name");
+    }
+
+    @PostMapping("/updateUser")
+    public String updateUser(@ModelAttribute User user) {
+        // 只有id和name会被绑定
+        return "success";
+    }
+
+    @PostMapping("/createUser")
+    public String createUser(@ModelAttribute User user) {
+        // 只有name和email会被绑定
+        return "success";
+    }
+}
+```
+- 如果我们想要针对某个controller中的一些特定的请求生效的话可以采取以下方式
+
+  - 1. **方法级别控制（推荐）**
+
+    - 方式一：通过方法名判断
+    ```java
+    @Controller
+    public class UserController {
+        
+        @InitBinder
+        public void initBinder(WebDataBinder binder, WebRequest request) {
+            // 获取当前请求的处理器方法
+            HandlerMethod handlerMethod = (HandlerMethod) RequestContextHolder.currentRequestAttributes()
+                    .getAttribute("org.springframework.web.servlet.HandlerMapping.bestMatchingHandler", 
+                                 RequestAttributes.SCOPE_REQUEST);
+            
+            String methodName = handlerMethod.getMethod().getName();
+            
+            // 只对特定方法应用绑定规则
+            if ("updateUser".equals(methodName)) {
+                binder.setAllowedFields("id", "name");
+            }
+            // 对其他方法不限制或应用不同规则
+        }
+        
+        @PostMapping("/updateUser")
+        public String updateUser(@ModelAttribute User user) {
+            // 这里只会绑定 id 和 name 字段
+            return "success";
+        }
+        
+        @PostMapping("/createUser")
+        public String createUser(@ModelAttribute User user) {
+            // 这里不受限制，所有字段都能绑定
+            return "success";
+        }
+    }
+    ```
+
+    - 方式二：使用请求参数判断
+    ```java
+    @InitBinder
+    public void initBinder(WebDataBinder binder, WebRequest request) {
+        // 根据请求路径判断
+        String requestUri = ((ServletRequestAttributes) RequestContextHolder.currentRequestAttributes())
+                .getRequest().getRequestURI();
+        
+        if (requestUri.contains("/update")) {
+            binder.setAllowedFields("id", "name");
+        }
+    }
+    ```
+
+  ---
+
+  - 2. **使用自定义注解（更优雅）**
+
+  通过 `value` 属性指定不同的 binder 名称：
+  ```java
+    // 自定义注解
+    @Target(ElementType.METHOD)
+    @Retention(RetentionPolicy.RUNTIME)
+    public @interface AllowedFields {
+        String[] value();
+    }
+
+    // 控制器
+    @Controller
+    public class UserController {
+        
+        @InitBinder
+        public void initBinder(WebDataBinder binder, WebRequest request) {
+            HandlerMethod handlerMethod = (HandlerMethod) request.getAttribute(
+                HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE, RequestAttributes.SCOPE_REQUEST);
+            
+            if (handlerMethod != null) {
+                Method method = handlerMethod.getMethod();
+                if (method.isAnnotationPresent(AllowedFields.class)) {
+                    AllowedFields annotation = method.getAnnotation(AllowedFields.class);
+                    binder.setAllowedFields(annotation.value());
+                }
+            }
+        }
+        
+        @PostMapping("/updateUser")
+        @AllowedFields({"id", "name"})
+        public String updateUser(@ModelAttribute User user) {
+            return "success";
+        }
+        
+        @PostMapping("/createUser")
+        @AllowedFields({"name", "email", "age"})
+        public String createUser(@ModelAttribute User user) {
+            return "success";
+        }
+    }
+
+  ```
+- 使用 @ControllerAdvice 实现更灵活的控制
+
+创建专门的 Advice 类：
+```java
+@ControllerAdvice(assignableTypes = UserController.class)  // 只对 UserController 生效
+public class UserControllerAdvice {
+    
+    @InitBinder
+    public void initBinder(WebDataBinder binder, WebRequest request) {
+        // 通过注解标记特定方法
+        HandlerMethod handlerMethod = (HandlerMethod) RequestContextHolder.currentRequestAttributes()
+                .getAttribute("org.springframework.web.servlet.HandlerMapping.bestMatchingHandler", 
+                             RequestAttributes.SCOPE_REQUEST);
+        
+        // 检查方法上是否有特定注解
+        if (handlerMethod.getMethod().isAnnotationPresent(AllowOnlyIdAndName.class)) {
+            binder.setAllowedFields("id", "name");
+        }
+    }
+}
+
+// 自定义注解
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface AllowOnlyIdAndName {
+}
+
+// 在控制器中使用
+@Controller
+public class UserController {
+    
+    @PostMapping("/updateUser")
+    @AllowOnlyIdAndName  // 标记此方法使用特定绑定规则
+    public String updateUser(@ModelAttribute User user) {
+        return "success";
+    }
+}
+```
+#### 28.3.1.2 @ModelAttribute注解
+用来预设全局参数，比如最典型的使用Spring Security时将添加当前登录的用户信息（UserDetails）作为参数。
+```java
+@ModelAttribute("currentUser")
+public UserDetails modelAttribute() {
+    return (UserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+}
+```
+所有controller类中requestMapping方法都可以直接获取并使用currentUser
+```java
+@PostMapping("saveSomething")
+public ResponseEntity<String> saveSomeObj(@ModelAttribute("currentUser") UserDetails operator) {
+    // 保存操作，并设置当前操作人员的ID（从UserDetails中获得）
+    return ResponseEntity.success("ok");
+}
+```
+### 28.3.2 @ControllerAdvice是如何起作用的（原理）？
+我们在`Spring基础 - SpringMVC案例和机制`的基础上来看@ControllerAdvice的源码实现。
+
+DispatcherServlet中onRefresh方法是初始化ApplicationContext后的回调方法，它会调用initStrategies方法，主要更新一些servlet需要使用的对象，包括国际化处理，requestMapping，视图解析等等。
+```java
+/**
+    * This implementation calls {@link #initStrategies}.
+    */
+@Override
+protected void onRefresh(ApplicationContext context) {
+    initStrategies(context);
+}
+
+/**
+    * Initialize the strategy objects that this servlet uses.
+    * <p>May be overridden in subclasses in order to initialize further strategy objects.
+    */
+protected void initStrategies(ApplicationContext context) {
+    initMultipartResolver(context); // 文件上传
+    initLocaleResolver(context); // i18n国际化
+    initThemeResolver(context); // 主题
+    initHandlerMappings(context); // requestMapping
+    initHandlerAdapters(context); // adapters
+    initHandlerExceptionResolvers(context); // 异常处理
+    initRequestToViewNameTranslator(context);
+    initViewResolvers(context);
+    initFlashMapManager(context);
+}
+```
+从上述代码看，如果要提供@ControllerAdvice提供的三种注解功能，从设计和实现的角度肯定是实现的代码需要放在initStrategies方法中。
+- @ModelAttribute和@InitBinder处理
+
+具体来看，如果你是设计者，很显然容易想到：对于@ModelAttribute提供的参数预置和@InitBinder注解提供的预处理方法应该是放在一个方法中的，因为它们都是在进入requestMapping方法前做的操作。
+
+如下方法是获取所有的HandlerAdapter，无非就是从BeanFactory中获取(BeanFactory相关知识请参考 Spring进阶- Spring IOC实现原理详解之IOC体系结构设计)
+```java
+private void initHandlerAdapters(ApplicationContext context) {
+    this.handlerAdapters = null;
+
+    if (this.detectAllHandlerAdapters) {
+        // Find all HandlerAdapters in the ApplicationContext, including ancestor contexts.
+        Map<String, HandlerAdapter> matchingBeans =
+                BeanFactoryUtils.beansOfTypeIncludingAncestors(context, HandlerAdapter.class, true, false);
+        if (!matchingBeans.isEmpty()) {
+            this.handlerAdapters = new ArrayList<>(matchingBeans.values());
+            // We keep HandlerAdapters in sorted order.
+            AnnotationAwareOrderComparator.sort(this.handlerAdapters);
+        }
+    }
+    else {
+        try {
+            HandlerAdapter ha = context.getBean(HANDLER_ADAPTER_BEAN_NAME, HandlerAdapter.class);
+            this.handlerAdapters = Collections.singletonList(ha);
+        }
+        catch (NoSuchBeanDefinitionException ex) {
+            // Ignore, we'll add a default HandlerAdapter later.
+        }
+    }
+
+    // Ensure we have at least some HandlerAdapters, by registering
+    // default HandlerAdapters if no other adapters are found.
+    if (this.handlerAdapters == null) {
+        this.handlerAdapters = getDefaultStrategies(context, HandlerAdapter.class);
+        if (logger.isTraceEnabled()) {
+            logger.trace("No HandlerAdapters declared for servlet '" + getServletName() +
+                    "': using default strategies from DispatcherServlet.properties");
+        }
+    }
+}
+```
+我们要处理的是requestMapping的handlerResolver，作为设计者，就很容易出如下的结构
+![147.springboot-exception-10.png](../../assets/images/04-主流框架/spring/147.springboot-exception-10.png)
+
+在RequestMappingHandlerAdapter中的afterPropertiesSet去处理advice
+```java
+@Override
+public void afterPropertiesSet() {
+    // Do this first, it may add ResponseBody advice beans
+    initControllerAdviceCache();
+
+    if (this.argumentResolvers == null) {
+        List<HandlerMethodArgumentResolver> resolvers = getDefaultArgumentResolvers();
+        this.argumentResolvers = new HandlerMethodArgumentResolverComposite().addResolvers(resolvers);
+    }
+    if (this.initBinderArgumentResolvers == null) {
+        List<HandlerMethodArgumentResolver> resolvers = getDefaultInitBinderArgumentResolvers();
+        this.initBinderArgumentResolvers = new HandlerMethodArgumentResolverComposite().addResolvers(resolvers);
+    }
+    if (this.returnValueHandlers == null) {
+        List<HandlerMethodReturnValueHandler> handlers = getDefaultReturnValueHandlers();
+        this.returnValueHandlers = new HandlerMethodReturnValueHandlerComposite().addHandlers(handlers);
+    }
+}
+
+private void initControllerAdviceCache() {
+    if (getApplicationContext() == null) {
+        return;
+    }
+
+    List<ControllerAdviceBean> adviceBeans = ControllerAdviceBean.findAnnotatedBeans(getApplicationContext());
+
+    List<Object> requestResponseBodyAdviceBeans = new ArrayList<>();
+
+    for (ControllerAdviceBean adviceBean : adviceBeans) {
+        Class<?> beanType = adviceBean.getBeanType();
+        if (beanType == null) {
+            throw new IllegalStateException("Unresolvable type for ControllerAdviceBean: " + adviceBean);
+        }
+        // 缓存所有modelAttribute注解方法
+        Set<Method> attrMethods = MethodIntrospector.selectMethods(beanType, MODEL_ATTRIBUTE_METHODS);
+        if (!attrMethods.isEmpty()) {
+            this.modelAttributeAdviceCache.put(adviceBean, attrMethods);
+        }
+        // 缓存所有initBinder注解方法
+        Set<Method> binderMethods = MethodIntrospector.selectMethods(beanType, INIT_BINDER_METHODS);
+        if (!binderMethods.isEmpty()) {
+            this.initBinderAdviceCache.put(adviceBean, binderMethods);
+        }
+        if (RequestBodyAdvice.class.isAssignableFrom(beanType) || ResponseBodyAdvice.class.isAssignableFrom(beanType)) {
+            requestResponseBodyAdviceBeans.add(adviceBean);
+        }
+    }
+
+    if (!requestResponseBodyAdviceBeans.isEmpty()) {
+        this.requestResponseBodyAdvice.addAll(0, requestResponseBodyAdviceBeans);
+    }
+}
+```
+- @ExceptionHandler处理
+
+@ExceptionHandler显然是在上述initHandlerExceptionResolvers(context)方法中。
+
+同样的，从BeanFactory中获取HandlerExceptionResolver
+```java
+/**
+    * Initialize the HandlerExceptionResolver used by this class.
+    * <p>If no bean is defined with the given name in the BeanFactory for this namespace,
+    * we default to no exception resolver.
+    */
+private void initHandlerExceptionResolvers(ApplicationContext context) {
+    this.handlerExceptionResolvers = null;
+
+    if (this.detectAllHandlerExceptionResolvers) {
+        // Find all HandlerExceptionResolvers in the ApplicationContext, including ancestor contexts.
+        Map<String, HandlerExceptionResolver> matchingBeans = BeanFactoryUtils
+                .beansOfTypeIncludingAncestors(context, HandlerExceptionResolver.class, true, false);
+        if (!matchingBeans.isEmpty()) {
+            this.handlerExceptionResolvers = new ArrayList<>(matchingBeans.values());
+            // We keep HandlerExceptionResolvers in sorted order.
+            AnnotationAwareOrderComparator.sort(this.handlerExceptionResolvers);
+        }
+    }
+    else {
+        try {
+            HandlerExceptionResolver her =
+                    context.getBean(HANDLER_EXCEPTION_RESOLVER_BEAN_NAME, HandlerExceptionResolver.class);
+            this.handlerExceptionResolvers = Collections.singletonList(her);
+        }
+        catch (NoSuchBeanDefinitionException ex) {
+            // Ignore, no HandlerExceptionResolver is fine too.
+        }
+    }
+
+    // Ensure we have at least some HandlerExceptionResolvers, by registering
+    // default HandlerExceptionResolvers if no other resolvers are found.
+    if (this.handlerExceptionResolvers == null) {
+        this.handlerExceptionResolvers = getDefaultStrategies(context, HandlerExceptionResolver.class);
+        if (logger.isTraceEnabled()) {
+            logger.trace("No HandlerExceptionResolvers declared in servlet '" + getServletName() +
+                    "': using default strategies from DispatcherServlet.properties");
+        }
+    }
+}
+```
+我们很容易找到ExceptionHandlerExceptionResolver
+![148.springboot-exception-11.png](../../assets/images/04-主流框架/spring/148.springboot-exception-11.png)
+
+同样的在afterPropertiesSet去处理advice
+```java
+@Override
+public void afterPropertiesSet() {
+    // Do this first, it may add ResponseBodyAdvice beans
+    initExceptionHandlerAdviceCache();
+
+    if (this.argumentResolvers == null) {
+        List<HandlerMethodArgumentResolver> resolvers = getDefaultArgumentResolvers();
+        this.argumentResolvers = new HandlerMethodArgumentResolverComposite().addResolvers(resolvers);
+    }
+    if (this.returnValueHandlers == null) {
+        List<HandlerMethodReturnValueHandler> handlers = getDefaultReturnValueHandlers();
+        this.returnValueHandlers = new HandlerMethodReturnValueHandlerComposite().addHandlers(handlers);
+    }
+}
+
+private void initExceptionHandlerAdviceCache() {
+    if (getApplicationContext() == null) {
+        return;
+    }
+
+    List<ControllerAdviceBean> adviceBeans = ControllerAdviceBean.findAnnotatedBeans(getApplicationContext());
+    for (ControllerAdviceBean adviceBean : adviceBeans) {
+        Class<?> beanType = adviceBean.getBeanType();
+        if (beanType == null) {
+            throw new IllegalStateException("Unresolvable type for ControllerAdviceBean: " + adviceBean);
+        }
+        ExceptionHandlerMethodResolver resolver = new ExceptionHandlerMethodResolver(beanType);
+        if (resolver.hasExceptionMappings()) {
+            this.exceptionHandlerAdviceCache.put(adviceBean, resolver);
+        }
+        if (ResponseBodyAdvice.class.isAssignableFrom(beanType)) {
+            this.responseBodyAdvice.add(adviceBean);
+        }
+    }
+}
+```
+# 二十九、SpringBoot接口 - 如何提供多个版本接口
+> 在以SpringBoot开发Restful接口时，由于模块，系统等业务的变化，需要对同一接口提供不同版本的参数实现（老的接口还有模块或者系统在用，不能直接改，所以需要不同版本）。如何更加优雅的实现多版本接口呢？
+## 29.1 为什么接口会出现多个版本？
+> 为什么接口会出现多个版本？
+
+一般来说，Restful API接口是提供给其它模块，系统或是其他公司使用，不能随意频繁的变更。然而，需求和业务不断变化，接口和参数也会发生相应的变化。如果直接对原来的接口进行修改，势必会影响线其他系统的正常运行。这就必须对api 接口进行有效的版本控制。
+### 29.1.1 有哪些控制接口多版本的方式？
+- 相同URL，用**不同的版本参数**区分
+  - api.pdai.tech/user?version=v1 表示 v1版本的接口, 保持原有接口不动
+  - api.pdai.tech/user?version=v2 表示 v2版本的接口，更新新的接口
+- 区分**不同的接口域名**，不同的版本有不同的子域名, 路由到不同的实例:
+  - v1.api.pdai.tech/user 表示 v1版本的接口, 保持原有接口不动, 路由到instance1
+  - v2.api.pdai.tech/user 表示 v2版本的接口，更新新的接口, 路由到instance2
+- 网关路由不同子目录到**不同的实例**（不同package也可以）
+  - api.pdai.tech/v1/user 表示 v1版本的接口, 保持原有接口不动, 路由到instance1api.
+  - pdai.tech/v2/user 表示 v2版本的接口，更新新的接口, 路由到instance2
+- **同一实例**，用注解隔离不同版本控制
+  - api.pdai.tech/v1/user 表示 v1版本的接口, 保持原有接口不动，匹配@ApiVersion("1")的handlerMapping
+  - api.pdai.tech/v2/user 表示 v2版本的接口，更新新的接口，匹配@ApiVersion("2")的handlerMapping
+
+这里主要展示第四种单一实例中如何优雅的控制接口的版本。
+## 29.2 实现案例
+> 这个例子基于SpringBoot封装了@ApiVersion注解方式控制接口版本。
+### 29.2.1 自定义@ApiVersion注解
+```java
+package tech.pdai.springboot.api.version.config.version;
+
+import org.springframework.web.bind.annotation.Mapping;
+
+import java.lang.annotation.*;
+
+@Target({ElementType.METHOD, ElementType.TYPE})
+@Retention(RetentionPolicy.RUNTIME)
+@Documented
+@Mapping
+public @interface ApiVersion {
+    String value();
+}
+```
+### 29.2.2 定义版本匹配RequestCondition
+版本匹配支持三层版本
+- v1.1.1 （大版本.小版本.补丁版本）
+- v1.1 (等同于v1.1.0)
+- v1 (等同于v1.0.0)
+```java
+package tech.pdai.springboot.api.version.config.version;
+
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.servlet.mvc.condition.RequestCondition;
+
+import javax.servlet.http.HttpServletRequest;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+@Slf4j
+public class ApiVersionCondition implements RequestCondition<ApiVersionCondition> {
+
+    /**
+     * support v1.1.1, v1.1, v1; three levels .
+     */
+    private static final Pattern VERSION_PREFIX_PATTERN_1 = Pattern.compile("/v\\d\\.\\d\\.\\d/");
+    private static final Pattern VERSION_PREFIX_PATTERN_2 = Pattern.compile("/v\\d\\.\\d/");
+    private static final Pattern VERSION_PREFIX_PATTERN_3 = Pattern.compile("/v\\d/");
+    private static final List<Pattern> VERSION_LIST = Collections.unmodifiableList(
+            Arrays.asList(VERSION_PREFIX_PATTERN_1, VERSION_PREFIX_PATTERN_2, VERSION_PREFIX_PATTERN_3)
+    );
+
+    @Getter
+    private final String apiVersion;
+
+    public ApiVersionCondition(String apiVersion) {
+        this.apiVersion = apiVersion;
+    }
+
+    /**
+     * method priority is higher then class.
+     *
+     * @param other other
+     * @return ApiVersionCondition
+     */
+    @Override
+    public ApiVersionCondition combine(ApiVersionCondition other) {
+        return new ApiVersionCondition(other.apiVersion);
+    }
+
+    @Override
+    public ApiVersionCondition getMatchingCondition(HttpServletRequest request) {
+        for (int vIndex = 0; vIndex < VERSION_LIST.size(); vIndex++) {
+            Matcher m = VERSION_LIST.get(vIndex).matcher(request.getRequestURI());
+            if (m.find()) {
+                String version = m.group(0).replace("/v", "").replace("/", "");
+                if (vIndex == 1) {
+                    version = version + ".0";
+                } else if (vIndex == 2) {
+                    version = version + ".0.0";
+                }
+                if (compareVersion(version, this.apiVersion) >= 0) {
+                    log.info("version={}, apiVersion={}", version, this.apiVersion);
+                    return this;
+                }
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public int compareTo(ApiVersionCondition other, HttpServletRequest request) {
+        return compareVersion(other.getApiVersion(), this.apiVersion);
+    }
+
+    private int compareVersion(String version1, String version2) {
+        if (version1 == null || version2 == null) {
+            throw new RuntimeException("compareVersion error:illegal params.");
+        }
+        String[] versionArray1 = version1.split("\\.");
+        String[] versionArray2 = version2.split("\\.");
+        int idx = 0;
+        int minLength = Math.min(versionArray1.length, versionArray2.length);
+        int diff = 0;
+        while (idx < minLength
+                && (diff = versionArray1[idx].length() - versionArray2[idx].length()) == 0
+                && (diff = versionArray1[idx].compareTo(versionArray2[idx])) == 0) {
+            ++idx;
+        }
+        diff = (diff != 0) ? diff : versionArray1.length - versionArray2.length;
+        return diff;
+    }
+}
+```
+### 29.2.3 自定义HandlerMapping
+```java
+package tech.pdai.springboot.api.version.config.version;
+
+import org.springframework.core.annotation.AnnotationUtils;
+import org.springframework.lang.NonNull;
+import org.springframework.web.servlet.mvc.condition.RequestCondition;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+
+import java.lang.reflect.Method;
+
+public class ApiVersionRequestMappingHandlerMapping extends RequestMappingHandlerMapping {
+
+    /**
+     * add @ApiVersion to controller class.
+     *
+     * @param handlerType handlerType
+     * @return RequestCondition
+     */
+    @Override
+    protected RequestCondition<?> getCustomTypeCondition(@NonNull Class<?> handlerType) {
+        ApiVersion apiVersion = AnnotationUtils.findAnnotation(handlerType, ApiVersion.class);
+        return null == apiVersion ? super.getCustomTypeCondition(handlerType) : new ApiVersionCondition(apiVersion.value());
+    }
+
+    /**
+     * add @ApiVersion to controller method.
+     *
+     * @param method method
+     * @return RequestCondition
+     */
+    @Override
+    protected RequestCondition<?> getCustomMethodCondition(@NonNull Method method) {
+        ApiVersion apiVersion = AnnotationUtils.findAnnotation(method, ApiVersion.class);
+        return null == apiVersion ? super.getCustomMethodCondition(method) : new ApiVersionCondition(apiVersion.value());
+    }
+
+}
+```
+### 29.2.4 配置注册HandlerMapping
+继承WebMvcConfigurationSupport(不推荐该方法，会影响到Springboot的自动配置WebMvcAutoConfiguration)
+```java
+package tech.pdai.springboot.api.version.config.version;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurationSupport;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+
+@Configuration
+public class CustomWebMvcConfiguration extends WebMvcConfigurationSupport {
+
+    @Override
+    public RequestMappingHandlerMapping createRequestMappingHandlerMapping() {
+        return new ApiVersionRequestMappingHandlerMapping();
+    }
+}
+```
+或者实现WebMvcRegistrations的接口
+```java
+@Configuration
+@RequiredArgsConstructor
+public class WebConfig implements WebMvcConfigurer, WebMvcRegistrations {
+    //...
+
+    @Override
+    @NonNull
+    public RequestMappingHandlerMapping getRequestMappingHandlerMapping() {
+        return new ApiVersionRequestMappingHandlerMapping();
+    }
+
+}
+```
+### 29.2.5 测试运行
+controller
+```java
+package tech.pdai.springboot.api.version.controller;
+
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.api.version.config.version.ApiVersion;
+import tech.pdai.springboot.api.version.entity.User;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("api/{v}/user")
+public class UserController {
+
+    @RequestMapping("get")
+    public User getUser() {
+        return User.builder().age(18).name("pdai, default").build();
+    }
+
+    @ApiVersion("1.0.0")
+    @RequestMapping("get")
+    public User getUserV1() {
+        return User.builder().age(18).name("pdai, v1.0.0").build();
+    }
+
+    @ApiVersion("1.1.0")
+    @RequestMapping("get")
+    public User getUserV11() {
+        return User.builder().age(19).name("pdai, v1.1.0").build();
+    }
+
+    @ApiVersion("1.1.2")
+    @RequestMapping("get")
+    public User getUserV112() {
+        return User.builder().age(19).name("pdai2, v1.1.2").build();
+    }
+}
+```
+输出
+```java
+http://localhost:8080/api/v1/user/get
+// {"name":"pdai, v1.0.0","age":18}
+
+http://localhost:8080/api/v1.1/user/get
+// {"name":"pdai, v1.1.0","age":19}
+
+http://localhost:8080/api/v1.1.1/user/get
+// {"name":"pdai, v1.1.0","age":19} 匹配比1.1.1小的中最大的一个版本号
+
+http://localhost:8080/api/v1.1.2/user/get
+// {"name":"pdai2, v1.1.2","age":19}
+
+http://localhost:8080/api/v1.2/user/get
+// {"name":"pdai2, v1.1.2","age":19} 匹配最大的版本号，v1.1.2
+```
+这样，如果我们向另外一个模块提供v1版本的接口，新的需求中只变动了一个接口方法，这时候我们只需要增加一个接口添加版本号v1.1即可用v1.1版本访问所有接口。
+> 此外，这种方式可能会导致v3版本接口没有发布，但是是可以通过v3访问接口的；这种情况下可以添加一些限制版本的逻辑，比如最大版本，版本集合等。
+## 29.3 实现原理
+
+### 29.3.1. Spring MVC的请求映射核心机制
+
+#### 9.3.1.1 HandlerMapping的作用
+```java
+// Spring MVC通过HandlerMapping将请求映射到对应的处理器
+public interface HandlerMapping {
+    HandlerExecutionChain getHandler(HttpServletRequest request) throws Exception;
+}
+```
+
+#### 9.3.1.2 RequestMappingHandlerMapping的工作流程
+1. **初始化阶段**：扫描所有`@Controller`和`@RequestMapping`注解
+2. **注册阶段**：为每个方法创建`RequestMappingInfo`（包含路径、方法、参数等条件）
+3. **匹配阶段**：收到请求时，通过`RequestCondition`进行条件匹配
+
+### 29.3.2. 自定义版本控制的实现原理
+
+#### 29.3.2.1 自定义RequestCondition
+```java
+public class ApiVersionCondition implements RequestCondition<ApiVersionCondition> {
+    // 核心方法：判断当前条件是否匹配请求
+    @Override
+    public ApiVersionCondition getMatchingCondition(HttpServletRequest request) {
+        // 从URL中提取版本号：/api/v1.1.2/user/get → "1.1.2"
+        // 与注解中的版本号进行比较
+    }
+    
+    // 多个条件匹配时的优先级比较
+    @Override
+    public int compareTo(ApiVersionCondition other, HttpServletRequest request) {
+        // 版本号大的优先级更高
+    }
+}
+```
+
+#### 29.3.2.2 自定义HandlerMapping
+```java
+public class ApiVersionRequestMappingHandlerMapping extends RequestMappingHandlerMapping {
+    
+    // 处理类级别的@ApiVersion注解
+    @Override
+    protected RequestCondition<?> getCustomTypeCondition(Class<?> handlerType) {
+        ApiVersion apiVersion = AnnotationUtils.findAnnotation(handlerType, ApiVersion.class);
+        return new ApiVersionCondition(apiVersion.value());
+    }
+    
+    // 处理方法级别的@ApiVersion注解
+    @Override
+    protected RequestCondition<?> getCustomMethodCondition(Method method) {
+        ApiVersion apiVersion = AnnotationUtils.findAnnotation(method, ApiVersion.class);
+        return new ApiVersionCondition(apiVersion.value());
+    }
+}
+```
+
+### 29.3.3. Spring Boot的自动配置机制
+
+#### 29.3.3.1 WebMvcConfigurationSupport
+```java
+@Configuration
+public class CustomWebMvcConfiguration extends WebMvcConfigurationSupport {
+    
+    // 重写此方法替换默认的HandlerMapping
+    @Override
+    public RequestMappingHandlerMapping createRequestMappingHandlerMapping() {
+        return new ApiVersionRequestMappingHandlerMapping();
+    }
+}
+```
+
+#### 29.3.3.2 替代方案：WebMvcRegistrations
+```java
+@Configuration
+public class WebConfig implements WebMvcRegistrations {
+    
+    // Spring Boot 2.1+ 推荐的扩展方式
+    @Override
+    public RequestMappingHandlerMapping getRequestMappingHandlerMapping() {
+        return new ApiVersionRequestMappingHandlerMapping();
+    }
+}
+```
+
+### 29.3.4. 版本匹配的详细流程
+
+#### 29.3.4.1 请求处理流程
+```
+HTTP请求 → DispatcherServlet → HandlerMapping → 匹配条件 → 执行对应方法
+```
+
+#### 29.3.4.2 版本匹配算法
+```java
+// 匹配逻辑：选择小于等于请求版本的最大版本
+if (compareVersion(version, this.apiVersion) >= 0) {
+    return this; // 匹配成功
+}
+
+// 比较版本号：1.1.1 vs 1.1.0 → 返回1（大于）
+private int compareVersion(String version1, String version2) {
+    // 逐级比较主版本、次版本、修订版本
+}
+```
+
+#### 29.3.4.3 具体匹配示例
+```
+请求: /api/v1.1.1/user/get
+可用版本: 1.0.0, 1.1.0, 1.1.2
+
+匹配过程：
+1. 1.1.1 >= 1.0.0 ✓
+2. 1.1.1 >= 1.1.0 ✓  
+3. 1.1.1 >= 1.1.2 ✗
+
+结果：选择1.1.0（最接近且不大于请求版本）
+```
+
+### 29.3.5. Spring Boot的底层扩展点
+
+#### 29.3.5.1 条件匹配的扩展点
+- **RequestCondition**: 自定义匹配条件
+- **HandlerMapping**: 自定义映射逻辑  
+- **WebMvcConfigurer**: 配置MVC组件
+
+#### 29.3.5.2 Spring Boot的自动配置类
+```java
+// Spring Boot自动配置MVC
+@Configuration
+@ConditionalOnWebApplication
+@ConditionalOnClass({ Servlet.class, DispatcherServlet.class })
+@AutoConfigureAfter(WebMvcAutoConfiguration.class)
+public class CustomWebMvcConfiguration {
+    // 自定义配置会覆盖默认配置
+}
+```
+
+### 29.3.6. 潜在问题与解决方案
+
+#### 29.3.6.1 版本号泄露问题
+```java
+// 解决方案：添加版本范围检查
+private boolean isVersionAllowed(String requestVersion) {
+    // 检查请求版本是否在已发布的版本范围内
+    return publishedVersions.contains(requestVersion);
+}
+```
+
+#### 29.3.6.2 性能优化
+```java
+// 使用缓存提高匹配性能
+private static final Map<String, String> VERSION_CACHE = new ConcurrentHashMap<>();
+
+public ApiVersionCondition getMatchingCondition(HttpServletRequest request) {
+    String uri = request.getRequestURI();
+    return VERSION_CACHE.computeIfAbsent(uri, this::doMatch);
+}
+```
+
+### 29.3.7 总结
+
+这个实现利用了Spring MVC的**扩展性设计**：
+1. **面向接口编程**：通过实现`RequestCondition`接口添加自定义条件
+2. **模板方法模式**：通过继承`RequestMappingHandlerMapping`重写关键方法
+3. **配置覆盖机制**：Spring Boot允许通过配置类覆盖默认组件
+4. **条件匹配算法**：实现了语义化版本的前向兼容匹配
+
+这种设计体现了Spring框架的**开闭原则**：对扩展开放，对修改关闭，使得开发者可以在不修改框架源码的情况下实现复杂的功能扩展。
+## <a href id = 'WebMvcRegistrations'>29.4 扩展：WebMvcRegistrations</a> 
+`WebMvcRegistrations` 是 **Spring Boot 提供的一个接口**，用于**自定义 Spring MVC 核心组件的注册行为**。
+
+### 29.4.1. 接口定义和作用
+
+```java
+public interface WebMvcRegistrations {
+    
+    // 自定义 RequestMappingHandlerMapping
+    RequestMappingHandlerMapping getRequestMappingHandlerMapping();
+    
+    // 自定义 RequestMappingHandlerAdapter  
+    RequestMappingHandlerAdapter getRequestMappingHandlerAdapter();
+    
+    // 自定义 ExceptionHandlerExceptionResolver
+    ExceptionHandlerExceptionResolver getExceptionHandlerExceptionResolver();
+}
+```
+
+### 29.4.2. 使用场景对比
+
+#### 29.4.2.1 传统方式：继承 WebMvcConfigurationSupport
+```java
+@Configuration
+public class CustomWebMvcConfiguration extends WebMvcConfigurationSupport {
+    
+    @Override
+    public RequestMappingHandlerMapping createRequestMappingHandlerMapping() {
+        return new ApiVersionRequestMappingHandlerMapping();
+    }
+}
+```
+**缺点**：继承 `WebMvcConfigurationSupport` 会**完全禁用 Spring Boot 的自动配置**
+
+#### 29.4.2.2 推荐方式：实现 WebMvcRegistrations
+```java
+@Configuration
+public class WebConfig implements WebMvcRegistrations {
+    
+    @Override
+    public RequestMappingHandlerMapping getRequestMappingHandlerMapping() {
+        return new ApiVersionRequestMappingHandlerMapping();
+    }
+}
+```
+**优点**：只**替换特定组件**，保留 Spring Boot 的其他自动配置
+
+### 29.4.3. 工作原理
+
+#### 29.4.3.1 Spring Boot 的自动配置流程
+```java
+// WebMvcAutoConfiguration 中的关键代码
+@Configuration
+@ConditionalOnWebApplication
+@ConditionalOnClass({ Servlet.class, DispatcherServlet.class })
+@AutoConfigureAfter(WebMvcAutoConfiguration.class)
+public class WebMvcAutoConfiguration {
+    
+    @Bean
+    @ConditionalOnBean(WebMvcRegistrations.class)
+    public RequestMappingHandlerMapping requestMappingHandlerMapping(
+        WebMvcRegistrations registrations) {
+        // 如果存在WebMvcRegistrations Bean，使用自定义的HandlerMapping
+        return registrations.getRequestMappingHandlerMapping();
+    }
+}
+```
+
+#### 29.4.3.2 执行顺序
+```
+1. Spring Boot 启动
+2. WebMvcAutoConfiguration 自动配置MVC组件
+3. 检查是否存在 WebMvcRegistrations Bean
+4. 如果存在，使用自定义组件替换默认组件
+5. 如果不存在，使用默认配置
+```
+
+### 29.4.4. 三个核心组件的作用
+
+#### 29.4.4.1 RequestMappingHandlerMapping
+```java
+// 负责将HTTP请求映射到对应的Controller方法
+public class RequestMappingHandlerMapping extends RequestMappingInfoHandlerMapping {
+    // 处理 @RequestMapping 注解的映射
+}
+```
+
+#### 29.4.4.2 RequestMappingHandlerAdapter
+```java
+// 负责调用匹配的Controller方法
+public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter {
+    // 处理参数绑定、返回值处理等(@InitBinder、@ModelAttribute 的处理机制在此实现)
+}
+```
+
+#### 29.4.4.3 ExceptionHandlerExceptionResolver
+```java
+// 负责处理Controller方法的异常
+public class ExceptionHandlerExceptionResolver implements HandlerExceptionResolver {
+    // 处理 @ExceptionHandler 注解
+}
+```
+
+### 29.4.5. 实际应用示例
+
+#### 29.4.5.1 版本控制（如你的例子）
+```java
+@Configuration
+public class ApiVersionConfig implements WebMvcRegistrations {
+    
+    @Override
+    public RequestMappingHandlerMapping getRequestMappingHandlerMapping() {
+        return new ApiVersionRequestMappingHandlerMapping();
+    }
+}
+```
+
+#### 29.4.5.2 自定义参数解析器
+```java
+@Configuration
+public class CustomMvcConfig implements WebMvcRegistrations {
+    
+    @Override
+    public RequestMappingHandlerAdapter getRequestMappingHandlerAdapter() {
+        RequestMappingHandlerAdapter adapter = new RequestMappingHandlerAdapter();
+        // 添加自定义参数解析器
+        adapter.setCustomArgumentResolvers(Arrays.asList(new UserArgumentResolver()));
+        return adapter;
+    }
+}
+```
+
+#### 29.4.5.3 全局异常处理
+```java
+@Configuration
+public class ExceptionConfig implements WebMvcRegistrations {
+    
+    @Override
+    public ExceptionHandlerExceptionResolver getExceptionHandlerExceptionResolver() {
+        ExceptionHandlerExceptionResolver resolver = new ExceptionHandlerExceptionResolver();
+        // 配置自定义异常处理器
+        resolver.setExceptionHandlerAdviceCache(new HashMap<>());
+        return resolver;
+    }
+}
+```
+
+### 29.4.6. 与相关接口的区别
+
+#### 29.4.6.1 WebMvcRegistrations vs WebMvcConfigurer
+```java
+// WebMvcRegistrations：替换核心组件
+public interface WebMvcRegistrations {
+    RequestMappingHandlerMapping getRequestMappingHandlerMapping();
+}
+
+// WebMvcConfigurer：配置MVC行为（不替换组件）
+public interface WebMvcConfigurer {
+    void addInterceptors(InterceptorRegistry registry);
+    void addCorsMappings(CorsRegistry registry);
+}
+```
+
+#### 29.4.6.2 可以同时使用
+```java
+@Configuration
+public class CompleteMvcConfig implements WebMvcRegistrations, WebMvcConfigurer {
+    
+    // 替换核心组件
+    @Override
+    public RequestMappingHandlerMapping getRequestMappingHandlerMapping() {
+        return new CustomHandlerMapping();
+    }
+    
+    // 配置MVC行为
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new LogInterceptor());
+    }
+}
+```
+
+### 29.4.7. 最佳实践建议
+
+#### 29.4.7.1 使用场景判断
+- **需要完全替换组件行为** → 使用 `WebMvcRegistrations`
+- **只需要添加配置** → 使用 `WebMvcConfigurer`
+- **两者都需要** → 同时实现两个接口
+
+#### 29.4.7.2 你的例子中的选择
+```java
+// 推荐方式：只替换HandlerMapping，保留其他自动配置
+@Configuration
+public class WebConfig implements WebMvcRegistrations {
+    
+    @Override
+    public RequestMappingHandlerMapping getRequestMappingHandlerMapping() {
+        return new ApiVersionRequestMappingHandlerMapping();
+    }
+}
+```
+
+### 29.4.8 总结
+
+`WebMvcRegistrations` 是 **Spring Boot 提供的精细化扩展点**，它允许你：
+
+1. **选择性替换** Spring MVC 核心组件
+2. **保留 Spring Boot 的自动配置优势**
+3. **避免完全重写 MVC 配置**
+4. **实现更优雅的框架集成**
+
+在你的版本控制例子中，使用 `WebMvcRegistrations` 是比继承 `WebMvcConfigurationSupport` 更推荐的方式，因为它保持了 Spring Boot 的便利性。
+## 29.5 扩展：andlerMapping，HandlerAdapter，ExceptionResolver应该不只有WebMvcRegistrations 提供的三种，那为什么springboot决定把WebMvcRegistrations 里面的三种作为扩展点呢？而不是其他的？
+这涉及到 Spring Boot 的设计哲学和实际应用场景的权衡。
+
+### 29.5.1. Spring MVC 完整的组件体系
+
+#### 29.5.1.1 完整的 HandlerMapping 类型
+```java
+// Spring MVC 内置的多种 HandlerMapping
+HandlerMapping
+├── RequestMappingHandlerMapping    // 处理 @RequestMapping（最常用）
+├── BeanNameUrlHandlerMapping       // 根据Bean名称映射  
+├── SimpleUrlHandlerMapping         // 简单URL模式映射
+├── RouterFunctionMapping          // WebFlux 风格的路由
+└── WelcomePageHandlerMapping      // 欢迎页面映射
+```
+
+#### 29.5.1.2 完整的 HandlerAdapter 类型
+```java
+HandlerAdapter
+├── RequestMappingHandlerAdapter    // 处理 @Controller 方法
+├── HttpRequestHandlerAdapter       // 处理 HttpRequestHandler
+├── SimpleControllerHandlerAdapter  // 处理 Controller 接口
+└── HandlerFunctionAdapter         // WebFlux 风格适配器
+```
+
+#### 29.5.1.3 完整的 ExceptionResolver 类型
+```java
+HandlerExceptionResolver
+├── ExceptionHandlerExceptionResolver  // @ExceptionHandler
+├── ResponseStatusExceptionResolver    // @ResponseStatus  
+├── DefaultHandlerExceptionResolver    // 默认异常处理
+└── SimpleMappingExceptionResolver     // 简单异常映射
+```
+
+### 29.5.2. 为什么选择这三个作为扩展点？
+
+#### 29.5.2.1 应用频率最高
+```java
+// 实际项目中的使用统计
+@Controller          // 99% 的项目使用
+@RequestMapping      // 99% 的项目使用  
+@ExceptionHandler    // 90% 的项目使用
+
+// 相比之下
+HttpRequestHandler   // 较少使用（静态资源处理等）
+SimpleController     // 几乎不再使用（旧式Controller接口）
+```
+
+#### 29.5.2.2 扩展需求最强烈
+```java
+// 常见的扩展场景
+// 1. 版本控制 → 需要扩展 RequestMappingHandlerMapping
+// 2. 参数解析 → 需要扩展 RequestMappingHandlerAdapter  
+// 3. 统一异常处理 → 需要扩展 ExceptionHandlerExceptionResolver
+
+// 其他组件的扩展需求相对较少
+```
+
+#### 29.5.2.3 Spring Boot 的"约定优于配置"哲学
+```java
+// Spring Boot 的设计原则：为最常用的场景提供便利
+public class WebMvcAutoConfiguration {
+    
+    // 自动配置最常见的三个组件
+    @Bean
+    public RequestMappingHandlerMapping requestMappingHandlerMapping() {
+        // 默认配置
+    }
+    
+    @Bean  
+    public RequestMappingHandlerAdapter requestMappingHandlerAdapter() {
+        // 默认配置
+    }
+    
+    @Bean
+    public ExceptionHandlerExceptionResolver exceptionHandlerExceptionResolver() {
+        // 默认配置
+    }
+}
+```
+
+### 29.5.3. 其他组件的配置方式
+
+#### 29.5.3.1 通过 WebMvcConfigurer 配置
+```java
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+    
+    // 配置其他 HandlerMapping
+    @Override
+    public void configureHandlerMappings(HandlerMappingConfigurer configurer) {
+        // 可以配置其他类型的 HandlerMapping
+    }
+    
+    // 添加简单的 URL 映射
+    @Override
+    public void addViewControllers(ViewControllerRegistry registry) {
+        registry.addViewController("/home").setViewName("home");
+    }
+}
+```
+
+#### 29.5.3.2 直接声明 @Bean
+```java
+@Configuration
+public class AdditionalHandlerConfig {
+    
+    // 直接声明其他类型的 HandlerMapping
+    @Bean
+    public SimpleUrlHandlerMapping simpleUrlHandlerMapping() {
+        SimpleUrlHandlerMapping mapping = new SimpleUrlHandlerMapping();
+        mapping.setUrlMap(Collections.singletonMap("/static/**", httpRequestHandler()));
+        return mapping;
+    }
+    
+    @Bean  
+    public HttpRequestHandler httpRequestHandler() {
+        return new CustomHttpRequestHandler();
+    }
+}
+```
+
+### 29.5.4. 实际设计考量
+
+#### 29.5.4.1 避免过度设计
+```java
+// 如果提供所有组件的扩展点，接口会变得臃肿
+public interface OverDesignedWebMvcRegistrations {
+    RequestMappingHandlerMapping getRequestMappingHandlerMapping();
+    BeanNameUrlHandlerMapping getBeanNameUrlHandlerMapping();
+    SimpleUrlHandlerMapping getSimpleUrlHandlerMapping();
+    RouterFunctionMapping getRouterFunctionMapping();
+    WelcomePageHandlerMapping getWelcomePageHandlerMapping();
+    
+    RequestMappingHandlerAdapter getRequestMappingHandlerAdapter();
+    HttpRequestHandlerAdapter getHttpRequestHandlerAdapter();
+    SimpleControllerHandlerAdapter getSimpleControllerHandlerAdapter();
+    
+    // ... 还有更多
+}
+```
+
+#### 29.5.4.2 遵循二八原则
+```java
+// 20% 的组件满足了 80% 的扩展需求
+public class WebMvcRegistrationsDesign {
+    // 最常用的三个扩展点覆盖了大部分高级定制需求
+    // 其他需求可以通过更简单的方式满足
+}
+```
+
+#### 29.5.4.3 保持向后兼容
+```java
+// Spring Boot 需要保持接口稳定
+// 选择最核心、最稳定的三个组件作为扩展点，减少未来变更的影响
+```
+
+### 29.5.5. 实际项目中的扩展模式
+
+#### 29.5.5.1 常见扩展场景分析
+```java
+// 场景1：REST API 项目 → 主要扩展 RequestMapping 相关组件
+// 场景2：传统 Web 项目 → 可能还需要扩展 ViewResolver 等
+// 场景3：混合项目 → 组合使用多种配置方式
+
+// Spring Boot 的选择覆盖了最广泛的场景
+```
+
+#### 29.5.5.2 组合使用各种配置方式
+```java
+@Configuration
+public class ComprehensiveWebConfig implements WebMvcRegistrations, WebMvcConfigurer {
+    
+    // 1. 替换核心组件（通过 WebMvcRegistrations）
+    @Override
+    public RequestMappingHandlerMapping getRequestMappingHandlerMapping() {
+        return new CustomHandlerMapping();
+    }
+    
+    // 2. 配置其他行为（通过 WebMvcConfigurer）
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new LogInterceptor());
+    }
+    
+    // 3. 直接声明其他组件（通过 @Bean）
+    @Bean
+    public ViewResolver customViewResolver() {
+        return new CustomViewResolver();
+    }
+}
+```
+
+### 29.5.6. 与其他框架的对比
+
+#### 29.5.6.1 Spring Boot vs 传统 Spring MVC
+```java
+// 传统 Spring MVC：需要手动配置所有组件
+@Configuration
+@EnableWebMvc
+public class TraditionalWebConfig implements WebMvcConfigurer {
+    
+    // 需要手动声明所有 Bean
+    @Bean
+    public RequestMappingHandlerMapping handlerMapping() {
+        // 详细配置...
+    }
+    
+    // 繁琐但灵活
+}
+
+// Spring Boot：自动配置 + 选择性扩展
+```
+
+#### 29.5.6.2 设计哲学的体现
+```java
+// Spring Boot 的设计目标：
+// 1. 开箱即用（覆盖90%的场景）
+// 2. 易于扩展（为10%的特殊场景提供出口）
+// 3. 保持简洁（避免接口过于复杂）
+
+// WebMvcRegistrations 完美体现了这一哲学
+```
+
+### 29.5.7 总结
+
+Spring Boot 选择这三个组件作为 `WebMvcRegistrations` 的扩展点，是基于：
+
+1. **使用频率**：这三个是现代化 Web 开发中最常用的组件
+2. **扩展需求**：它们对应的扩展场景最为丰富和强烈  
+3. **设计简洁**：避免接口过度复杂，遵循"约定优于配置"
+4. **实际效用**：覆盖了绝大部分高级定制需求
+
+对于其他组件的定制，Spring Boot 提供了更简单的方式（如 `WebMvcConfigurer` 或直接声明 `@Bean`），这种分层设计既保证了常用场景的便利性，又为特殊需求提供了出口。
+
+这是一个典型的**工程权衡**：在灵活性、易用性和接口简洁性之间找到最佳平衡点。
+## 29.6 扩展：WebMvcConfigurer，WebMvcRegistrations，WebMvcConfigurationSupport 区别
+**这三者的区别主要体现在扩展层级、影响范围和配置方式上。** 让我用一个清晰的表格来对比：
+
+### 29.6.1. 三者的核心区别对比
+
+| 特性 | WebMvcConfigurer | WebMvcRegistrations | WebMvcConfigurationSupport |
+|------|------------------|---------------------|----------------------------|
+| **扩展层级** | 配置级别（Configuration） | 组件级别（Component） | 框架级别（Framework） |
+| **影响范围** | 局部配置，添加行为 | 替换特定核心组件 | 完全接管MVC配置 |
+| **自动配置** | ✅ 完全保留 | ✅ 选择性保留 | ❌ 完全禁用 |
+| **使用方式** | 实现接口，回调方法 | 实现接口，返回组件实例 | 继承类，重写方法 |
+| **侵入性** | 低 | 中 | 高 |
+
+### 29.6.2. 详细的技术区别
+
+#### 29.6.2.1 WebMvcConfigurer（配置扩展）
+```java
+// 作用：在现有组件基础上添加配置
+@Configuration
+public class MyWebMvcConfig implements WebMvcConfigurer {
+    
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        // 添加拦截器（不替换现有拦截器）
+        registry.addInterceptor(new LogInterceptor());
+    }
+    
+    @Override
+    public void configureMessageConverters(List<HttpMessageConverter<?>> converters) {
+        // 添加消息转换器（保留默认转换器）
+        converters.add(new CustomMessageConverter());
+    }
+}
+```
+**特点**：**增量配置**，不会影响现有组件
+
+#### 29.6.2.2 WebMvcRegistrations（组件替换）
+```java
+// 作用：替换特定的核心组件
+@Configuration
+public class MyWebMvcRegistrations implements WebMvcRegistrations {
+    
+    @Override
+    public RequestMappingHandlerMapping getRequestMappingHandlerMapping() {
+        // 完全替换默认的HandlerMapping
+        return new CustomRequestMappingHandlerMapping();
+    }
+    
+    @Override
+    public RequestMappingHandlerAdapter getRequestMappingHandlerAdapter() {
+        // 完全替换默认的HandlerAdapter
+        CustomHandlerAdapter adapter = new CustomHandlerAdapter();
+        adapter.setCustomArgumentResolvers(...);
+        return adapter;
+    }
+}
+```
+**特点**：**组件替换**，但保留其他自动配置
+
+#### 29.6.2.3 WebMvcConfigurationSupport（框架接管）
+```java
+// 作用：完全控制MVC配置
+@Configuration
+@EnableWebMvc
+public class MyWebMvcConfig extends WebMvcConfigurationSupport {
+    
+    @Override
+    protected void addInterceptors(InterceptorRegistry registry) {
+        // 必须手动配置所有拦截器（默认的会丢失）
+        registry.addInterceptor(new LogInterceptor());
+    }
+    
+    @Override
+    @Bean
+    public RequestMappingHandlerMapping requestMappingHandlerMapping() {
+        // 必须手动创建并配置所有组件
+        RequestMappingHandlerMapping mapping = new RequestMappingHandlerMapping();
+        mapping.setOrder(0);
+        mapping.setInterceptors(getInterceptors());
+        return mapping;
+    }
+    
+    @Override
+    @Bean
+    public RequestMappingHandlerAdapter requestMappingHandlerAdapter() {
+        // 必须手动配置HandlerAdapter的所有细节
+        RequestMappingHandlerAdapter adapter = new RequestMappingHandlerAdapter();
+        adapter.setMessageConverters(getMessageConverters());
+        adapter.setWebBindingInitializer(getConfigurableWebBindingInitializer());
+        return adapter;
+    }
+}
+```
+**特点**：**完全掌控**，但失去Spring Boot的便利性
+
+### 29.6.3. 实际执行流程对比
+
+#### 29.6.3.1 WebMvcConfigurer 的执行流程
+```java
+// Spring Boot 自动配置 + WebMvcConfigurer 回调
+1. Spring Boot 创建默认的MVC组件
+2. 调用所有 WebMvcConfigurer 的配置方法
+3. 将自定义配置应用到默认组件上
+4. 完成配置，保留所有自动配置特性
+```
+
+#### 29.6.3.2 WebMvcRegistrations 的执行流程  
+```java
+// 选择性组件替换
+1. Spring Boot 检查是否存在 WebMvcRegistrations Bean
+2. 如果存在，使用自定义组件替换对应的默认组件
+3. 其他组件继续使用自动配置
+4. 应用所有 WebMvcConfigurer 的配置
+```
+
+#### 29.6.3.3 WebMvcConfigurationSupport 的执行流程
+```java
+// 完全手动配置
+1. Spring Boot 检测到 WebMvcConfigurationSupport 子类
+2. 禁用所有MVC自动配置（WebMvcAutoConfiguration）
+3. 完全依赖子类中的手动配置
+4. 需要手动配置所有必要的组件
+```
+
+### 29.6.4. 代码示例对比
+
+#### 29.6.4.1 相同的需求，不同的实现方式
+
+**需求**：添加自定义参数解析器
+
+##### 29.6.4.1.1  方式一：WebMvcConfigurer（推荐）
+```java
+@Configuration
+public class ConfigurerConfig implements WebMvcConfigurer {
+    
+    @Override
+    public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
+        // 添加自定义解析器（保留默认解析器）
+        resolvers.add(new UserArgumentResolver());
+    }
+}
+```
+
+##### 29.6.4.1.2 方式二：WebMvcRegistrations
+```java
+@Configuration
+public class RegistrationsConfig implements WebMvcRegistrations {
+    
+    @Override
+    public RequestMappingHandlerAdapter getRequestMappingHandlerAdapter() {
+        RequestMappingHandlerAdapter adapter = new RequestMappingHandlerAdapter();
+        // 必须手动设置所有解析器（默认的会丢失）
+        adapter.setCustomArgumentResolvers(Arrays.asList(
+            new RequestParamMethodArgumentResolver(), // 手动添加默认解析器
+            new ModelAttributeMethodProcessor(),      // 手动添加默认解析器  
+            new UserArgumentResolver()                // 添加自定义解析器
+        ));
+        return adapter;
+    }
+}
+```
+
+##### 29.6.4.1.3 方式三：WebMvcConfigurationSupport（不推荐）
+```java
+@Configuration
+@EnableWebMvc
+public class SupportConfig extends WebMvcConfigurationSupport {
+    
+    @Override
+    @Bean
+    public RequestMappingHandlerAdapter requestMappingHandlerAdapter() {
+        RequestMappingHandlerAdapter adapter = new RequestMappingHandlerAdapter();
+        // 必须完全手动配置所有组件
+        adapter.setCustomArgumentResolvers(getArgumentResolvers());
+        adapter.setMessageConverters(getMessageConverters());
+        adapter.setWebBindingInitializer(getConfigurableWebBindingInitializer());
+        return adapter;
+    }
+    
+    private List<HandlerMethodArgumentResolver> getArgumentResolvers() {
+        // 需要手动组合所有需要的解析器
+        return Arrays.asList(
+            new RequestParamMethodArgumentResolver(getBeanFactory(), false),
+            new ModelAttributeMethodProcessor(false),
+            new UserArgumentResolver()
+            // ... 还有很多需要手动添加
+        );
+    }
+}
+```
+
+### 29.6.5. 选择指南
+
+#### 29.6.5.1 什么时候用 WebMvcConfigurer？
+```java
+// 场景：添加功能，不改变现有组件
+✅ 添加拦截器、参数解析器、消息转换器
+✅ 配置视图控制器、资源处理器
+✅ 配置CORS、路径匹配等行为
+
+// 示例：90%的日常需求
+@Configuration
+public class CommonConfig implements WebMvcConfigurer {
+    // 添加各种配置，保留所有自动配置
+}
+```
+
+#### 29.6.5.2 什么时候用 WebMvcRegistrations？
+```java
+// 场景：需要深度定制核心组件
+✅ 自定义URL映射逻辑（如版本控制）
+✅ 替换HandlerAdapter以改变请求处理流程  
+✅ 定制异常解析器实现特殊异常处理
+
+// 示例：高级定制需求
+@Configuration
+public class AdvancedConfig implements WebMvcRegistrations {
+    // 替换特定组件，保留其他自动配置
+}
+```
+
+#### 29.6.5.3 什么时候用 WebMvcConfigurationSupport？
+```java
+// 场景：需要完全控制MVC配置（很少使用）
+⚠️  迁移传统Spring MVC项目
+⚠️  需要与第三方框架深度集成
+⚠️  有特殊的性能优化需求
+
+// 示例：特殊情况（一般不推荐）
+@Configuration
+@EnableWebMvc  
+public class LegacyConfig extends WebMvcConfigurationSupport {
+    // 完全手动配置，失去Spring Boot便利性
+}
+```
+
+### 29.6.6. 组合使用的最佳实践
+
+#### 29.6.6.1 常见组合模式
+```java
+// 场景：既需要添加配置，又需要替换组件
+@Configuration
+public class ComprehensiveConfig implements WebMvcRegistrations, WebMvcConfigurer {
+    
+    // 替换核心组件
+    @Override
+    public RequestMappingHandlerMapping getRequestMappingHandlerMapping() {
+        return new CustomHandlerMapping();
+    }
+    
+    // 添加配置
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new LogInterceptor());
+    }
+}
+```
+
+#### 29.6.6.2 执行顺序
+```java
+// 组合使用时的执行顺序：
+1. WebMvcRegistrations 替换核心组件
+2. Spring Boot 应用其他自动配置
+3. WebMvcConfigurer 进行增量配置
+4. 完成整个MVC配置
+```
+### 29.6.7 WebMvcConfigurationSupport实现方式影响到自动配置的一个详细例子
+- Spring Boot 的自动配置条件
+```java
+// WebMvcAutoConfiguration 的关键条件
+@Configuration
+@ConditionalOnMissingBean(WebMvcConfigurationSupport.class)  // 重要！
+public class WebMvcAutoConfiguration {
+    
+    // 这个配置类包含了默认的静态资源配置
+    @Configuration
+    @EnableConfigurationProperties(WebMvcProperties.class)
+    public static class EnableWebMvcConfiguration extends WebMvcConfigurationSupport {
+        
+        @Override
+        protected void addResourceHandlers(ResourceHandlerRegistry registry) {
+            // 这里配置了默认的静态资源路径：
+            // - "/static/**"
+            // - "/public/**" 
+            // - "/resources/**"
+            // - "/META-INF/resources/**"
+        }
+    }
+}
+```
+- 当你继承 WebMvcConfigurationSupport 时
+```java
+@Configuration
+public class CustomWebMvcConfiguration extends WebMvcConfigurationSupport {
+    // 即使你只重写一个方法...
+    
+    @Override
+    public RequestMappingHandlerMapping createRequestMappingHandlerMapping() {
+        return new ApiVersionRequestMappingHandlerMapping();
+    }
+    
+    // 但父类的 addResourceHandlers 是空的！
+    // WebMvcConfigurationSupport 中的默认实现：
+    protected void addResourceHandlers(ResourceHandlerRegistry registry) {
+        // 空方法！没有任何资源映射
+    }
+}
+```
+- 执行流程对比
+  - 正常情况（使用 WebMvcRegistrations）
+    ```java
+    // 1. Spring Boot 检测到没有 WebMvcConfigurationSupport Bean
+    // 2. WebMvcAutoConfiguration 生效
+    // 3. 创建 EnableWebMvcConfiguration（继承 WebMvcConfigurationSupport）
+    // 4. 调用其 addResourceHandlers 方法配置静态资源
+    // 5. ✅ 静态资源正常映射
+    ```
+  - 继承 WebMvcConfigurationSupport 的情况
+    ```java
+    // 1. Spring Boot 检测到你的 CustomWebMvcConfiguration Bean
+    // 2. WebMvcAutoConfiguration 被禁用（条件不满足）
+    // 3. 不再创建 EnableWebMvcConfiguration
+    // 4. 使用你的 CustomWebMvcConfiguration 实例
+    // 5. 调用你的 addResourceHandlers 方法（但你没重写，所以调用父类的空方法）
+    // 6. ❌ 没有任何静态资源映射
+    ```
+### 29.6.8 总结
+
+**三者的本质区别：**
+
+- **WebMvcConfigurer**：`配置扩展` - 在现有基础上"添砖加瓦"
+- **WebMvcRegistrations**：`组件替换` - 替换特定"发动机零件"  
+- **WebMvcConfigurationSupport**：`框架接管` - 自己"造一辆车"
+
+**选择建议：**
+- 优先使用 `WebMvcConfigurer`（覆盖90%场景）
+- 特殊需求使用 `WebMvcRegistrations`（高级定制）
+- 尽量避免使用 `WebMvcConfigurationSupport`（除非有充分理由）
+
+这种分层设计体现了 Spring Boot 的"渐进式复杂度"理念：从简单配置到深度定制，让开发者根据实际需求选择合适的技术方案。
+# 三十、SpringBoot接口 - 如何生成接口文档之Swagger技术栈
+## 30.1 准备知识点
+> 在生成文档前，你需要了解下OpenAPI规范，Swagger，SpringFox，Knife4J，Swagger UI等之间的关系。
+### 30.1.1 什么是OpenAPI规范(OAS)？
+
+<a href ='https://fishead.gitbook.io/openapi-specification-zhcn-translation/3.0.0.zhcn#revisionHistory'>OpenAPI 规范（OAS）</a>定义了一个标准的、语言无关的 RESTful API 接口规范，它可以同时允许开发人员和操作系统查看并理解某个服务的功能，而无需访问源代码，文档或网络流量检查（既方便人类学习和阅读，也方便机器阅读）。正确定义 OAS 后，开发者可以使用最少的实现逻辑来理解远程服务并与之交互。
+
+此外，文档生成工具可以使用 OpenAPI 规范来生成 API 文档，代码生成工具可以生成各种编程语言下的服务端和客户端代码，测试代码和其他用例。
+
+官方GitHub地址： <a href = 'https://github.com/OAI/OpenAPI-Specification'>OpenAPI-Specification</a>
+
+### 30.1.2 什么是Swagger？
+Swagger 是一个用于生成、描述和调用 RESTful 接口的 Web 服务。通俗的来讲，Swagger 就是将项目中所有（想要暴露的）接口展现在页面上，并且可以进行接口调用和测试的服务。
+
+从上述 Swagger 定义我们不难看出 Swagger 有以下 3 个重要的作用：
+- 将项目中所有的接口展现在页面上，这样后端程序员就不需要专门为前端使用者编写专门的接口文档；
+- 当接口更新之后，只需要修改代码中的 Swagger 描述就可以实时生成新的接口文档了，从而规避了接口文档老旧不能使用的问题；
+- 通过 Swagger 页面，我们可以直接进行接口调用，降低了项目开发阶段的调试成本。
+
+Swagger3完全遵循了 OpenAPI 规范。Swagger 官网地址：https://swagger.io/。
+
+### 30.1.3 Swagger和SpringFox有啥关系？
+Swagger 可以看作是一个遵循了 OpenAPI 规范的一项技术，而 springfox 则是这项技术的具体实现。 就好比 Spring 中的 IOC 和 DI 的关系 一样，前者是思想，而后者是实现。
+### 30.1.4 什么是Knife4J? 和Swagger什么关系？
+> 本质是Swagger的增强解决方案，前身只是一个SwaggerUI（swagger-bootstrap-ui）
+
+Knife4j是为Java MVC框架集成Swagger生成Api文档的增强解决方案, 前身是swagger-bootstrap-ui,取名kni4j是希望她能像一把匕首一样小巧,轻量,并且功能强悍!
+
+Knife4j的前身是swagger-bootstrap-ui，为了契合微服务的架构发展,由于原来swagger-bootstrap-ui采用的是后端Java代码+前端Ui混合打包的方式,在微服务架构下显的很臃肿,因此项目正式更名为knife4j
+
+更名后主要专注的方面
+- 前后端Java代码以及前端Ui模块进行分离,在微服务架构下使用更加灵活
+- 提供专注于Swagger的增强解决方案,不同于只是改善增强前端Ui部分
+
+相关文档请参考：https://doc.xiaominfo.com/knife4j/documentation/
+
+## 30.2 实现案例之Swagger3
+> 我们先看下最新Swagger3 如何配置和实现接口。
+### 30.2.1 POM
+根据上文介绍，我们引入springfox依赖包，最新的是3.x.x版本。和之前的版本比，只需要引入如下的starter包即可。
+```xml
+<dependency>
+    <groupId>io.springfox</groupId>
+    <artifactId>springfox-boot-starter</artifactId>
+    <version>3.0.0</version>
+</dependency>
+```
+### 30.2.2 Swagger Config
+我们在配置中还增加了一些全局的配置，比如全局参数等
+```java
+package tech.pdai.springboot.swagger.config;
+
+import io.swagger.annotations.ApiOperation;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import springfox.documentation.builders.*;
+import springfox.documentation.oas.annotations.EnableOpenApi;
+import springfox.documentation.schema.ScalarType;
+import springfox.documentation.service.*;
+import springfox.documentation.spi.DocumentationType;
+import springfox.documentation.spring.web.plugins.Docket;
+import tech.pdai.springboot.swagger.constant.ResponseStatus;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
+
+/**
+ * swagger config for open api.
+ *
+ * @author pdai
+ */
+@Configuration
+@EnableOpenApi
+public class SwaggerConfig {
+
+    /**
+     * @return swagger config
+     */
+    @Bean
+    public Docket openApi() {
+        return new Docket(DocumentationType.OAS_30)
+                .groupName("Test group")
+                .apiInfo(apiInfo())
+                .select()
+                .apis(RequestHandlerSelectors.withMethodAnnotation(ApiOperation.class))
+                .paths(PathSelectors.any())
+                .build()
+                .globalRequestParameters(getGlobalRequestParameters())
+                .globalResponses(HttpMethod.GET, getGlobalResponse());
+    }
+
+    /**
+     * @return global response code->description
+     */
+    private List<Response> getGlobalResponse() {
+        return ResponseStatus.HTTP_STATUS_ALL.stream().map(
+                a -> new ResponseBuilder().code(a.getResponseCode()).description(a.getDescription()).build())
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * @return global request parameters
+     */
+    private List<RequestParameter> getGlobalRequestParameters() {
+        List<RequestParameter> parameters = new ArrayList<>();
+        parameters.add(new RequestParameterBuilder()
+                .name("AppKey")
+                .description("App Key")
+                .required(false)
+                .in(ParameterType.QUERY)
+                .query(q -> q.model(m -> m.scalarModel(ScalarType.STRING)))
+                .required(false)
+                .build());
+        return parameters;
+    }
+
+    /**
+     * @return api info
+     */
+    private ApiInfo apiInfo() {
+        return new ApiInfoBuilder()
+                .title("Swagger API")
+                .description("test api")
+                .contact(new Contact("pdai", "http://pdai.tech", "suzhou.daipeng@gmail.com"))
+                .termsOfServiceUrl("http://xxxxxx.com/")
+                .version("1.0")
+                .build();
+    }
+}
+```
+### 30.2.3 controller接口
+```java
+package tech.pdai.springboot.swagger.controller;
+
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiImplicitParam;
+import io.swagger.annotations.ApiOperation;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import tech.pdai.springboot.swagger.entity.param.UserParam;
+import tech.pdai.springboot.swagger.entity.vo.AddressVo;
+import tech.pdai.springboot.swagger.entity.vo.UserVo;
+
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * @author pdai
+ */
+@Api
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    /**
+     * http://localhost:8080/user/add .
+     *
+     * @param userParam user param
+     * @return user
+     */
+    @ApiOperation("Add User")
+    @PostMapping("add")
+    @ApiImplicitParam(name = "userParam", type = "body", dataTypeClass = UserParam.class, required = true)
+    public ResponseEntity<String> add(@RequestBody UserParam userParam) {
+        return ResponseEntity.ok("success");
+    }
+
+    /**
+     * http://localhost:8080/user/list .
+     *
+     * @return user list
+     */
+    @ApiOperation("Query User List")
+    @GetMapping("list")
+    public ResponseEntity<List<UserVo>> list() {
+        List<UserVo> userVoList = Collections.singletonList(UserVo.builder().name("dai").age(18)
+                .address(AddressVo.builder().city("SZ").zipcode("10001").build()).build());
+        return ResponseEntity.ok(userVoList);
+    }
+}
+```
+### 30.2.4 运行测试
+打开文档API网页
+![149.springboot-hello-doc-1.png](../../assets/images/04-主流框架/spring/149.springboot-hello-doc-1.png)
+
+测试添加一个用户
+![150.springboot-hello-doc-2.png](../../assets/images/04-主流框架/spring/150.springboot-hello-doc-2.png)
+
+查询用户列表
+![151.springboot-hello-doc-3.png](../../assets/images/04-主流框架/spring/151.springboot-hello-doc-3.png)
+## 30.3 实现案例之Knife4J
+> 这里展示目前使用Java生成接口文档的最佳实现: SwaggerV3(OpenAPI)+ Knife4J。
+### 30.3.1 POM
+```xml
+<dependency>
+    <groupId>com.github.xiaoymin</groupId>
+    <artifactId>knife4j-spring-boot-starter</artifactId>
+    <version>3.0.3</version>
+</dependency>
+```
+### 30.3.2 yml配置
+```yml
+server:
+  port: 8080
+knife4j:
+  enable: true
+  documents:
+    - group: Test Group
+      name: My Documents
+      locations: classpath:wiki/*
+  setting:
+    # default lang
+    language: en-US
+    # footer
+    enableFooter: false
+    enableFooterCustom: true
+    footerCustomContent: MIT | [Java 全栈]()
+    # header
+    enableHomeCustom: true
+    homeCustomLocation: classpath:wiki/README.md
+    # models
+    enableSwaggerModels: true
+    swaggerModelName: My Models
+```
+### 30.3.3 注入配置
+```java
+package tech.pdai.springboot.knife4j.config;
+
+import com.github.xiaoymin.knife4j.spring.extension.OpenApiExtensionResolver;
+import io.swagger.annotations.ApiOperation;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import springfox.documentation.builders.*;
+import springfox.documentation.oas.annotations.EnableOpenApi;
+import springfox.documentation.schema.ScalarType;
+import springfox.documentation.service.*;
+import springfox.documentation.spi.DocumentationType;
+import springfox.documentation.spring.web.plugins.Docket;
+import tech.pdai.springboot.knife4j.constant.ResponseStatus;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
+
+/**
+ * swagger config for open api.
+ *
+ * @author pdai
+ */
+@Configuration
+@EnableOpenApi
+public class OpenApiConfig {
+
+    /**
+     * open api extension by knife4j.
+     */
+    private final OpenApiExtensionResolver openApiExtensionResolver;
+
+    @Autowired
+    public OpenApiConfig(OpenApiExtensionResolver openApiExtensionResolver) {
+        this.openApiExtensionResolver = openApiExtensionResolver;
+    }
+
+    /**
+     * @return swagger config
+     */
+    @Bean
+    public Docket openApi() {
+        String groupName = "Test Group";
+        return new Docket(DocumentationType.OAS_30)
+                .groupName(groupName)
+                .apiInfo(apiInfo())
+                .select()
+                .apis(RequestHandlerSelectors.withMethodAnnotation(ApiOperation.class))
+                .paths(PathSelectors.any())
+                .build()
+                .globalRequestParameters(getGlobalRequestParameters())
+                .globalResponses(HttpMethod.GET, getGlobalResponse())
+                .extensions(openApiExtensionResolver.buildExtensions(groupName))
+                .extensions(openApiExtensionResolver.buildSettingExtensions());
+    }
+
+    /**
+     * @return global response code->description
+     */
+    private List<Response> getGlobalResponse() {
+        return ResponseStatus.HTTP_STATUS_ALL.stream().map(
+                a -> new ResponseBuilder().code(a.getResponseCode()).description(a.getDescription()).build())
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * @return global request parameters
+     */
+    private List<RequestParameter> getGlobalRequestParameters() {
+        List<RequestParameter> parameters = new ArrayList<>();
+        parameters.add(new RequestParameterBuilder()
+                .name("AppKey")
+                .description("App Key")
+                .required(false)
+                .in(ParameterType.QUERY)
+                .query(q -> q.model(m -> m.scalarModel(ScalarType.STRING)))
+                .required(false)
+                .build());
+        return parameters;
+    }
+
+    /**
+     * @return api info
+     */
+    private ApiInfo apiInfo() {
+        return new ApiInfoBuilder()
+                .title("My API")
+                .description("test api")
+                .contact(new Contact("pdai", "http://pdai.tech", "suzhou.daipeng@gmail.com"))
+                .termsOfServiceUrl("http://xxxxxx.com/")
+                .version("1.0")
+                .build();
+    }
+}
+```
+其中ResponseStatus封装
+```java
+package tech.pdai.springboot.knife4j.constant;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * @author pdai
+ */
+@Getter
+@AllArgsConstructor
+public enum ResponseStatus {
+
+    SUCCESS("200", "success"),
+    FAIL("500", "failed"),
+
+    HTTP_STATUS_200("200", "ok"),
+    HTTP_STATUS_400("400", "request error"),
+    HTTP_STATUS_401("401", "no authentication"),
+    HTTP_STATUS_403("403", "no authorities"),
+    HTTP_STATUS_500("500", "server error");
+
+    public static final List<ResponseStatus> HTTP_STATUS_ALL = Collections.unmodifiableList(
+            Arrays.asList(HTTP_STATUS_200, HTTP_STATUS_400, HTTP_STATUS_401, HTTP_STATUS_403, HTTP_STATUS_500
+            ));
+
+    /**
+     * response code
+     */
+    private final String responseCode;
+
+    /**
+     * description.
+     */
+    private final String description;
+
+}
+```
+### 30.3.4 Controller接口
+```java
+package tech.pdai.springboot.knife4j.controller;
+
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiImplicitParam;
+import io.swagger.annotations.ApiImplicitParams;
+import io.swagger.annotations.ApiOperation;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.knife4j.entity.param.AddressParam;
+
+/**
+ * Address controller test demo.
+ *
+ * @author pdai
+ */
+@Api(value = "Address Interfaces", tags = "Address Interfaces")
+@RestController
+@RequestMapping("/address")
+public class AddressController {
+    /**
+     * http://localhost:8080/address/add .
+     *
+     * @param addressParam param
+     * @return address
+     */
+    @ApiOperation("Add Address")
+    @PostMapping("add")
+    @ApiImplicitParams({
+            @ApiImplicitParam(name = "city", type = "query", dataTypeClass = String.class, required = true),
+            @ApiImplicitParam(name = "zipcode", type = "query", dataTypeClass = String.class, required = true)
+    })
+    public ResponseEntity<String> add(AddressParam addressParam) {
+        return ResponseEntity.ok("success");
+    }
+
+}
+```
+### 30.3.5 运行测试
+自定义用户主页
+![152.springboot-hello-doc-4.png](../../assets/images/04-主流框架/spring/152.springboot-hello-doc-4.png)
+
+model模型
+![153.springboot-hello-doc-5.png](../../assets/images/04-主流框架/spring/153.springboot-hello-doc-5.png)
+
+全局参数 和配置
+![154.springboot-hello-doc-6.png](../../assets/images/04-主流框架/spring/154.springboot-hello-doc-6.png)
+
+自定义文档
+![155.springboot-hello-doc-7.png](../../assets/images/04-主流框架/spring/155.springboot-hello-doc-7.png)
+
+接口文档和测试接口
+![156.springboot-hello-doc-8.png](../../assets/images/04-主流框架/spring/156.springboot-hello-doc-8.png)
+
+# 三十一、SpringBoot接口 - 如何生成接口文档之集成Smart-Doc
+> 上文我们看到可以通过Swagger系列可以快速生成API文档， 但是这种API文档生成是需要在接口上添加注解等，这表明这是一种侵入式方式； 那么有没有非侵入式方式呢, 比如通过注释生成文档？ 本文主要介绍非侵入式的方式及集成Smart-doc案例。我们构建知识体系时使用Smart-doc这类工具并不是目标，而是要了解非侵入方式能做到什么程度和技术思路, 最后平衡下来多数情况下多数人还是会选择Swagger+openapi技术栈的。
+## 31.1 准备知识点
+> 需要了解Swagger侵入性和依赖性， 以及Smart-Doc这类工具如何解决这些问题, 部分内容来自<a href='https://gitee.com/smart-doc-team/smart-doc'>官方网站</a>
+### 31.1.1 为什么会产生Smart-Doc这类工具？
+> 既然有了Swagger， 为何还会产生Smart-Doc这类工具呢？ 本质上是Swagger侵入性和依赖性。
+
+我们来看下目前主流的技术文档工具存在什么问题：
+- **侵入性强**，需要编写大量注解，代表工具如：swagger，还有一些公司自研的文档工具
+- **强依赖性**，如果项目不想使用该工具，业务代码无法编译通过。
+- 代码解析能力弱，使用文档不齐全，主要代表为国内众多开源的相关工具。
+- 众多基于注释分析的工具无法解析jar包里面的注释(sources jar包)，需要人工配置源码路径，无法满足DevOps构建场景。
+- 部分工具无法支持多模块复杂项目代码分析。
+### 31.1.2 什么是Smart-Doc？有哪些特性？
 
 
 
