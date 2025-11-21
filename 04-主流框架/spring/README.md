@@ -17675,162 +17675,2743 @@ class OrderServiceTest {
 4. **完整流程**：从前端Token获取到后端业务处理
 5. **异常处理**：完善的错误处理和日志记录
 6. **测试覆盖**：单元测试和并发测试
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# 三十四、SpringBoot接口 - 如何对接口进行签名
+## 34.1 准备知识点
+> 建议从接口整体的安全体系角度来理解，比如存在哪些不安全的因素，加密解密等知识点。
+### 34.1.1 API接口有哪些不安全的因素？
+> 这里从体系角度，简单列举一些不安全的因素：
+
+- 开发者访问开放接口
+  - 是不是一个合法的开发者？
+- 多客户端访问接口
+  - 是不是一个合法的客户端？
+- 用户访问接口
+  - 是不是一个合法的用户?
+  - 有没有权限访问接口？
+- 接口传输
+  - http明文传输数据？
+- 其它方面
+  - 接口重放，上文介绍的`接口幂等`
+  - 接口超时，加timestamp控制？
+  - ..
+## 34.2 常见的保证接口安全的方式？
+> 针对上述接口存在的不安全因素，这里向你展示一些典型的保障接口安全的方式。
+### 34.2.1 AccessKey&SecretKey
+> 这种设计一般用在开发接口的安全，以确保是一个`合法的开发者`。
+- AccessKey： 开发者唯一标识
+- SecretKey: 开发者密钥
+
+以阿里云相关产品为例
+![162.springboot-api-sign-1.png](../../assets/images/04-主流框架/spring/162.springboot-api-sign-1.png)
+### 34.2.2 认证和授权
+> 从两个视角去看
+>
+> 第一: `认证和授权`，认证是访问者的合法性，授权是访问者的权限分级；
+> 
+> 第二: 其中认证包括对`客户端的认证`以及对`用户的认证`；
+- 对于客户端的认证
+
+典型的是AppKey&AppSecret，或者ClientId&ClientSecret等
+
+比如oauth2协议的client cridential模式
+```sh
+https://api.xxxx.com/token?grant_type=client_credentials&client_id=CLIENT_ID&client_secret=CLIENT_SECRET
+```
+grant_type参数等于client_credentials表示client credentials方式，client_id是客户端id，client_secret是客户端密钥。
+
+返回token后，通过token访问其它接口。
+
+- 对于用户的认证和授权
+
+比如oauth2协议的授权码模式(authorization code)和密码模式(resource owner password credentials)
+```sh
+https://api.xxxx.com/token?grant_type=password&username=USERNAME&password=PASSWORD&client_id=CLIENT_ID&scope=read
+```
+grant_type参数等于password表示密码方式，client_id是客户端id，username是用户名，password是密码。
+
+(PS：password模式只有在授权码模式(authorization code)不可用时才会采用，这里只是举个例子而已)
+
+可选参数scope表示申请的权限范围。（相关开发框架可以参考spring security, Apache Shiro，<a href='https://sa-token.cc/doc.html#/'>SA-Token</a>等）
+### 34.2.3 https
+> 从接口传输安全的角度，防止接口数据明文传输
+
+HTTP 有以下安全性问题:
+
+- 使用明文进行通信，内容可能会被窃听；
+- 不验证通信方的身份，通信方的身份有可能遭遇伪装；
+- 无法证明报文的完整性，报文有可能遭篡改。
+
+HTTPs 并不是新协议，而是让 HTTP 先和 SSL(Secure Sockets Layer)通信，再由 SSL 和 TCP 通信，也就是说 HTTPs 使用了隧道进行通信。
+
+通过使用 SSL，HTTPs 具有了加密(防窃听)、认证(防伪装)和完整性保护(防篡改)。
+![163.ssl-offloading.jpg](../../assets/images/04-主流框架/spring/163.ssl-offloading.jpg)
+### 34.2.4 接口签名（加密）
+> 接口签名（加密），主要防止请求参数被篡改。特别是安全要求比较高的接口，比如支付领域的接口。
+- 签名的主要流程
+
+首先我们需要分配给客户端一个私钥用于URL签名加密，一般的签名算法如下：
+
+1、首先对请求参数按key进行字母排序放入有序集合中（其它参数请参看后续补充部分）；
+
+2、对排序完的数组键值对用&进行连接，形成用于加密的参数字符串；
+
+3、在加密的参数字符串前面或者后面加上私钥，然后用加密算法进行加密，得到sign，然后随着请求接口一起传给服务器。
+
+例如： https://api.xxxx.com/token?key=value&timetamp=xxxx&sign=xxxx-xxx-xxx-xxxx
+
+服务器端接收到请求后，用同样的算法获得服务器的sign，对比客户端的sign是否一致，如果一致请求有效；如果不一致返回指定的错误信息。
+- 补充：对什么签名？
+  - 主要包括请求参数，这是最主要的部分，`签名的目的要防止参数被篡改，就要对可能被篡改的参数签名`；
+  - 同时考虑到请求参数的来源可能是请求路径path中，请求header中，请求body中。
+  - 如果对客户端分配了AppKey&AppSecret，也可加入签名计算；
+  - 考虑到其它幂等，token失效等，也会将涉及的参数一并加入签名，比如timestamp，流水号nonce等（这些参数可能来源于header）
+- 补充: 签名算法？
+
+一般涉及这块，主要包含三点：密钥，签名算法，签名规则
+1. 密钥secret： 前后端约定的secret，这里要注意前端可能无法妥善保存好secret，比如SPA单页应用；
+2. 签名算法：也不一定要是对称加密算法，对称是反过来解析sign，这里是用同样的算法和规则计算出sign，并对比前端传过来的sign是否一致。
+3. 签名规则：比如多次加盐加密等；
+> PS：有读者会问，我们是可能从有些客户端获取密钥，算法和规则的(比如前端SPA单页应用生成的js中获取密钥，算法和规则），那么签名的意义在哪里？我认为`签名是手段而不是目的，签名是加大攻击者攻击难度的一种手段`，至少是可以抵挡大部分简单的攻击的，再加上其它防范方式（流水号，时间戳，token等)进一步提升攻击的难度而已。
+- 补充：签名和加密是不是一回事？
+
+严格来说不是一回事：
+1. 签名是通过对参数按照指定的算法、规则计算出sign，最后前后端通过同样的算法计算出sign是否一致来防止参数篡改的，所以你可以看到参数是明文的，只是多加了一个计算出的sign。
+2. 加密是对请求的参数加密，后端进行解密；同时有些情况下，也会对返回的response进行加密，前端进行解密；这里存在加密和解密的过程，所以思路上必然是对称加密的形式+时间戳接口时效性等。
+- 补充：签名放在哪里？
+
+签名可以放在请求参数中（path中，body中等），更为优雅的可以放在HEADER中，比如X-Sign（通常第三方的header参数以X-开头）
+- 补充：大厂开放平台是怎么做的呢？哪些可以借鉴？
+以腾讯开放平台为例，请参考<a href = 'https://wikinew.open.qq.com/#/iwiki/877913685'>腾讯开放平台第三方应用签名参数sig的说明</a>
+## 34.3 实现案例
+> 本例子采用AOP拦截自定义注解方式实现，主要看实现的思路而已(签名的目的要防止参数被篡改，就要对可能被篡改的参数签名)。
+### 34.3.1 定义注解
+```java
+package tech.pdai.springboot.api.sign.config.sign;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+/**
+ * @author pdai
+ */
+@Target(ElementType.METHOD)   // 注解只能用于方法上
+@Retention(RetentionPolicy.RUNTIME)    // 注解在运行时可用，便于AOP拦截
+public @interface Signature {
+}
+```
+- **作用**：这是一个标记注解，用于标识哪些方法需要签名校验。例如，在控制器方法上添加`@Signature`，AOP会拦截该方法执行前的请求。
+- **关键点**：`@Retention(RetentionPolicy.RUNTIME)`确保注解在运行时可通过反射读取，这是AOP拦截的基础。
+
+---
+### 34.3.2 AOP拦截
+这里可以看到需要对所有用户可能修改的参数点进行按规则签名
+```java
+package tech.pdai.springboot.api.sign.config.sign;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.Objects;
+
+import javax.servlet.http.HttpServletRequest;
+
+import cn.hutool.core.text.CharSequenceUtil;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Before;
+import org.aspectj.lang.annotation.Pointcut;
+import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.context.request.ServletWebRequest;
+import org.springframework.web.servlet.HandlerMapping;
+import org.springframework.web.util.ContentCachingRequestWrapper;
+import tech.pdai.springboot.api.sign.config.exception.BusinessException;
+import tech.pdai.springboot.api.sign.util.SignUtil;
+
+/**
+ * @author pdai
+ */
+@Aspect
+@Component
+public class SignAspect {
+
+    /**
+     * SIGN_HEADER.
+     */
+    private static final String SIGN_HEADER = "X-SIGN";// 定义签名在请求头中的键名
+
+    /**
+     * pointcut.
+     */
+    // 定义切入点：拦截所有被@Signature注解的方法
+    @Pointcut("execution(@tech.pdai.springboot.api.sign.config.sign.Signature * *(..))")
+    private void verifySignPointCut() {
+      // 空方法，仅用于定义切入点
+    }
+
+    /**
+     * verify sign.// 在目标方法执行前执行验证
+     */
+    @Before("verifySignPointCut()")
+    public void verify() {
+            // 获取当前HTTP请求对象
+        HttpServletRequest request = ((ServletRequestAttributes) Objects.requireNonNull(RequestContextHolder.getRequestAttributes())).getRequest();
+        String sign = request.getHeader(SIGN_HEADER);// 从请求头获取客户端签名
+
+       // 检查签名是否为空
+        if (CharSequenceUtil.isBlank(sign)) {
+            throw new BusinessException("no signature in header: " + SIGN_HEADER);
+        }
+
+      // 生成服务器端签名并比较
+        try {
+            String generatedSign = generatedSignature(request);
+            if (!sign.equals(generatedSign)) {
+                throw new BusinessException("invalid signature");
+            }
+        } catch (Throwable throwable) {
+            throw new BusinessException("invalid signature");
+        }
+    }
+    // 生成服务器端签名：收集请求参数并调用SignUtil.sign
+    private String generatedSignature(HttpServletRequest request) throws IOException {
+        // @RequestBody
+        String bodyParam = null; // 存储@RequestBody参数
+        // 处理@RequestBody：通过ContentCachingRequestWrapper读取缓存后的请求体
+        if (request instanceof ContentCachingRequestWrapper) {
+            bodyParam = new String(((ContentCachingRequestWrapper) request).getContentAsByteArray(), StandardCharsets.UTF_8);
+        }
+
+        // @RequestParam
+        Map<String, String[]> requestParameterMap = request.getParameterMap();// 存储@RequestParam参数
+
+        // @PathVariable
+        String[] paths = null; // 存储@PathVariable参数
+        // 处理@PathVariable：从请求属性中提取路径变量
+        ServletWebRequest webRequest = new ServletWebRequest(request, null);
+        Map<String, String> uriTemplateVars = (Map<String, String>) webRequest.getAttribute(
+                HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, RequestAttributes.SCOPE_REQUEST);
+        
+        if (!CollectionUtils.isEmpty(uriTemplateVars)) {
+            paths = uriTemplateVars.values().toArray(new String[0]);
+        }
+        // 调用工具类生成签名（参数排序、连接、加密等逻辑在SignUtil中实现）
+        return SignUtil.sign(bodyParam, requestParameterMap, paths);
+    }
+
+}
+
+```
+- **AOP要点**：
+  - `@Pointcut`定义了拦截规则：所有被`@Signature`注解的方法。
+  - `@Before` advice在方法执行前触发校验。
+- **签名校验流程**：
+  1. **获取客户端签名**：从请求头`X-SIGN`中提取签名值。
+  2. **参数收集**：从请求中收集三类参数：
+     - `bodyParam`：通过`ContentCachingRequestWrapper`读取请求体（如JSON数据），确保请求体可重复读取。
+     - `requestParameterMap`：查询参数（如`?key=value`）。
+     - `paths`：路径变量（如URL中的`/test/{id}`）。
+  3. **生成服务器签名**：调用`SignUtil.sign`方法，传入收集的参数。该方法内部应实现签名算法（如参数排序、连接、加私钥加密）。
+  4. **比较签名**：如果客户端签名与服务器签名不匹配，抛出异常。
+- **关键依赖**：`SignUtil.sign`是核心，但代码未展示其实现。通常，它会：
+  - 对参数按key排序（防止顺序不一致导致签名不同）。
+  - 将参数连接成字符串（如`key1=value1&key2=value2`）。
+  - 拼接私钥后使用加密算法（如MD5或SHA）生成签名。
+  - 私钥应从服务器端安全存储（如配置文件）获取，避免硬编码。
+
+---
+
+### 34.3.3 Request封装
+请求封装 `RequestCachingFilter`
+
+由于HTTP请求体（如`@RequestBody`）只能读取一次，直接读取会导致后续无法获取数据。此过滤器通过包装请求，实现请求体的缓存。
+```java
+package tech.pdai.springboot.api.sign.config;
+
+import java.io.IOException;
+
+import javax.servlet.FilterChain;
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+import lombok.NonNull;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.ContentCachingRequestWrapper;
+
+@Slf4j
+public class RequestCachingFilter extends OncePerRequestFilter {
+
+    /**
+     * This {@code doFilter} implementation stores a request attribute for
+     * "already filtered", proceeding without filtering again if the
+     * attribute is already there.
+     *
+     * @param request     request
+     * @param response    response
+     * @param filterChain filterChain
+     * @throws ServletException ServletException
+     * @throws IOException      IOException
+     * @see #getAlreadyFilteredAttributeName
+     * @see #shouldNotFilter
+     * @see #doFilterInternal
+     */
+    @Override
+    protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull FilterChain filterChain) throws ServletException, IOException {
+        boolean isFirstRequest = !isAsyncDispatch(request);
+        HttpServletRequest requestWrapper = request;
+         // 如果是首次请求且未被包装，则包装为ContentCachingRequestWrapper
+        if (isFirstRequest && !(request instanceof ContentCachingRequestWrapper)) {
+            requestWrapper = new ContentCachingRequestWrapper(request);
+        }
+        try {
+            filterChain.doFilter(requestWrapper, response); // 继续过滤器链
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+- **作用**：将原始请求包装为`ContentCachingRequestWrapper`，允许多次读取请求体内容。这在AOP的`generatedSignature`方法中用于获取`@RequestBody`参数。
+- **过滤器注册**：通过`FilterConfig`将过滤器注册到Spring容器，并设置执行顺序。
+
+注册
+```java
+package tech.pdai.springboot.api.sign.config;
+
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class FilterConfig {
+    @Bean
+    public RequestCachingFilter requestCachingFilter() {
+        return new RequestCachingFilter();
+    }
+
+    @Bean
+    public FilterRegistrationBean requestCachingFilterRegistration(
+            RequestCachingFilter requestCachingFilter) {
+        FilterRegistrationBean bean = new FilterRegistrationBean(requestCachingFilter);
+        bean.setOrder(1);
+        return bean;
+    }
+}
+```
+### 34.3.4 实现接口
+```java
+package tech.pdai.springboot.api.sign.controller;
+
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.api.sign.config.response.ResponseResult;
+import tech.pdai.springboot.api.sign.config.sign.Signature;
+import tech.pdai.springboot.api.sign.entity.User;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("user")
+public class SignTestController {
+
+    @Signature
+    @PostMapping("test/{id}")
+    public ResponseResult<String> myController(@PathVariable String id
+            , @RequestParam String client
+            , @RequestBody User user) {
+        return ResponseResult.success(String.join(",", id, client, user.toString()));
+    }
+
+}
+```
+- **作用**：模拟一个API接口，接受路径变量、查询参数和请求体。当请求到达时，AOP会先校验签名，只有通过校验才执行方法逻辑。
+- **参数类型**：
+  - `@PathVariable String id`：路径变量（如`/test/123`中的`123`）。
+  - `@RequestParam String client`：查询参数（如`?client=web`）。
+  - `@RequestBody User user`：请求体（如JSON格式的用户数据）。
+### 34.3.5 接口测试
+body参数
+![163.springboot-sign-2.png](../../assets/images/04-主流框架/spring/163.springboot-sign-2.png)
+
+如果不带X-SIGN
+![165.springboot-sign-3.png](../../assets/images/04-主流框架/spring/165.springboot-sign-3.png)
+
+如果X-SIGN错误
+![164.springboot-sign-4.png](../../assets/images/04-主流框架/spring/164.springboot-sign-4.png)
+
+如果X-SIGN正确
+![166.springboot-sign-1.png](../../assets/images/04-主流框架/spring/166.springboot-sign-1.png)
+### 34.3.6 进一步解读
+`OncePerRequestFilter` 和 `ContentCachingRequestWrapper` 的作用以及代码中 `isFirstRequest`，我将详细解释这段代码的原理。这涉及 Servlet 过滤器、请求包装器和异步请求处理的核心概念。
+
+#### 1. 背景问题：为什么需要包装请求？
+- **HTTP 请求体的单次读取限制**：HTTP 请求的 body（如 `@RequestBody` 对应的输入流）本质上是一个单向流，只能被读取一次。一旦读取，流就到达末尾，无法重置。如果在签名校验的 AOP 中直接读取了请求体，后续的控制器方法就无法再读取，导致 `@RequestBody` 参数为 null 或报错。
+- **解决方案**：使用包装类缓存请求体。Spring 提供了 `ContentCachingRequestWrapper`，它在第一次读取请求体时将其内容缓存到内存中，后续读取直接返回缓存数据，从而支持多次读取。
+
+#### 2. 代码逐行解析
+```java
+@Slf4j
+public class RequestCachingFilter extends OncePerRequestFilter {
+    @Override
+    protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull FilterChain filterChain) throws ServletException, IOException {
+        // 判断是否为首次请求（非异步分发）
+        boolean isFirstRequest = !isAsyncDispatch(request);
+        HttpServletRequest requestWrapper = request; // 初始化为原始请求
+
+        // 条件：如果是首次请求且请求尚未被包装，则进行包装
+        if (isFirstRequest && !(request instanceof ContentCachingRequestWrapper)) {
+            requestWrapper = new ContentCachingRequestWrapper(request);
+        }
+
+        try {
+            // 继续执行过滤器链，传入包装后的请求（如果被包装）
+            filterChain.doFilter(requestWrapper, response);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+##### 关键组件的作用
+- **`OncePerRequestFilter`**：
+  - 这是 Spring 提供的抽象过滤器类，**确保每个请求只被过滤一次**。
+  - 在 Servlet 规范中，一个请求可能经过多个过滤器，且可能被转发（forward）或包含（include），导致过滤器重复执行。`OncePerRequestFilter` 通过内部标记机制（如请求属性）避免重复处理。
+  - 例如，如果请求被转发到另一个 URL，普通过滤器可能会再次执行，但 `OncePerRequestFilter` 会跳过重复执行。
+
+- **`ContentCachingRequestWrapper`**：
+  - 这是 Spring 提供的请求包装器，**缓存请求体内容到字节数组**。
+  - 工作原理：
+    - 当第一次调用 `getInputStream()` 或 `getReader()` 读取请求体时，它会读取原始流并缓存数据。
+    - 后续读取直接返回缓存数据，而不是重新读流（流已耗尽）。
+  - 在签名校验场景中，AOP 和控制器方法都能安全读取请求体。
+
+##### 逻辑详解：`isFirstRequest` 和包装条件
+- **`boolean isFirstRequest = !isAsyncDispatch(request)`**：
+  - `isAsyncDispatch(request)` 是 `OncePerRequestFilter` 的方法，用于判断当前请求是否属于**异步分发**（asynchronous dispatch）。
+  - **异步请求处理流程**：在 Spring MVC 中，异步请求（如使用 `@Async` 或 `DeferredResult`）会经历多个阶段：
+    - **初始请求**：客户端发起的原始请求。
+    - **异步分发**：当异步任务完成时，服务器会重新分发请求到容器以生成响应（这算作第二次或后续分发）。
+  - `isAsyncDispatch(request)` 返回 `true` 表示当前是异步分发阶段（非初始请求），返回 `false` 表示是初始请求（首次请求）。
+  - 因此，`isFirstRequest = !isAsyncDispatch(request)` 表示：**只有初始请求（首次请求）时，`isFirstRequest` 为 `true`**。
+
+- **为什么只在首次请求且未包装时包装？**
+  - 条件：`if (isFirstRequest && !(request instanceof ContentCachingRequestWrapper))`
+  - **避免重复包装**：
+    - 如果请求已经是 `ContentCachingRequestWrapper` 实例（可能由其他过滤器包装），则无需再次包装，防止多层包装导致问题。
+    - 例如，如果其他过滤器先包装了请求，本过滤器直接使用即可。
+  - **避免异步分发时的错误缓存**：
+    - 在异步分发阶段（`isFirstRequest` 为 `false`），请求可能是原始请求的后续分发。如果此时重新包装，会尝试缓存一个可能已被读取或处理的请求体，导致数据不一致或错误。
+    - 异步分发时，请求体应已在初始请求阶段被缓存，直接使用缓存数据即可。
+  - **总结**：包装只发生在请求生命周期的开始（首次请求），确保缓存一次，后续所有处理（包括异步分发）都使用同一缓存。
+
+#### 3. 整体工作流程示例
+假设一个请求到达 Spring Boot 应用：
+1. **请求进入**：客户端发送 POST 请求到 `/user/test/123?client=web`，带有 JSON 请求体 `{"name": "Alice"}`。
+2. **过滤器执行**：
+   - `RequestCachingFilter` 被调用（因注册在过滤器链中）。
+   - `isAsyncDispatch(request)` 检查：如果是初始请求，返回 `false`，故 `isFirstRequest = true`。
+   - 检查请求类型：原始请求是 `HttpServletRequest`，不是 `ContentCachingRequestWrapper`，因此条件满足，创建 `ContentCachingRequestWrapper` 包装原始请求。
+   - 过滤器链继续，传入包装后的请求。
+3. **AOP 签名校验**：
+   - AOP 拦截器从包装请求中读取请求体（通过 `getContentAsByteArray()`），不会消耗流。
+4. **控制器方法执行**：
+   - Spring 解析 `@RequestBody` 时，再次读取请求体，从缓存获取数据，正常注入参数。
+5. **异步场景**：如果请求是异步的，异步分发时 `isFirstRequest` 为 `false`，过滤器跳过包装，直接使用已缓存的请求体。
+
+#### 4. 为什么这对签名校验至关重要？
+- 在签名校验的 AOP 中，需要读取请求体（`bodyParam`）来计算签名。如果没有缓存：
+  - AOP 读取请求体后，流耗尽。
+  - 控制器方法无法获取 `@RequestBody`，导致 `User user` 参数为 null 或报错。
+- 通过包装，AOP 和控制器都能读取完整的请求数据，确保签名校验基于所有参数，防止篡改。
+
+#### 总结
+- **`OncePerRequestFilter`**：保证过滤器 per-request 执行一次，避免重复处理。
+- **`ContentCachingRequestWrapper`**：缓存请求体，支持多次读取。
+- **`isFirstRequest` 逻辑**：确保只在初始请求时缓存请求体，避免异步分发导致的问题。
+
+# 三十五、SpringBoot接口 - 如何实现接口限流之单实例
+> 在以SpringBoot开发Restful接口时，当流量超过服务极限能力时，系统可能会出现卡死、崩溃的情况，所以就有了降级和限流。在接口层如何做限流呢？ 本文主要回顾限流的知识点，并实践单实例限流的一种思路。
+## 35.1 准备知识点
+### 35.1.1 为什么要限流
+每个系统都有服务的上线，所以当流量超过服务极限能力时，系统可能会出现卡死、崩溃的情况，所以就有了降级和限流。限流其实就是：当高并发或者瞬时高并发时，为了保证系统的稳定性、可用性，系统以牺牲部分请求为代价或者延迟处理请求为代价，保证系统整体服务可用。
+### 35.1.2 限流有哪些常见思路？
+- 从算法上看
+  - 令牌桶(Token Bucket)、漏桶(leaky bucket)和计数器算法是最常用的三种限流的算法。
+- 单实例
+  - 应用级限流方式只是单应用内的请求限流，不能进行全局限流。
+    - 限流总资源数
+    - 限流总并发/连接/请求数
+    - 限流某个接口的总并发/请求数
+    - 限流某个接口的时间窗请求数
+    - 平滑限流某个接口的请求数
+    - Guava RateLimiter
+- 分布式
+  - 我们需要分布式限流和接入层限流来进行全局限流。
+    - redis+lua实现中的lua脚本
+    - 使用Nginx+Lua实现的Lua脚本
+    - 使用 OpenResty 开源的限流方案
+    - 限流框架，比如Sentinel实现降级限流熔断
+## 35.2 实现思路
+> 主要思路：AOP拦截自定义的RateLimit注解，在AOP中通过Guava RateLimiter; Guava RateLimiter提供了令牌桶算法实现：平滑突发限流(SmoothBursty)和平滑预热限流(SmoothWarmingUp)实现。
+### 35.2.1 定义RateLimit注解
+```java
+package tech.pdai.ratelimit.guava.config.ratelimit;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+/**
+ * @author pdai
+ */
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface RateLimit {
+
+    int limit() default 10;
+
+}
+```
+### 35.2.2 定义AOP
+```java
+package tech.pdai.ratelimit.guava.config.ratelimit;
+
+import java.lang.reflect.Method;
+import java.util.concurrent.ConcurrentHashMap;
+
+import com.google.common.util.concurrent.RateLimiter;
+import lombok.extern.slf4j.Slf4j;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Pointcut;
+import org.aspectj.lang.reflect.MethodSignature;
+import org.springframework.core.annotation.AnnotationUtils;
+import org.springframework.stereotype.Component;
+
+/**
+ * @author pdai
+ */
+@Slf4j
+@Aspect
+@Component
+public class RateLimitAspect {
+
+    private final ConcurrentHashMap<String, RateLimiter> EXISTED_RATE_LIMITERS = new ConcurrentHashMap<>();
+
+    @Pointcut("@annotation(tech.pdai.ratelimit.guava.config.ratelimit.RateLimit)")
+    public void rateLimit() {
+    }
+
+    @Around("rateLimit()")
+    public Object around(ProceedingJoinPoint point) throws Throwable {
+        MethodSignature signature = (MethodSignature) point.getSignature();
+        Method method = signature.getMethod();
+        RateLimit annotation = AnnotationUtils.findAnnotation(method, RateLimit.class);
+
+        // get rate limiter
+        RateLimiter rateLimiter = EXISTED_RATE_LIMITERS.computeIfAbsent(method.getName(), k -> RateLimiter.create(annotation.limit()));
+
+        // process
+        if (rateLimiter!=null && rateLimiter.tryAcquire()) {
+            return point.proceed();
+        } else {
+            throw new RuntimeException("too many requests, please try again later...");
+        }
+    }
+}
+```
+### 35.2.3 自定义相关异常
+```java
+package tech.pdai.ratelimit.guava.config.exception;
+
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * business exception, besides normal exception.
+ *
+ * @author pdai
+ */
+@Slf4j
+public class BusinessException extends RuntimeException {
+
+    /**
+     * Constructs a new exception with {@code null} as its detail message. The cause is not initialized, and may
+     * subsequently be initialized by a call to {@link #initCause}.
+     */
+    public BusinessException() {
+        super();
+    }
+
+    /**
+     * Constructs a new exception with the specified detail message. The cause is not initialized, and may subsequently
+     * be initialized by a call to {@link #initCause}.
+     *
+     * @param message the detail message. The detail message is saved for later retrieval by the {@link #getMessage()}
+     *                method.
+     */
+    public BusinessException(final String message) {
+        super(message);
+    }
+
+    /**
+     * Constructs a new exception with the specified detail message and cause.
+     * <p>
+     * Note that the detail message associated with {@code cause} is <i>not</i> automatically incorporated in this
+     * exception's detail message.
+     *
+     * @param message the detail message (which is saved for later retrieval by the {@link #getMessage()} method).
+     * @param cause   the cause (which is saved for later retrieval by the {@link #getCause()} method). (A <tt>null</tt>
+     *                value is permitted, and indicates that the cause is nonexistent or unknown.)
+     * @since 1.4
+     */
+    public BusinessException(final String message, final Throwable cause) {
+        super(message, cause);
+    }
+
+    /**
+     * Constructs a new exception with the specified cause and a detail message of
+     * <tt>(cause==null ? null : cause.toString())</tt> (which typically contains the class and detail message of
+     * <tt>cause</tt>). This constructor is useful for exceptions that are little more than wrappers for other
+     * throwables (for example, {@link java.security.PrivilegedActionException}).
+     *
+     * @param cause the cause (which is saved for later retrieval by the {@link #getCause()} method). (A <tt>null</tt>
+     *              value is permitted, and indicates that the cause is nonexistent or unknown.)
+     * @since 1.4
+     */
+    public BusinessException(final Throwable cause) {
+        super(cause);
+    }
+
+    /**
+     * Constructs a new exception with the specified detail message, cause, suppression enabled or disabled, and
+     * writable stack trace enabled or disabled.
+     *
+     * @param message            the detail message.
+     * @param cause              the cause. (A {@code null} value is permitted, and indicates that the cause is nonexistent or
+     *                           unknown.)
+     * @param enableSuppression  whether or not suppression is enabled or disabled
+     * @param writableStackTrace whether or not the stack trace should be writable
+     * @since 1.7
+     */
+    protected BusinessException(final String message, final Throwable cause, boolean enableSuppression,
+                                boolean writableStackTrace) {
+        super(message, cause, enableSuppression, writableStackTrace);
+    }
+
+}
+```
+异常的处理
+```java
+package tech.pdai.ratelimit.guava.config.exception;
+
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import tech.pdai.ratelimit.guava.config.response.ResponseResult;
+import tech.pdai.ratelimit.guava.config.response.ResponseStatus;
+
+/**
+ * @author pdai
+ */
+@Slf4j
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    /**
+     * handle business exception.
+     *
+     * @param businessException business exception
+     * @return ResponseResult
+     */
+    @ResponseBody
+    @ExceptionHandler(BusinessException.class)
+    public ResponseResult<BusinessException> processBusinessException(BusinessException businessException) {
+        log.error(businessException.getLocalizedMessage());
+        return ResponseResult.fail(null, businessException.getLocalizedMessage()==null
+                ? ResponseStatus.HTTP_STATUS_500.getDescription()
+                :businessException.getLocalizedMessage());
+    }
+
+    /**
+     * handle other exception.
+     *
+     * @param exception exception
+     * @return ResponseResult
+     */
+    @ResponseBody
+    @ExceptionHandler(Exception.class)
+    public ResponseResult<Exception> processException(Exception exception) {
+        log.error(exception.getLocalizedMessage(), exception);
+        return ResponseResult.fail(null, ResponseStatus.HTTP_STATUS_500.getDescription());
+    }
+}
+```
+### 35.2.4 统一结果返回封装
+```java
+package tech.pdai.ratelimit.guava.config.response;
+
+import java.io.Serializable;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
+@Builder
+public class ResponseResult<T> {
+
+    /**
+     * response timestamp.
+     */
+    private long timestamp;
+
+    /**
+     * response code, 200 -> OK.
+     */
+    private String status;
+
+    /**
+     * response message.
+     */
+    private String message;
+
+    /**
+     * response data.
+     */
+    private T data;
+
+    /**
+     * response success result wrapper.
+     *
+     * @param <T> type of data class
+     * @return response result
+     */
+    public static <T> ResponseResult<T> success() {
+        return success(null);
+    }
+
+    /**
+     * response success result wrapper.
+     *
+     * @param data response data
+     * @param <T>  type of data class
+     * @return response result
+     */
+    public static <T> ResponseResult<T> success(T data) {
+        return ResponseResult.<T>builder().data(data)
+                .message(ResponseStatus.SUCCESS.getDescription())
+                .status(ResponseStatus.SUCCESS.getResponseCode())
+                .timestamp(System.currentTimeMillis())
+                .build();
+    }
+
+    /**
+     * response error result wrapper.
+     *
+     * @param message error message
+     * @param <T>     type of data class
+     * @return response result
+     */
+    public static <T extends Serializable> ResponseResult<T> fail(String message) {
+        return fail(null, message);
+    }
+
+    /**
+     * response error result wrapper.
+     *
+     * @param data    response data
+     * @param message error message
+     * @param <T>     type of data class
+     * @return response result
+     */
+    public static <T> ResponseResult<T> fail(T data, String message) {
+        return ResponseResult.<T>builder().data(data)
+                .message(message)
+                .status(ResponseStatus.FAIL.getResponseCode())
+                .timestamp(System.currentTimeMillis())
+                .build();
+    }
+
+
+}
+```
+### 35.2.5 controller接口
+```java
+package tech.pdai.ratelimit.guava.controller;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.ratelimit.guava.config.ratelimit.RateLimit;
+import tech.pdai.ratelimit.guava.config.response.ResponseResult;
+
+/**
+ * @author pdai
+ */
+@Slf4j
+@RestController
+public class RateLimitTestController {
+
+    @RateLimit
+    @GetMapping("/limit")
+    public ResponseResult<String> limit() {
+        log.info("limit");
+        return ResponseResult.success();
+    }
+
+    @RateLimit(limit = 5)
+    @GetMapping("/limit1")
+    public ResponseResult<String> limit1() {
+        log.info("limit1");
+        return ResponseResult.success();
+    }
+
+    @GetMapping("/nolimit")
+    public ResponseResult<String> noRateLimiter() {
+        log.info("no limit");
+        return ResponseResult.success();
+    }
+
+}
+```
+## 35.3 接口测试
+```java
+@SneakyThrows
+public static void test(int clientSize) {
+    CountDownLatch downLatch = new CountDownLatch(clientSize);
+    ExecutorService fixedThreadPool = Executors.newFixedThreadPool(clientSize);
+    IntStream.range(0, clientSize).forEach(i ->
+            fixedThreadPool.submit(() -> {
+                RestTemplate restTemplate = new RestTemplate();
+                restTemplate.getForObject("http://localhost:8080/limit1", ResponseResult.class);
+                downLatch.countDown();
+            })
+    );
+    downLatch.await();
+    fixedThreadPool.shutdown();
+}
+```
+测试结果
+```sh
+2021-10-01 15:22:47.171  INFO 30092 --- [nio-8080-exec-4] t.p.r.g.c.RateLimitTestController        : limit1
+2021-10-01 15:22:47.171  INFO 30092 --- [nio-8080-exec-8] t.p.r.g.c.RateLimitTestController        : limit1
+2021-10-01 15:22:47.171  INFO 30092 --- [nio-8080-exec-5] t.p.r.g.c.RateLimitTestController        : limit1
+2021-10-01 15:22:47.187  INFO 30092 --- [nio-8080-exec-9] t.p.r.g.c.RateLimitTestController        : limit1
+2021-10-01 15:22:47.187  INFO 30092 --- [nio-8080-exec-2] t.p.r.g.c.RateLimitTestController        : limit1
+2021-10-01 15:22:47.187  INFO 30092 --- [io-8080-exec-10] t.p.r.g.c.RateLimitTestController        : limit1
+2021-10-01 15:22:47.202 ERROR 30092 --- [nio-8080-exec-7] t.p.r.g.c.e.GlobalExceptionHandler       : too many requests, please try again later...
+2021-10-01 15:22:47.202 ERROR 30092 --- [nio-8080-exec-6] t.p.r.g.c.e.GlobalExceptionHandler       : too many requests, please try again later...
+2021-10-01 15:22:47.221 ERROR 30092 --- [nio-8080-exec-1] t.p.r.g.c.e.GlobalExceptionHandler       : too many requests, please try again later...
+2021-10-01 15:22:47.222 ERROR 30092 --- [nio-8080-exec-5] t.p.r.g.c.e.GlobalExceptionHandler       : too many requests, please try again later...
+2021-10-01 15:22:47.225 ERROR 30092 --- [nio-8080-exec-6] t.p.r.g.c.e.GlobalExceptionHandler       : too many requests, please try again later...
+2021-10-01 15:22:47.225 ERROR 30092 --- [nio-8080-exec-8] t.p.r.g.c.e.GlobalExceptionHandler       : too many requests, please try again later...
+2021-10-01 15:22:47.225 ERROR 30092 --- [nio-8080-exec-3] t.p.r.g.c.e.GlobalExceptionHandler       : too many requests, please try again later...
+2021-10-01 15:22:47.225 ERROR 30092 --- [io-8080-exec-12] t.p.r.g.c.e.GlobalExceptionHandler       : too many requests, please try again later...
+2021-10-01 15:22:47.225 ERROR 30092 --- [io-8080-exec-14] t.p.r.g.c.e.GlobalExceptionHandler       : too many requests, please try again later...
+2021-10-01 15:22:47.225 ERROR 30092 --- [io-8080-exec-13] t.p.r.g.c.e.GlobalExceptionHandler       : too many requests, please try again later...
+2021-10-01 15:22:47.225 ERROR 30092 --- [io-8080-exec-15] t.p.r.g.c.e.GlobalExceptionHandler       : too many requests, please try again later...
+2021-10-01 15:22:47.240 ERROR 30092 --- [io-8080-exec-11] t.p.r.g.c.e.GlobalExceptionHandler       : too many requests, please try again later...
+2021-10-01 15:22:47.240 ERROR 30092 --- [nio-8080-exec-4] t.p.r.g.c.e.GlobalExceptionHandler       : too many requests, please try again later...
+2021-10-01 15:22:47.256 ERROR 30092 --- [nio-8080-exec-2] t.p.r.g.c.e.GlobalExceptionHandler       : too many requests, please try again later...
+```
+## 35.4 上述实现方案的槽点
+
+- 注意
+
+> 必须要说明一下，上述实现方式只是单实例下一种思路而已，如果细细的看，上面的代码存在一些槽点。
+1. 首先, EXISTED_RATE_LIMITERS.computeIfAbsent(method.getName(), k -> RateLimiter.create(annotation.limit())) 这行代码中 method.getName()表明是对方法名进行限流的，其实并不合适，应该需要至少加上类名；
+2. 再者, 上述实现方式按照方法名去限定请求量，对于很多情况下至少需要支持按照IP和方法名，或者其它自定义的方式进行限流。
+3. 其它一些场景支持的参数抽象和封装等
+## 35.5 针对上述方案在并发情况下的一些修改方式
+
+### 方案1：使用双重检查锁
+```java
+@Around("rateLimit()")
+public Object around(ProceedingJoinPoint point) throws Throwable {
+    MethodSignature signature = (MethodSignature) point.getSignature();
+    Method method = signature.getMethod();
+    RateLimit annotation = AnnotationUtils.findAnnotation(method, RateLimit.class);
+    
+    String methodName = method.getName();
+    RateLimiter rateLimiter = EXISTED_RATE_LIMITERS.get(methodName);
+    
+    if (rateLimiter == null) {
+        synchronized (this) {
+            rateLimiter = EXISTED_RATE_LIMITERS.get(methodName);
+            if (rateLimiter == null) {
+                rateLimiter = RateLimiter.create(annotation.limit());
+                EXISTED_RATE_LIMITERS.put(methodName, rateLimiter);
+            }
+        }
+    }
+    
+    if (rateLimiter.tryAcquire()) {
+        return point.proceed();
+    } else {
+        throw new RuntimeException("too many requests, please try again later...");
+    }
+}
+```
+
+### 方案2：使用原子操作（推荐）
+```java
+@Around("rateLimit()")
+public Object around(ProceedingJoinPoint point) throws Throwable {
+    MethodSignature signature = (MethodSignature) point.getSignature();
+    Method method = signature.getMethod();
+    RateLimit annotation = AnnotationUtils.findAnnotation(method, RateLimit.class);
+    
+    RateLimiter rateLimiter = EXISTED_RATE_LIMITERS.compute(method.getName(), 
+        (k, v) -> v == null ? RateLimiter.create(annotation.limit()) : v);
+    
+    if (rateLimiter.tryAcquire()) {
+        return point.proceed();
+    } else {
+        throw new RuntimeException("too many requests, please try again later...");
+    }
+}
+```
+
+### 方案3：使用 Guava Cache（最优）
+```java
+private final LoadingCache<String, RateLimiter> rateLimiters = CacheBuilder.newBuilder()
+    .build(new CacheLoader<String, RateLimiter>() {
+        @Override
+        public RateLimiter load(String methodName) throws Exception {
+            // 需要额外逻辑来获取对应方法的limit值
+            Method method = // 根据methodName获取Method
+            RateLimit annotation = AnnotationUtils.findAnnotation(method, RateLimit.class);
+            return RateLimiter.create(annotation.limit());
+        }
+    });
+```
+# 三十六、SpringBoot接口 - 如何实现接口限流之分布式
+## 36.1 准备知识点
+我们需要`分布式限流`和`接入层限流`来进行全局限流。
+1. redis+lua实现中的lua脚本
+2. 使用Nginx+Lua实现的Lua脚本
+3. 使用 OpenResty 开源的限流方案
+4. 限流框架，比如Sentinel实现降级限流熔断
+## 36.2 实现思路之redis+lua封装
+> redis+lua是代码层实现较为常见的方案，网上有很多的封装， 我这里找一个给你分享下。以gitee开源的<a href='https://gitee.com/kailing/ratelimiter-spring-boot-starter'>ratelimiter-spring-boot-starter</a>为例，作者是kailing， 值得初学者学习思路+代码封装+starter封装：
+### 36.2.1 使用场景：为什么有些分布式场景下，还会在代码层进行控制限流？
+基于 redis 的偏业务应用的分布式限流组件，使得项目拥有分布式限流能力变得很简单。限流的场景有很多，常说的限流一般指网关限流，控制好洪峰流量，以免打垮后方应用。这里突出`偏业务应用的分布式限流`的原因，是因为区别于网关限流，业务侧限流可以轻松根据业务性质做到细粒度的流量控制。比如如下场景，
+- 案例一：
+
+有一个公开的 openApi 接口， openApi 会给接入方派发一个 appId，此时，如果需要根据各个接入方的 appId 限流，网关限流就不好做了，只能在业务侧实现
+- 案例二：
+
+公司内部的短信接口，内部对接了多个第三方的短信通道，每个短信通道对流量的控制都不尽相同，假设有的第三方根据手机号和短信模板组合限流，网关限流就更不好做了让我们看下，作者kailing是如何封装实现ratelimiter-spring-boot-starter的。
+### 36.2.2 源代码的要点
+- Redis 客户端采用redisson，AOP拦截方式
+
+所以引入如下包
+```sh
+ext {
+    redisson_Version = '3.15.1'
+}
+
+dependencies {
+    compile "org.redisson:redisson:${redisson_Version}"
+    compile 'org.springframework.boot:spring-boot-starter-aop'
+    compileOnly 'org.springframework.boot:spring-boot-starter-web'
+
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-web'
+    testImplementation 'org.springdoc:springdoc-openapi-ui:1.5.2'
+}
+```
+- RateLimit注解
+
+作者考虑了时间表达式，限流后的自定义回退后的拒绝逻辑, 用户自定义Key（PS：这里其实可以加一些默认的Key生成策略，比如按照方法策略， 按照方法&IP 策略, 按照自定义策略等，默认为按照方法）
+```java
+package com.taptap.ratelimiter.annotation;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+/**
+ * @author kl (http://kailing.pub)
+ * @since 2021/3/16
+ */
+@Target(value = {ElementType.METHOD})
+@Retention(value = RetentionPolicy.RUNTIME)
+public @interface RateLimit {
+
+    /**
+     * 时间窗口流量数量
+     * @return rate
+     */
+    long rate();
+
+    /**
+     * 时间窗口流量数量表达式
+     * @return rateExpression
+     */
+    String rateExpression() default "";
+
+    /**
+     * 时间窗口，最小单位秒，如 2s，2h , 2d
+     * @return rateInterval
+     */
+    String rateInterval();
+
+    /**
+     * 获取key
+     * @return keys
+     */
+    String [] keys() default {};
+
+    /**
+     * 限流后的自定义回退后的拒绝逻辑
+     * @return fallback
+     */
+    String fallbackFunction() default "";
+
+    /**
+     * 自定义业务 key 的 Function
+     * @return key
+     */
+    String customKeyFunction() default "";
+
+}
+```
+- AOP拦截
+
+around环绕方式， 通过定义RateLimiterService获取方法注解的信息，存放在为RateLimiterInfo
+
+如果还定义了回调方法，被限流后还会执行回调方法，回调方法也在RateLimiterService中。
+```java
+package com.taptap.ratelimiter.core;
+
+import com.taptap.ratelimiter.annotation.RateLimit;
+import com.taptap.ratelimiter.exception.RateLimitException;
+import com.taptap.ratelimiter.model.LuaScript;
+import com.taptap.ratelimiter.model.RateLimiterInfo;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.redisson.api.RScript;
+import org.redisson.api.RedissonClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Created by kl on 2017/12/29.
+ * Content : 切面拦截处理器
+ */
+@Aspect
+@Component
+@Order(0)
+public class RateLimitAspectHandler {
+
+    private static final Logger logger = LoggerFactory.getLogger(RateLimitAspectHandler.class);
+
+    private final RateLimiterService rateLimiterService;
+    private final RScript rScript;
+
+    public RateLimitAspectHandler(RedissonClient client, RateLimiterService lockInfoProvider) {
+        this.rateLimiterService = lockInfoProvider;
+        this.rScript = client.getScript();
+    }
+
+    @Around(value = "@annotation(rateLimit)")
+    public Object around(ProceedingJoinPoint joinPoint, RateLimit rateLimit) throws Throwable {
+        RateLimiterInfo limiterInfo = rateLimiterService.getRateLimiterInfo(joinPoint, rateLimit);
+
+        List<Object> keys = new ArrayList<>();
+        keys.add(limiterInfo.getKey());
+        keys.add(limiterInfo.getRate());
+        keys.add(limiterInfo.getRateInterval());
+        List<Long> results = rScript.eval(RScript.Mode.READ_WRITE, LuaScript.getRateLimiterScript(), RScript.ReturnType.MULTI, keys);
+        boolean allowed = results.get(0) == 0L;
+        if (!allowed) {
+            logger.info("Trigger current limiting,key:{}", limiterInfo.getKey());
+            if (StringUtils.hasLength(rateLimit.fallbackFunction())) {
+                return rateLimiterService.executeFunction(rateLimit.fallbackFunction(), joinPoint);
+            }
+            long ttl = results.get(1);
+            throw new RateLimitException("Too Many Requests", ttl);
+        }
+        return joinPoint.proceed();
+    }
+
+
+}
+```
+这里LuaScript加载定义的lua脚本
+```java
+package com.taptap.ratelimiter.model;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.util.StreamUtils;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+
+/**
+ * @author kl (http://kailing.pub)
+ * @since 2021/3/18
+ */
+public final class LuaScript {
+
+    private LuaScript(){}
+    private static final Logger log = LoggerFactory.getLogger(LuaScript.class);
+    private static final String RATE_LIMITER_FILE_PATH = "META-INF/ratelimiter-spring-boot-starter-rateLimit.lua";
+    private static String rateLimiterScript;
+
+    static {
+        InputStream in = Thread.currentThread().getContextClassLoader()
+                .getResourceAsStream(RATE_LIMITER_FILE_PATH);
+        try {
+            rateLimiterScript =  StreamUtils.copyToString(in, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            log.error("ratelimiter-spring-boot-starter Initialization failure",e);
+        }
+    }
+
+    public static String getRateLimiterScript() {
+        return rateLimiterScript;
+    }
+}
+```
+lua脚本放在META-INF/ratelimiter-spring-boot-starter-rateLimit.lua， 如下
+```lua
+--
+-- Created by IntelliJ IDEA.
+-- User: kl
+-- Date: 2021/3/18
+-- Time: 11:17 上午
+-- To change this template use File | Settings | File Templates.
+local rateLimitKey = KEYS[1];
+local rate = tonumber(KEYS[2]);
+local rateInterval = tonumber(KEYS[3]);
+local limitResult = 0;
+local ttlResult = 0;
+local currValue = redis.call('incr', rateLimitKey);
+if (currValue == 1) then
+    redis.call('expire', rateLimitKey, rateInterval);
+    limitResult = 0;
+else
+    if (currValue > rate) then
+        limitResult = 1;
+        ttlResult = redis.call('ttl', rateLimitKey);
+    end
+end
+return { limitResult, ttlResult }
+```
+- starter自动装配
+
+RateLimiterAutoConfiguration + RateLimiterProperties + spring.factories
+```java
+package com.taptap.ratelimiter.configuration;
+
+import com.taptap.ratelimiter.core.BizKeyProvider;
+import com.taptap.ratelimiter.core.RateLimitAspectHandler;
+import com.taptap.ratelimiter.core.RateLimiterService;
+import com.taptap.ratelimiter.web.RateLimitExceptionHandler;
+import io.netty.channel.nio.NioEventLoopGroup;
+import org.redisson.Redisson;
+import org.redisson.api.RedissonClient;
+import org.redisson.codec.JsonJacksonCodec;
+import org.redisson.config.Config;
+import org.springframework.boot.autoconfigure.AutoConfigureAfter;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+
+/**
+ * @author kl (http://kailing.pub)
+ * @since 2021/3/16
+ */
+@Configuration  //  标记为配置类
+@ConditionalOnProperty(prefix = RateLimiterProperties.PREFIX, name = "enabled", havingValue = "true") // 只有当配置文件中 spring.ratelimiter.enabled=true 时才生效
+@AutoConfigureAfter(RedisAutoConfiguration.class) // 确保在 Redis 自动配置之后执行
+@EnableConfigurationProperties(RateLimiterProperties.class) //  启用配置属性绑定
+@Import({RateLimitAspectHandler.class, RateLimitExceptionHandler.class})// 导入其他配置类
+public class RateLimiterAutoConfiguration {
+
+    private final RateLimiterProperties limiterProperties;
+
+    public RateLimiterAutoConfiguration(RateLimiterProperties limiterProperties) {
+        this.limiterProperties = limiterProperties;
+    }
+
+    @Bean(destroyMethod = "shutdown")
+    @ConditionalOnMissingBean
+    RedissonClient redisson() {
+        Config config = new Config();
+        if (limiterProperties.getRedisClusterServer() != null) {
+            config.useClusterServers().setPassword(limiterProperties.getRedisPassword())
+                    .addNodeAddress(limiterProperties.getRedisClusterServer().getNodeAddresses());
+        } else {
+            config.useSingleServer().setAddress(limiterProperties.getRedisAddress())
+                    .setDatabase(limiterProperties.getRedisDatabase())
+                    .setPassword(limiterProperties.getRedisPassword());
+        }
+        config.setCodec(new JsonJacksonCodec());
+        config.setEventLoopGroup(new NioEventLoopGroup());
+        return Redisson.create(config);
+    }
+
+    @Bean
+    public RateLimiterService rateLimiterInfoProvider() {
+        return new RateLimiterService();
+    }
+
+    @Bean
+    public BizKeyProvider bizKeyProvider() {
+        return new BizKeyProvider();
+    }
+
+}
+```
+
+- 详情可参考： https://gitee.com/kailing/ratelimiter-spring-boot-starter
+
+### 36.2.3 @Import 的作用
+1. 明确的依赖关系和控制加载顺序
+
+@Import确保了这两个类一定会在配置类之后被加载，避免了可能的循环依赖或顺序问题。
+```
+// 确保加载顺序：RateLimiterAutoConfiguration → RateLimitAspectHandler
+// AspectHandler 依赖配置类中定义的 Bean，必须后加载
+```
+2. 条件注解的精确控制
+
+RateLimitExceptionHandler 上有自己的条件注解：
+```java
+@ConditionalOnProperty(prefix = RateLimiterProperties.PREFIX, 
+                       name = "exceptionHandler.enable", 
+                       havingValue = "true", 
+                       matchIfMissing = true)
+```
+通过 @Import 可以确保：
+
+- 条件一致性：只有当主配置启用时，才考虑是否加载异常处理器
+- 避免意外加载：防止在限流功能禁用时异常处理器仍然被加载
+3. 包扫描路径可能不一致
+
+如果这两个类不在 Spring Boot 的主扫描路径下，或者项目使用了自定义的扫描规则，自动扫描可能会失效。@Import 提供了明确的引用。
+4.  代码意图更清晰
+
+使用 @Import 使得代码的依赖关系更加明确：
+
+- "这个自动配置类需要这两个组件才能正常工作"
+- 阅读代码时能够立即理解组件之间的关系
+5. 对比说明
+
+没有 @Import 的情况：
+- 依赖 Spring 的组件扫描机制
+- 加载顺序不确定
+- 条件注解可能产生意外行为
+
+有 @Import 的情况：
+- 明确的依赖声明
+- 可控的加载顺序
+- 条件注解在预期时机执行
+### 36.2.4 滑动时间窗口的逻辑解读
+#### 36.2.4.1  TimeWindowRateLimiter
+```java
+public class TimeWindowRateLimiter implements RateLimiter {
+
+    private final RScript rScript;
+
+    public TimeWindowRateLimiter(@Qualifier(REDISSON_BEAN_NAME) RedissonClient client) {
+        this.rScript = client.getScript(LongCodec.INSTANCE);
+    }
+
+    @Override
+    public Result isAllowed(Rule rule) {
+        List<Object> keys = getKeys(rule.getKey());
+        String script = LuaScript.getTimeWindowRateLimiterScript();
+        List<Long> results = rScript.eval(RScript.Mode.READ_WRITE, script, RScript.ReturnType.MULTI, keys, rule.getRate(), rule.getRateInterval());
+        boolean isAllowed = results.get(0) == 1L;
+        long ttl = results.get(1);
+
+        return new Result(isAllowed, ttl);
+    }
+
+    static List<Object> getKeys(String key) {
+        String prefix = "request_rate_limiter.{" + key;
+        String keys = prefix + "}";
+        return Collections.singletonList(keys);
+    }
+
+}
+```
+#### 36.2.4.2 lua脚本
+```lua
+local rateLimitKey = KEYS[1];
+local rate = tonumber(ARGV[1]);
+local rateInterval = tonumber(ARGV[2]);
+
+local allowed = 1;
+local ttlResult = 0;
+local currValue = redis.call('incr', rateLimitKey);
+if (currValue == 1) then
+    redis.call('expire', rateLimitKey, rateInterval);
+    allowed = 1;
+else
+    if (currValue > rate) then
+        allowed = 0;
+        ttlResult = redis.call('ttl', rateLimitKey);
+    end
+end
+return { allowed, ttlResult }
+```
+#### 36.2.4.3 Lua 脚本执行流程
+
+
+1. **参数解析**
+```lua
+local rateLimitKey = KEYS[1];        -- Redis key
+local rate = tonumber(ARGV[1]);      -- 限流速率（单位时间内允许的请求数）
+local rateInterval = tonumber(ARGV[2]); -- 时间窗口大小（秒）
+```
+2. **初始化变量**
+```lua
+local allowed = 1;    -- 是否允许访问（1允许，0拒绝）
+local ttlResult = 0;  -- key的剩余生存时间
+```
+
+3. **核心逻辑 - 原子操作**
+```lua
+local currValue = redis.call('incr', rateLimitKey);
+```
+
+**第一次访问（currValue == 1）：**
+```lua
+if (currValue == 1) then
+    redis.call('expire', rateLimitKey, rateInterval);  -- 设置过期时间
+    allowed = 1;  -- 允许访问
+```
+- `incr` 将 key 的值从 0 增加到 1
+- 设置 key 的过期时间为 `rateInterval` 秒
+- 允许本次请求
+
+**后续访问：**
+```lua
+else
+    if (currValue > rate) then
+        allowed = 0;  -- 超过速率限制，拒绝访问
+        ttlResult = redis.call('ttl', rateLimitKey);  -- 获取剩余时间
+    end
+end
+```
+- 如果当前计数值超过限制速率，则拒绝访问
+- 同时返回 key 的剩余生存时间（用于告诉客户端需要等待多久）
+
+4. **返回结果**
+```lua
+return { allowed, ttlResult }
+```
+
+#### 36.2.4.4 Java 代码调用逻辑
+
+```java
+public Result isAllowed(Rule rule) {
+    List<Object> keys = getKeys(rule.getKey());  // 生成Redis key
+    String script = LuaScript.getTimeWindowRateLimiterScript();  // 获取Lua脚本
+    
+    // 执行Lua脚本
+    List<Long> results = rScript.eval(RScript.Mode.READ_WRITE, script, 
+                                     RScript.ReturnType.MULTI, keys, 
+                                     rule.getRate(), rule.getRateInterval());
+    
+    boolean isAllowed = results.get(0) == 1L;  // 是否允许访问
+    long ttl = results.get(1);  // 剩余生存时间
+    
+    return new Result(isAllowed, ttl);
+}
+```
+
+#### 36.2.4.5 关键特性
+
+1. **原子性操作**
+- 整个限流判断在 Redis 中原子执行，避免竞态条件
+- 保证分布式环境下的准确性
+
+2. **固定时间窗口算法**
+- 每个时间窗口独立计数
+- 例如：rate=100，rateInterval=60，表示每分钟最多100次请求
+
+3. **Redis Key 设计**
+```java
+static List<Object> getKeys(String key) {
+    String prefix = "request_rate_limiter.{" + key + "}";
+    return Collections.singletonList(prefix);
+}
+```
+- 使用 `{}` 确保在 Redis 集群中所有相关 key 都分配到同一个 slot
+- key 格式示例：`request_rate_limiter.{user:123}`
+
+#### 36.2.4.6 使用示例
+
+假设配置：rate=10，rateInterval=60（每分钟10次请求）
+
+**执行过程：**
+1. **第1次请求**：currValue=1，设置60秒过期，允许访问
+2. **第10次请求**：currValue=10，允许访问  
+3. **第11次请求**：currValue=11 > 10，拒绝访问，返回剩余时间
+
+#### 36.2.4.7 优缺点
+
+**优点：**
+- 实现简单，性能好
+- 分布式环境下一致性有保障
+- 内存占用小（每个key只存储一个计数器）
+
+**缺点：**
+- 时间窗口边界可能出现双倍流量（临界点问题）
+- 不够平滑，可能存在突发流量
+
+这种实现适合对精度要求不是特别高，但需要高性能和分布式一致性的场景。
+#### 36.2.4.8 KEYS 和 ARGV 的值是如何获取的？
+在 Java 代码中：
+```java
+List<Object> keys = getKeys(rule.getKey());  // 生成 Redis key，例如 ["request_rate_limiter.{user:123}"]
+List<Long> results = rScript.eval(
+    RScript.Mode.READ_WRITE, 
+    script, 
+    RScript.ReturnType.MULTI, 
+    keys,                    // 对应 Lua 脚本中的 KEYS 数组
+    rule.getRate(),          // 对应 ARGV[1]，例如 10（限流速率）
+    rule.getRateInterval()   // 对应 ARGV[2]，例如 60（时间窗口秒数）
+);
+```
+
+- **`KEYS[1]`**：来自 Java 的 `keys` 列表的第一个元素，即 Redis 的 key（如 `request_rate_limiter.{user:123}`）。
+- **`ARGV[1]`**：来自 Java 的 `rule.getRate()`，表示限流速率（如每秒允许的请求数）。
+- **`ARGV[2]`**：来自 Java 的 `rule.getRateInterval()`，表示时间窗口大小（秒）。
+
+Redis 的 `eval` 命令会将 `KEYS` 和 `ARGV` 作为参数传递给 Lua 脚本。
+#### 36.2.4.9 Redis 命令解释
+
+- `redis.call('incr', rateLimitKey)`
+  - **对应 Redis 命令**：`INCR key`
+  - **作用**：将 key 中存储的数字值增加 1。如果 key 不存在，会先初始化为 0，再执行加 1 操作。
+  - **在限流中的用途**：用于计数当前时间窗口内的请求次数。例如，第一次请求时，key 从 0 变成 1。
+
+- `redis.call('expire', rateLimitKey, rateInterval)`
+  - **对应 Redis 命令**：`EXPIRE key seconds`
+  - **作用**：为 key 设置生存时间（秒），超过时间后 key 会自动删除。
+  - **在限流中的用途**：设置时间窗口的过期时间。例如，当第一次请求时（计数为 1），设置 key 在 60 秒后过期，从而实现固定时间窗口（如每分钟重置计数器）。
+
+- `redis.call('ttl', rateLimitKey)`
+  - **对应 Redis 命令**：`TTL key`
+  - **作用**：返回 key 的剩余生存时间（秒）。如果 key 没有设置过期时间，返回 -1；如果 key 不存在，返回 -2。
+  - **在限流中的用途**：当请求被限流时（计数超过速率），返回剩余时间，告诉客户端需要等待多久才能重试。
+## 36.3 补充：为什么lua脚本可以保证并发安全
+Lua 脚本在 Redis 中能够保证并发安全，主要基于以下几个关键机制：
+
+### 36.3.1. **Redis 的单线程模型**
+
+Redis 使用单线程处理命令，这意味着：
+- **命令串行执行**：所有 Redis 命令都是原子执行的
+- **无竞态条件**：同一时刻只有一个命令在执行，不会出现并发冲突
+- **顺序一致性**：命令按照接收顺序依次处理
+
+### 36.3.2. **Lua 脚本的原子性执行**
+
+当 Redis 执行 Lua 脚本时：
+```lua
+-- 整个脚本作为一个原子操作执行
+local currValue = redis.call('incr', rateLimitKey);
+if (currValue == 1) then
+    redis.call('expire', rateLimitKey, rateInterval);
+else
+    if (currValue > rate) then
+        -- ...
+    end
+end
+```
+
+**关键特性：**
+- **脚本执行期间不会中断**：Redis 在执行脚本时不会处理其他客户端请求
+- **所有操作作为一个事务**：脚本中的多个 Redis 命令被视为一个原子操作
+- **一致性保证**：脚本执行过程中，数据状态不会被其他操作改变
+
+### 36.3.3. **对比无脚本的情况**
+
+**没有 Lua 脚本的潜在问题：**
+```java
+// 伪代码：非原子操作，可能产生竞态条件
+Long count = redis.incr(key);
+if (count == 1) {
+    // 在这两个操作之间，可能有其他请求修改了计数器的值
+    redis.expire(key, 60);
+}
+```
+
+**有 Lua 脚本的优势：**
+- 所有操作（incr + 条件判断 + expire/ttl）在同一个原子操作中完成
+- 避免了"检查然后设置"（check-then-set）的竞态条件
+
+### 36.3.4. **具体并发安全场景分析**
+
+#### 场景：两个请求同时到达
+```
+请求A: 执行Lua脚本开始
+请求B: 在Redis队列中等待
+
+时间线:
+1. 请求A: incr(key) → 返回值1
+2. 请求A: 判断count==1 → 执行expire
+3. 请求A: 脚本执行完成
+4. 请求B: 开始执行脚本，incr(key) → 返回值2
+```
+
+#### 关键保证：
+- **请求A的整个脚本执行完毕后**，请求B才会开始执行
+- 不会出现请求A执行完`incr`后，请求B也执行`incr`，然后两者都认为自己是第一个请求的情况
+
+### 36.3.5. **Redis 对 Lua 脚本的特殊处理**
+
+Redis 对 Lua 脚本的执行有特殊优化：
+- **脚本缓存**：脚本会被缓存，后续执行更快
+- **原子性保证**：脚本执行期间，Redis 不会切换到其他命令
+- **错误处理**：如果脚本执行出错，所有已执行的操作会回滚
+
+### 36.3.6. **为什么需要这种并发安全**
+
+在限流场景中，并发安全至关重要：
+
+**竞态条件示例（无原子性）：**
+```
+初始状态: count = 0
+
+请求A: 读取count=0
+请求B: 读取count=0  
+请求A: 设置count=1, 设置过期时间
+请求B: 设置count=1 (覆盖了A的设置)，但可能忘记设置过期时间
+```
+
+**Lua 脚本解决：**
+- 读取、判断、设置的整个流程不可分割
+- 每个请求看到的状态都是前一个请求完成后的最新状态
+
+### 36.3.7总结
+
+Lua 脚本在 Redis 中的并发安全性来自于：
+1. **Redis 的单线程架构** - 命令串行执行
+2. **脚本的原子性** - 整个脚本作为一个不可中断的操作
+3. **操作序列化** - 避免了竞态条件和数据不一致
+
+这使得 Lua 脚本成为实现分布式锁、限流、计数器等需要强一致性场景的理想选择。
+### 36.3.8 为什么lua脚本可以保证并发安全
+Lua 脚本在 Redis 中能够保证并发安全，主要基于以下几个关键机制：
+
+#### 1. **Redis 的单线程模型**
+
+Redis 使用单线程处理命令，这意味着：
+- **命令串行执行**：所有 Redis 命令都是原子执行的
+- **无竞态条件**：同一时刻只有一个命令在执行，不会出现并发冲突
+- **顺序一致性**：命令按照接收顺序依次处理
+
+#### 2. **Lua 脚本的原子性执行**
+
+当 Redis 执行 Lua 脚本时：
+```lua
+-- 整个脚本作为一个原子操作执行
+local currValue = redis.call('incr', rateLimitKey);
+if (currValue == 1) then
+    redis.call('expire', rateLimitKey, rateInterval);
+else
+    if (currValue > rate) then
+        -- ...
+    end
+end
+```
+
+**关键特性：**
+- **脚本执行期间不会中断**：Redis 在执行脚本时不会处理其他客户端请求
+- **所有操作作为一个事务**：脚本中的多个 Redis 命令被视为一个原子操作
+- **一致性保证**：脚本执行过程中，数据状态不会被其他操作改变
+
+#### 3. **对比无脚本的情况**
+
+**没有 Lua 脚本的潜在问题：**
+```java
+// 伪代码：非原子操作，可能产生竞态条件
+Long count = redis.incr(key);
+if (count == 1) {
+    // 在这两个操作之间，可能有其他请求修改了计数器的值
+    redis.expire(key, 60);
+}
+```
+
+**有 Lua 脚本的优势：**
+- 所有操作（incr + 条件判断 + expire/ttl）在同一个原子操作中完成
+- 避免了"检查然后设置"（check-then-set）的竞态条件
+
+#### 4. **具体并发安全场景分析**
+
+##### 场景：两个请求同时到达
+```
+请求A: 执行Lua脚本开始
+请求B: 在Redis队列中等待
+
+时间线:
+1. 请求A: incr(key) → 返回值1
+2. 请求A: 判断count==1 → 执行expire
+3. 请求A: 脚本执行完成
+4. 请求B: 开始执行脚本，incr(key) → 返回值2
+```
+
+##### 关键保证：
+- **请求A的整个脚本执行完毕后**，请求B才会开始执行
+- 不会出现请求A执行完`incr`后，请求B也执行`incr`，然后两者都认为自己是第一个请求的情况
+
+#### 5. **Redis 对 Lua 脚本的特殊处理**
+
+Redis 对 Lua 脚本的执行有特殊优化：
+- **脚本缓存**：脚本会被缓存，后续执行更快
+- **原子性保证**：脚本执行期间，Redis 不会切换到其他命令
+- **错误处理**：如果脚本执行出错，所有已执行的操作会回滚
+
+#### 6. **为什么需要这种并发安全**
+
+在限流场景中，并发安全至关重要：
+
+**竞态条件示例（无原子性）：**
+```
+初始状态: count = 0
+
+请求A: 读取count=0
+请求B: 读取count=0  
+请求A: 设置count=1, 设置过期时间
+请求B: 设置count=1 (覆盖了A的设置)，但可能忘记设置过期时间
+```
+
+**Lua 脚本解决：**
+- 读取、判断、设置的整个流程不可分割
+- 每个请求看到的状态都是前一个请求完成后的最新状态
+
+#### 总结
+
+Lua 脚本在 Redis 中的并发安全性来自于：
+1. **Redis 的单线程架构** - 命令串行执行
+2. **脚本的原子性** - 整个脚本作为一个不可中断的操作
+3. **操作序列化** - 避免了竞态条件和数据不一致
+
+这使得 Lua 脚本成为实现分布式锁、限流、计数器等需要强一致性场景的理想选择。
+
+
+
+
+# 三十七、▶SpringBoot集成MySQL - 基于JPA的封装
+
+## 实现案例
+
+本例主要简单示例下基于JPA DAO/Service层封装，并且注意下如下例子MySQL是5.7版本，8.x版本相关例子也在示例源码中。
+
+## 准备DB
+
+创建MySQL的schema test_db, 导入SQL文件如下：
+
+```sql
+-- MySQL dump 10.13  Distrib 5.7.12, for Win64 (x86_64)
+--
+-- Host: localhost    Database: test_db
+-- ------------------------------------------------------
+-- Server version	5.7.17-log
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!40101 SET NAMES utf8 */;
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `tb_role`
+--
+
+DROP TABLE IF EXISTS `tb_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_role` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) NOT NULL,
+  `role_key` varchar(255) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_role`
+--
+
+LOCK TABLES `tb_role` WRITE;
+/*!40000 ALTER TABLE `tb_role` DISABLE KEYS */;
+INSERT INTO `tb_role` VALUES (1,'admin','admin','admin','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_role` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user`
+--
+
+DROP TABLE IF EXISTS `tb_user`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_user` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_name` varchar(45) NOT NULL,
+  `password` varchar(45) NOT NULL,
+  `email` varchar(45) DEFAULT NULL,
+  `phone_number` int(11) DEFAULT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user`
+--
+
+LOCK TABLES `tb_user` WRITE;
+/*!40000 ALTER TABLE `tb_user` DISABLE KEYS */;
+INSERT INTO `tb_user` VALUES (1,'pdai','dfasdf','suzhou.daipeng@gmail.com',1212121213,'afsdfsaf','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_user` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user_role`
+--
+
+DROP TABLE IF EXISTS `tb_user_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_user_role` (
+  `user_id` int(11) NOT NULL,
+  `role_id` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user_role`
+--
+
+LOCK TABLES `tb_user_role` WRITE;
+/*!40000 ALTER TABLE `tb_user_role` DISABLE KEYS */;
+INSERT INTO `tb_user_role` VALUES (1,1);
+/*!40000 ALTER TABLE `tb_user_role` ENABLE KEYS */;
+UNLOCK TABLES;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
+
+-- Dump completed on 2021-09-08 17:12:11
+```
+
+## 引入Maven依赖
+
+```xml
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>5.1.47</version>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+<!-- jpa-spec --->
+<dependency>
+    <groupId>com.github.wenhao</groupId>
+    <artifactId>jpa-spec</artifactId>
+    <version>3.1.0</version>
+</dependency>
+```
+
+## 增加YAML配置
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/test_db?useSSL=false&autoReconnect=true&characterEncoding=utf8
+    driver-class-name: com.mysql.jdbc.Driver
+    username: root
+    password: xxxxxxxxx
+    initial-size: 20
+    max-idle: 60
+    max-wait: 10000
+    min-idle: 10
+    max-active: 200
+  jpa:
+    generate-ddl: false
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+        use-new-id-generator-mappings: false
+```
+
+## 定义实体
+
+### BaseEntity
+
+```java
+package tech.pdai.springboot.mysql57.jpa.entity;
+
+import java.io.Serializable;
+
+/**
+ * @author pdai
+ */
+public interface BaseEntity extends Serializable {
+}
+```
+
+### User实体
+
+```java
+package tech.pdai.springboot.mysql57.jpa.entity;
+
+import java.time.LocalDateTime;
+import java.util.Set;
+
+import javax.persistence.CascadeType;
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.FetchType;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.JoinColumn;
+import javax.persistence.JoinTable;
+import javax.persistence.ManyToMany;
+import javax.persistence.Table;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
+
+/**
+ * @author pdai
+ */
+@Getter
+@Setter
+@ToString
+@Entity
+@Table(name = "tb_user")
+public class User implements BaseEntity {
+
+    /**
+     * user id.
+     */
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id", nullable = false)
+    private Long id;
+
+    /**
+     * username.
+     */
+    private String userName;
+
+    /**
+     * user pwd.
+     */
+    private String password;
+
+    /**
+     * email.
+     */
+    private String email;
+
+    /**
+     * phoneNumber.
+     */
+    private long phoneNumber;
+
+    /**
+     * description.
+     */
+    private String description;
+
+    /**
+     * create date time.
+     */
+    private LocalDateTime createTime;
+
+    /**
+     * update date time.
+     */
+    private LocalDateTime updateTime;
+
+    /**
+     * join to role table.
+     */
+    @ManyToMany(cascade = {CascadeType.REFRESH}, fetch = FetchType.EAGER)
+    @JoinTable(name = "tb_user_role", joinColumns = {
+            @JoinColumn(name = "user_id")}, inverseJoinColumns = {@JoinColumn(name = "role_id")})
+    private Set<Role> roles;
+
+}
+```
+
+### Role实体
+
+```java
+package tech.pdai.springboot.mysql57.jpa.entity;
+
+import java.time.LocalDateTime;
+
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.Table;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
+
+/**
+ * @author pdai
+ */
+@Getter
+@Setter
+@ToString
+@Entity
+@Table(name = "tb_role")
+public class Role implements BaseEntity {
+
+    /**
+     * role id.
+     */
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id", nullable = false)
+    private Long id;
+
+    /**
+     * role name.
+     */
+    private String name;
+
+    /**
+     * role key.
+     */
+    private String roleKey;
+
+    /**
+     * description.
+     */
+    private String description;
+
+    /**
+     * create date time.
+     */
+    private LocalDateTime createTime;
+
+    /**
+     * update date time.
+     */
+    private LocalDateTime updateTime;
+
+}
+```
+
+## DAO层
+
+### BaseDao
+
+```java
+package tech.pdai.springboot.mysql57.jpa.dao;
+
+import java.io.Serializable;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.repository.NoRepositoryBean;
+import tech.pdai.springboot.mysql57.jpa.entity.BaseEntity;
+
+/**
+ * @author pdai
+ */
+@NoRepositoryBean
+public interface IBaseDao<T extends BaseEntity, I extends Serializable>
+        extends JpaRepository<T, I>, JpaSpecificationExecutor<T> {
+}
+```
+
+### UserDao
+
+```java
+package tech.pdai.springboot.mysql57.jpa.dao;
+
+import org.springframework.stereotype.Repository;
+import tech.pdai.springboot.mysql57.jpa.entity.User;
+
+/**
+ * @author pdai
+ */
+@Repository
+public interface IUserDao extends IBaseDao<User, Long> {
+
+}
+```
+
+### RoleDao
+
+```java
+package tech.pdai.springboot.mysql57.jpa.dao;
+
+import org.springframework.stereotype.Repository;
+import tech.pdai.springboot.mysql57.jpa.entity.Role;
+
+/**
+ * @author pdai
+ */
+@Repository
+public interface IRoleDao extends IBaseDao<Role, Long> {
+
+}
+```
+## Service层
+
+### BaseService封装
+
+#### BaseService接口
+
+```java
+package tech.pdai.springboot.mysql57.jpa.service;
+
+import java.io.Serializable;
+import java.util.List;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+
+/**
+ * @author pdai
+ */
+public interface IBaseService<T, I extends Serializable> {
+
+    /**
+     * @param id id
+     * @return T
+     */
+    T find(I id);
+
+    /**
+     * @return List
+     */
+    List<T> findAll();
+
+    /**
+     * @param ids ids
+     * @return List
+     */
+    List<T> findList(I[] ids);
+
+    /**
+     * @param ids ids
+     * @return List
+     */
+    List<T> findList(Iterable<I> ids);
+
+    /**
+     * @param pageable pageable
+     * @return Page
+     */
+    Page<T> findAll(Pageable pageable);
+
+    /**
+     * @param spec     spec
+     * @param pageable pageable
+     * @return Page
+     */
+    Page<T> findAll(Specification<T> spec, Pageable pageable);
+
+    /**
+     * @param spec spec
+     * @return T
+     */
+    T findOne(Specification<T> spec);
+
+    /**
+     * count.
+     *
+     * @return long
+     */
+    long count();
+
+    /**
+     * count.
+     *
+     * @param spec spec
+     * @return long
+     */
+    long count(Specification<T> spec);
+
+    /**
+     * exists.
+     *
+     * @param id id
+     * @return boolean
+     */
+    boolean exists(I id);
+
+    /**
+     * save.
+     *
+     * @param entity entity
+     */
+    void save(T entity);
+
+    /**
+     * save.
+     *
+     * @param entities entities
+     */
+    void save(List<T> entities);
+
+    /**
+     * update.
+     *
+     * @param entity entity
+     * @return T
+     */
+    T update(T entity);
+
+    /**
+     * delete.
+     *
+     * @param id id
+     */
+    void delete(I id);
+
+    /**
+     * delete by ids.
+     *
+     * @param ids ids
+     */
+    void deleteByIds(List<I> ids);
+
+    /**
+     * delete.
+     *
+     * @param entities entities
+     */
+    void delete(T[] entities);
+
+    /**
+     * delete.
+     *
+     * @param entities entities
+     */
+    void delete(Iterable<T> entities);
+
+    /**
+     * delete.
+     *
+     * @param entity entity
+     */
+    void delete(T entity);
+
+    /**
+     * delete all.
+     */
+    void deleteAll();
+
+    /**
+     * find list.
+     *
+     * @param spec spec
+     * @return list
+     */
+    List<T> findList(Specification<T> spec);
+
+    /**
+     * find list.
+     *
+     * @param spec spec
+     * @param sort sort
+     * @return List
+     */
+    List<T> findList(Specification<T> spec, Sort sort);
+
+    /**
+     * flush.
+     */
+    void flush();
+}
+```
+
+#### BaseService实现类
+
+```java
+package tech.pdai.springboot.mysql57.jpa.service.impl;
+
+import java.io.Serializable;
+import java.util.Arrays;
+import java.util.List;
+
+import javax.transaction.Transactional;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import tech.pdai.springboot.mysql57.jpa.dao.IBaseDao;
+import tech.pdai.springboot.mysql57.jpa.entity.BaseEntity;
+import tech.pdai.springboot.mysql57.jpa.service.IBaseService;
+
+/**
+ * @author pdai
+ */
+@Slf4j
+@Transactional
+public abstract class BaseDoServiceImpl<T extends BaseEntity, I extends Serializable> implements IBaseService<T, I> {
+
+    /**
+     * @return IBaseDao
+     */
+    public abstract IBaseDao<T, I> getBaseDao();
+
+    /**
+     * findById.
+     *
+     * @param id id
+     * @return T
+     */
+    @Override
+    public T find(I id) {
+        return getBaseDao().findById(id).orElse(null);
+    }
+
+    /**
+     * @return List
+     */
+    @Override
+    public List<T> findAll() {
+        return getBaseDao().findAll();
+    }
+
+    /**
+     * @param ids ids
+     * @return List
+     */
+    @Override
+    public List<T> findList(I[] ids) {
+        List<I> idList = Arrays.asList(ids);
+        return getBaseDao().findAllById(idList);
+    }
+
+    /**
+     * find list.
+     *
+     * @param spec spec
+     * @return list
+     */
+    @Override
+    public List<T> findList(Specification<T> spec) {
+        return getBaseDao().findAll(spec);
+    }
+
+    /**
+     * find list.
+     *
+     * @param spec spec
+     * @param sort sort
+     * @return List
+     */
+    @Override
+    public List<T> findList(Specification<T> spec, Sort sort) {
+        return getBaseDao().findAll(spec, sort);
+    }
+
+    /**
+     * find one.
+     *
+     * @param spec spec
+     * @return T
+     */
+    @Override
+    public T findOne(Specification<T> spec) {
+        return getBaseDao().findOne(spec).orElse(null);
+    }
+
+    /**
+     * @param pageable pageable
+     * @return Page
+     */
+    @Override
+    public Page<T> findAll(Pageable pageable) {
+        return getBaseDao().findAll(pageable);
+    }
+
+    /**
+     * count.
+     *
+     * @return long
+     */
+    @Override
+    public long count() {
+        return getBaseDao().count();
+    }
+
+    /**
+     * count.
+     *
+     * @param spec spec
+     * @return long
+     */
+    @Override
+    public long count(Specification<T> spec) {
+        return getBaseDao().count(spec);
+    }
+
+    /**
+     * exists.
+     *
+     * @param id id
+     * @return boolean
+     */
+    @Override
+    public boolean exists(I id) {
+        return getBaseDao().findById(id).isPresent();
+    }
+
+    /**
+     * save.
+     *
+     * @param entity entity
+     */
+    @Override
+    public void save(T entity) {
+        getBaseDao().save(entity);
+    }
+
+    /**
+     * save.
+     *
+     * @param entities entities
+     */
+    @Override
+    public void save(List<T> entities) {
+        getBaseDao().saveAll(entities);
+    }
+
+    /**
+     * update.
+     *
+     * @param entity entity
+     * @return T
+     */
+    @Override
+    public T update(T entity) {
+        return getBaseDao().saveAndFlush(entity);
+    }
+
+    /**
+     * delete.
+     *
+     * @param id id
+     */
+    @Override
+    public void delete(I id) {
+        getBaseDao().deleteById(id);
+    }
+
+    /**
+     * delete by ids.
+     *
+     * @param ids ids
+     */
+    @Override
+    public void deleteByIds(List<I> ids) {
+        getBaseDao().deleteAllById(ids);
+    }
+
+    /**
+     * delete all.
+     */
+    @Override
+    public void deleteAll() {
+        getBaseDao().deleteAllInBatch();
+    }
+
+    /**
+     * delete.
+     *
+     * @param entities entities
+     */
+    @Override
+    public void delete(T[] entities) {
+        List<T> tList = Arrays.asList(entities);
+        getBaseDao().deleteAll(tList);
+    }
+
+    /**
+     * delete.
+     *
+     * @param entities entities
+     */
+    @Override
+    public void delete(Iterable<T> entities) {
+        getBaseDao().deleteAll(entities);
+    }
+
+    /**
+     * delete.
+     *
+     * @param entity entity
+     */
+    @Override
+    public void delete(T entity) {
+        getBaseDao().delete(entity);
+    }
+
+    /**
+     * @param ids ids
+     * @return List
+     */
+    @Override
+    public List<T> findList(Iterable<I> ids) {
+        return getBaseDao().findAllById(ids);
+    }
+
+    /**
+     * @param spec     spec
+     * @param pageable pageable
+     * @return Page
+     */
+    @Override
+    public Page<T> findAll(Specification<T> spec, Pageable pageable) {
+        return getBaseDao().findAll(spec, pageable);
+    }
+
+    /**
+     * flush.
+     */
+    @Override
+    public void flush() {
+        getBaseDao().flush();
+    }
+}
+```
+
+### UserService
+
+#### UserService接口定义
+
+```java
+package tech.pdai.springboot.mysql57.jpa.service;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import tech.pdai.springboot.mysql57.jpa.entity.query.UserQueryBean;
+import tech.pdai.springboot.mysql57.jpa.entity.User;
+
+/**
+ * @author pdai
+ */
+public interface IUserService extends IBaseService<User, Long> {
+
+    /**
+     * find by page.
+     *
+     * @param userQueryBean query
+     * @param pageRequest   pageRequest
+     * @return page
+     */
+    Page<User> findPage(UserQueryBean userQueryBean, PageRequest pageRequest);
+}
+```
+
+#### UserService实现类
+
+```java
+package tech.pdai.springboot.mysql57.jpa.service.impl;
+
+import com.github.wenhao.jpa.Specifications;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.mysql57.jpa.dao.IBaseDao;
+import tech.pdai.springboot.mysql57.jpa.dao.IUserDao;
+import tech.pdai.springboot.mysql57.jpa.entity.User;
+import tech.pdai.springboot.mysql57.jpa.entity.query.UserQueryBean;
+import tech.pdai.springboot.mysql57.jpa.service.IUserService;
+
+@Service
+public class UserDoServiceImpl extends BaseDoServiceImpl<User, Long> implements IUserService {
+
+    /**
+     * userDao.
+     */
+    private final IUserDao userDao;
+
+    /**
+     * init.
+     *
+     * @param userDao2 user dao
+     */
+    public UserDoServiceImpl(final IUserDao userDao2) {
+        this.userDao = userDao2;
+    }
+
+    /**
+     * @return base dao
+     */
+    @Override
+    public IBaseDao<User, Long> getBaseDao() {
+        return this.userDao;
+    }
+
+    /**
+     * find by page.
+     *
+     * @param queryBean   query
+     * @param pageRequest pageRequest
+     * @return page
+     */
+    @Override
+    public Page<User> findPage(UserQueryBean queryBean, PageRequest pageRequest) {
+        Specification<User> specification = Specifications.<User>and()
+                .like(StringUtils.isNotEmpty(queryBean.getName()), "user_name", queryBean.getName())
+                .like(StringUtils.isNotEmpty(queryBean.getDescription()), "description",
+                        queryBean.getDescription())
+                .build();
+        return this.getBaseDao().findAll(specification, pageRequest);
+    }
+}
+```
+
+### RoleService
+
+#### RoleService接口定义
+
+```java
+package tech.pdai.springboot.mysql57.jpa.service;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import tech.pdai.springboot.mysql57.jpa.entity.Role;
+import tech.pdai.springboot.mysql57.jpa.entity.query.RoleQueryBean;
+
+public interface IRoleService extends IBaseService<Role, Long> {
+
+    /**
+     * find page by query.
+     *
+     * @param roleQueryBean query
+     * @param pageRequest   pageRequest
+     * @return page
+     */
+    Page<Role> findPage(RoleQueryBean roleQueryBean, PageRequest pageRequest);
+}
+```
+
+#### RoleService实现类
+
+```java
+package tech.pdai.springboot.mysql57.jpa.service.impl;
+
+import com.github.wenhao.jpa.Specifications;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.mysql57.jpa.dao.IBaseDao;
+import tech.pdai.springboot.mysql57.jpa.dao.IRoleDao;
+import tech.pdai.springboot.mysql57.jpa.entity.Role;
+import tech.pdai.springboot.mysql57.jpa.entity.query.RoleQueryBean;
+import tech.pdai.springboot.mysql57.jpa.service.IRoleService;
+
+@Service
+public class RoleDoServiceImpl extends BaseDoServiceImpl<Role, Long> implements IRoleService {
+
+    /**
+     * roleDao.
+     */
+    private final IRoleDao roleDao;
+
+    /**
+     * init.
+     *
+     * @param roleDao2 role dao
+     */
+    public RoleDoServiceImpl(final IRoleDao roleDao2) {
+        this.roleDao = roleDao2;
+    }
+
+    /**
+     * @return base dao
+     */
+    @Override
+    public IBaseDao<Role, Long> getBaseDao() {
+        return this.roleDao;
+    }
+
+    /**
+     * find page by query.
+     *
+     * @param roleQueryBean query
+     * @param pageRequest   pageRequest
+     * @return page
+     */
+    @Override
+    public Page<Role> findPage(RoleQueryBean roleQueryBean, PageRequest pageRequest) {
+        Specification<Role> specification = Specifications.<Role>and()
+                .like(StringUtils.isNotEmpty(roleQueryBean.getName()), "name",
+                        roleQueryBean.getName())
+                .like(StringUtils.isNotEmpty(roleQueryBean.getDescription()), "description",
+                        roleQueryBean.getDescription())
+                .build();
+        return this.roleDao.findAll(specification, pageRequest);
+    }
+}
+```
+
+## Controller层
+
+### UserController
+
+```java
+package tech.pdai.springboot.mysql57.jpa.controller;
+
+import java.time.LocalDateTime;
+
+import io.swagger.annotations.ApiOperation;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.mysql57.jpa.entity.User;
+import tech.pdai.springboot.mysql57.jpa.entity.query.UserQueryBean;
+import tech.pdai.springboot.mysql57.jpa.entity.response.ResponseResult;
+import tech.pdai.springboot.mysql57.jpa.service.IUserService;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @Autowired
+    private IUserService userService;
+
+    /**
+     * @param user user param
+     * @return user
+     */
+    @ApiOperation("Add/Edit User")
+    @PostMapping("add")
+    public ResponseResult<User> add(User user) {
+        if (user.getId()==null || !userService.exists(user.getId())) {
+            user.setCreateTime(LocalDateTime.now());
+            user.setUpdateTime(LocalDateTime.now());
+            userService.save(user);
+        } else {
+            user.setUpdateTime(LocalDateTime.now());
+            userService.update(user);
+        }
+        return ResponseResult.success(userService.find(user.getId()));
+    }
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User One")
+    @GetMapping("edit/{userId}")
+    public ResponseResult<User> edit(@PathVariable("userId") Long userId) {
+        return ResponseResult.success(userService.find(userId));
+    }
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User Page")
+    @GetMapping("list")
+    public ResponseResult<Page<User>> list(@RequestParam int pageSize, @RequestParam int pageNumber) {
+        return ResponseResult.success(userService.findPage(UserQueryBean.builder().build(), PageRequest.of(pageNumber, pageSize)));
+    }
+}
+```
+
+## 总结
+
+本文档详细展示了SpringBoot集成MySQL基于JPA的完整封装实现，包括：
+
+1. **数据库准备**：创建了用户、角色和用户角色关联表
+2. **依赖配置**：引入MySQL连接器、Spring Data JPA和相关工具依赖
+3. **实体定义**：使用JPA注解定义User和Role实体类
+4. **DAO层封装**：通过IBaseDao接口统一基础数据访问操作
+5. **Service层封装**：实现通用的BaseService和具体的业务Service
+6. **Controller层**：提供RESTful API接口
+
+该架构具有良好的扩展性和维护性，可以作为企业级项目的参考模板。
+# 三十八、SpringBoot集成MySQL - MyBatis XML方式
 
 
 
