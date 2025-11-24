@@ -20413,6 +20413,5580 @@ public class UserController {
 该架构具有良好的扩展性和维护性，可以作为企业级项目的参考模板。
 # 三十八、SpringBoot集成MySQL - MyBatis XML方式
 
+SpringBoot集成MySQL - MyBatis XML方式上文介绍了用JPA方式的集成MySQL数据库，JPA方式在中国以外地区开发而言基本是标配，在国内MyBatis及其延伸框架较为主流。本文主要介绍MyBatis技栈的演化以及SpringBoot集成基础的MyBatis XML实现方式的实例。
+
+## 38.1 准备知识
+
+需要了解MyBatis及MyBatis技术栈的演进，这对新的开发者可以很好的构筑其知识体系。
+
+## 38.2 什么是MyBatis？
+
+MyBatis是一款优秀的基于java的持久层框架，它内部封装了jdbc，使开发者只需要关注sql语句本身，而不需要花费精力去处理加载驱动、创建连接、创建statement等繁杂的过程。MyBatis 是一款优秀的持久层框架，它支持定制化 SQL、存储过程以及高级映射。
+
+mybatis通过xml或注解的方式将要执行的各种statement配置起来，并通过java对象和statement中sql的动态参数进行映射生成最终执行的sql语句，最后由mybatis框架执行sql并将结果映射为java对象并返回。
+
+MyBatis的主要设计目的就是让我们对执行SQL语句时对输入输出的数据管理更加方便，所以方便地写出SQL和方便地获取SQL的执行结果才是MyBatis的核心竞争力。
+
+Mybatis的功能架构分为三层：
+
+- API接口层：提供给外部使用的接口API，开发人员通过这些本地API来操纵数据库。接口层一接收到调用请求就会调用数据处理层来完成具体的数据处理。
+- 数据处理层：负责具体的SQL查找、SQL解析、SQL执行和执行结果映射处理等。它主要的目的是根据调用的请求完成一次数据库操作。
+- 基础支撑层：负责最基础的功能支撑，包括连接管理、事务管理、配置加载和缓存处理，这些都是共用的东西，将他们抽取出来作为最基础的组件。为上层的数据处理层提供最基础的支撑。
+
+更多介绍可以参考：<a href='https://mybatis.org/mybatis-3/zh_CN/configuration.html'>MyBatis3 官方网站</a>
+
+## 38.3 为什么说MyBatis是半自动ORM？
+
+### 38.3.1 什么是ORM？
+
+ORM（Object-Relational Mapping）是对象关系映射，它将数据库中的表映射为Java对象，使得开发者可以以面向对象的方式操作数据库。JDBC是Java连接数据库的标准API，但需要手动处理连接和SQL，而ORM框架自动化了这些过程。
+
+### 38.3.2 什么是全自动ORM？
+
+全自动ORM框架可以根据对象关系模型直接获取、查询关联对象或者关联集合对象，简单而言使用全自动的ORM框架查询时可以不再写SQL。典型的框架如Hibernate；因为Spring-data-jpa很多代码也是Hibernate团队贡献的，所以spring-data-jpa也是全自动ORM框架。
+
+### 38.3.3 MyBatis是半自动ORM？
+
+Mybatis 在查询关联对象或关联集合对象时，需要手动编写 sql 来完成，所以，称之为半自动ORM 映射工具。（PS: 正是由于MyBatis是半自动框架，基于MyBatis技术栈的框架开始考虑兼容MyBatis开发框架的基础上提供自动化的能力，比如MyBatis-plus等框架）
+
+## 38.4 MyBatis栈技术演进
+
+了解MyBatis技术栈的演进，对你构建基于MyBatis的知识体系极为重要。
+
+### 38.4.1 JDBC，自行封装JDBCUtil
+
+Java5的时代，通常的开发中会自行封装JDBC的Util，比如创建 Connection，以及确保关闭 Connection等。
+
+### 38.4.2 IBatis
+
+MyBatis的前身，它封装了绝大多数的 JDBC 样板代码，使得开发者只需关注 SQL 本身，而不需要花费精力去处理例如注册驱动，创建 Connection，以及确保关闭 Connection 这样繁杂的代码。
+
+### 38.4.3 MyBatis
+
+伴随着JDK5+ 泛型和注解特性开始流行，IBatis在3.0变更为MyBatis，对泛型和注解等特性开始全面支持，同时支持了很多新的特性，比如：
+
+- mybatis实现了接口绑定，通过Dao接口 和xml映射文件的绑定，自动生成接口的具体实现
+- mybatis支持 ognl表达式，比如 <if>, <else>使用ognl进行解析
+- mybatis插件机制等，（PageHelper分页插件应用而生，解决了数据库层的分页封装问题）
+
+所以这个时期，MyBatis XML 配置方式 + PageHelper 成为重要的开发方式。
+
+### 38.4.4 MyBatis衍生：代码生成工具等
+
+MyBatis提供了开发上的便捷，但是依然需要写大量的xml配置，并且很多都是CRUD级别的（这便有了很多重复性的工作），所以为了减少重复编码，衍生出了MyBatis代码生成工具, 比如CodeGenerator等。其它开发IDE也开始出现封装一些工具和插件来生成代码生成工具等。由于后端视图解析引擎多样性（比如freemarker, volicty, thymeleaf等），以及前后端分离前端独立等，为了进一步减少重复代码的编写（包括视图层），自动生成的代码工具也开始演化为自动生成前端视图代码。
+
+### 38.4.5 Spring+MyBatis基于注解的配置集成
+
+与此同时，Spring 2.5 开始完全支持基于注解的配置并且也支持JSR250 注解。在Spring后续的版本发展倾向于通过注解和Java配置结合使用。基于Spring+MyBatis开发技术栈开始有xml配置方式往注解和java配置方式反向发展。Spring Boot的出现便是要解决配置过多的问题，它实际上通过约定大于配置的方式大大简化了用户的配置，对于三方组件使用xx-starter统一的对Bean进行默认初始化，用户只需要很少的配置就可以进行开发了。所以出现了mybatis-spring-boot-starter的封装等。这个阶段，主要的开发技术栈是 Spring + mybatis-spring-boot-starter 自动化配置 + PageHelper，并且很多数据库实体mapper还是通过xml方式配置的（伴随着使用一些自动化生成工具）。
+
+### 38.4.6 MyBatis-Plus
+
+为了更高的效率，出现了MyBatis-Plus这类工具，对MyBatis进行增强。考虑到MyBatis是半自动化ORM，MyBatis-Plus 启动即会自动注入基本 CURD，性能基本无损耗，直接面向对象操作; 并且内置通用 Mapper、通用 Service，仅仅通过少量配置即可实现单表大部分 CRUD 操作，更有强大的条件构造器，满足各类使用需求；总体上让其支持全自动化的使用方式（本质上借鉴了Hibernate思路）。
+
+- 考虑到Java8 Lambda（函数式编程）开始流行，MyBatis-Plus支持 Lambda 表达式，方便的编写各类查询条件，无需再担心字段写错
+- 考虑到MyBatis还需要独立引入PageHelper分页插件，MyBatis-Plus支持了内置分页插件，同PageHelper一样基于 MyBatis 物理分页，开发者无需关心具体操作，配置好插件之后，写分页等同于普通 List 查询
+- 考虑到自动化代码生成方式，MyBatis-Plus也支持了内置代码生成器，采用代码或者 Maven 插件可快速生成 Mapper 、 Model 、 Service 、 Controller 层代码，支持模板引擎，更有超多自定义配置等您来使用
+- 考虑到SQL性能优化等问题，MyBatis-Plus内置性能分析插件, 可输出 SQL 语句以及其执行时间，建议开发测试时启用该功能，能快速揪出慢查询
+- 其它还有解决一些常见开发问题，比如支持主键自动生成，支持4 种主键策略（内含分布式唯一 ID 生成器 - Sequence），可自由配置，完美解决主键问题；以及内置全局拦截插件，提供全表 delete 、 update 操作智能分析阻断，也可自定义拦截规则，预防误操作
+
+顶层思维能力用这种思路去理解，你便能很快了解MyBatis技术栈的演化（能够快速维护老一些的技术框架），以及理解新的中小项目中MyBatis-Plus被大量使用的原因（新项目的技术选型参考）；所以java全栈知识体系的目标是帮助你构建知识体系，甚至是辅助你培养顶层思维能力。
+
+## 38.5 简单示例
+
+尽管MyBatis-Plus大行其道，MyBatis XML 配置方式 + PageHelper依然是基础使用方式。本例依然向你展示MyBatis XML 配置方式，考虑到和spring-data-jpa方式对比，这里沿用上一篇文章的数据库。后续的案例中将具体介绍MyBatis分页，以及MyBatis-Plus的使用等。
+
+### 38.5.1 准备DB和依赖配置
+
+创建MySQL的schema test_db, 导入SQL 文件如下：
+
+```sql
+-- MySQL dump 10.13  Distrib 5.7.12, for Win64 (x86_64)
+--
+-- Host: localhost    Database: test_db
+-- ------------------------------------------------------
+-- Server version	5.7.17-log
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!40101 SET NAMES utf8 */;
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `tb_role`
+--
+
+DROP TABLE IF EXISTS `tb_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_role` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) NOT NULL,
+  `role_key` varchar(255) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_role`
+--
+
+LOCK TABLES `tb_role` WRITE;
+/*!40000 ALTER TABLE `tb_role` DISABLE KEYS */;
+INSERT INTO `tb_role` VALUES (1,'admin','admin','admin','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_role` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user`
+--
+
+DROP TABLE IF EXISTS `tb_user`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_user` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_name` varchar(45) NOT NULL,
+  `password` varchar(45) NOT NULL,
+  `email` varchar(45) DEFAULT NULL,
+  `phone_number` int(11) DEFAULT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user`
+--
+
+LOCK TABLES `tb_user` WRITE;
+/*!40000 ALTER TABLE `tb_user` DISABLE KEYS */;
+INSERT INTO `tb_user` VALUES (1,'pdai','dfasdf','suzhou.daipeng@gmail.com',1212121213,'afsdfsaf','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_user` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user_role`
+--
+
+DROP TABLE IF EXISTS `tb_user_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_user_role` (
+  `user_id` int(11) NOT NULL,
+  `role_id` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user_role`
+--
+
+LOCK TABLES `tb_user_role` WRITE;
+/*!40000 ALTER TABLE `tb_user_role` DISABLE KEYS */;
+INSERT INTO `tb_user_role` VALUES (1,1);
+/*!40000 ALTER TABLE `tb_user_role` ENABLE KEYS */;
+UNLOCK TABLES;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
+
+-- Dump completed on 2021-09-08 17:12:11
+```
+
+引入maven依赖：
+
+```xml
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>5.1.47</version>
+</dependency>
+<dependency>
+    <groupId>org.mybatis.spring.boot</groupId>
+    <artifactId>mybatis-spring-boot-starter</artifactId>
+    <version>2.1.0</version>
+</dependency>
+<!--pagehelper分页 -->
+<dependency>
+    <groupId>com.github.pagehelper</groupId>
+    <artifactId>pagehelper-spring-boot-starter</artifactId>
+    <version>1.2.10</version>
+</dependency>
+```
+
+增加yml配置：
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/test_db?useSSL=false&autoReconnect=true&characterEncoding=utf8
+    driver-class-name: com.mysql.jdbc.Driver
+    username: root
+    password: bfXa4Pt2lUUScy8jakXf
+
+mybatis:
+  mapper-locations: classpath:mybatis/mapper/*.xml
+  type-aliases-package: tech.pdai.springboot.mysql57.xml.entity
+  configuration:
+    cache-enabled: true
+    use-generated-keys: true
+    default-executor-type: REUSE
+    use-actual-param-name: true
+```
+
+classpath:mybatis/mapper/*.xml是mapper的位置。
+
+### 38.5.2 Mapper文件
+
+mapper文件定义在配置的路径中（classpath:mybatis/mapper/*.xml）
+
+UserMapper.xml:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="tech.pdai.springboot.mysql57.mybatis.xml.dao.IUserDao">
+
+	<resultMap type="tech.pdai.springboot.mysql57.mybatis.xml.entity.User" id="UserResult">
+		<id     property="id"       	column="id"      		/>
+		<result property="userName"     column="user_name"    	/>
+		<result property="password"     column="password"    	/>
+		<result property="email"        column="email"        	/>
+		<result property="phoneNumber"  column="phone_number"  	/>
+		<result property="description"  column="description"  	/>
+		<result property="createTime"   column="create_time"  	/>
+		<result property="updateTime"   column="update_time"  	/>
+		<collection property="roles" ofType="tech.pdai.springboot.mysql57.mybatis.xml.entity.Role">
+			<result property="id" column="id"  />
+			<result property="name" column="name"  />
+			<result property="roleKey" column="role_key"  />
+			<result property="description" column="description"  />
+			<result property="createTime"   column="create_time"  	/>
+			<result property="updateTime"   column="update_time"  	/>
+		</collection>
+	</resultMap>
+	
+	<sql id="selectUserSql">
+        select u.id, u.password, u.user_name, u.email, u.phone_number, u.description, u.create_time, u.update_time, r.name, r.role_key, r.description, r.create_time, r.update_time
+		from tb_user u
+		left join tb_user_role ur on u.id=ur.user_id
+		inner join tb_role r on ur.role_id=r.id
+    </sql>
+	
+	<select id="findList" parameterType="tech.pdai.springboot.mysql57.mybatis.xml.entity.query.UserQueryBean" resultMap="UserResult">
+		<include refid="selectUserSql"/>
+		where u.id != 0
+		<if test="userName != null and userName != ''">
+			AND u.user_name like concat('%', #{user_name}, '%')
+		</if>
+		<if test="description != null and description != ''">
+			AND u.description like concat('%', #{description}, '%')
+		</if>
+		<if test="phoneNumber != null and phoneNumber != ''">
+			AND u.phone_number like concat('%', #{phoneNumber}, '%')
+		</if>
+		<if test="email != null and email != ''">
+			AND u.email like concat('%', #{email}, '%')
+		</if>
+	</select>
+	
+	<select id="findById" parameterType="Long" resultMap="UserResult">
+		<include refid="selectUserSql"/>
+		where u.id = #{id}
+	</select>
+	
+	<delete id="deleteById" parameterType="Long">
+ 		delete from tb_user where id = #{id}
+ 	</delete>
+ 	
+ 	<delete id="deleteByIds" parameterType="Long">
+		delete from tb_user where id in
+ 		<foreach collection="array" item="id" open="(" separator="," close=")">
+ 			#{id}
+        </foreach> 
+ 	</delete>
+ 	
+ 	<update id="update" parameterType="tech.pdai.springboot.mysql57.mybatis.xml.entity.User">
+ 		update tb_user
+ 		<set>
+ 			<if test="userName != null and userName != ''">user_name = #{userName},</if>
+ 			<if test="email != null and email != ''">email = #{email},</if>
+ 			<if test="phoneNumber != null and phoneNumber != ''">phone_number = #{phoneNumber},</if>
+			<if test="description != null and description != ''">description = #{description},</if>
+ 			update_time = sysdate()
+ 		</set>
+ 		where id = #{id}
+	</update>
+
+	<update id="updatePassword" parameterType="tech.pdai.springboot.mysql57.mybatis.xml.entity.User">
+		update tb_user
+		<set>
+			password = #{password}, update_time = sysdate()
+		</set>
+		where id = #{id}
+	</update>
+ 	
+ 	<insert id="save" parameterType="tech.pdai.springboot.mysql57.mybatis.xml.entity.User" useGeneratedKeys="true" keyProperty="id">
+ 		insert into tb_user(
+ 			<if test="userName != null and userName != ''">user_name,</if>
+			<if test="password != null and password != ''">password,</if>
+ 			<if test="email != null and email != ''">email,</if>
+			<if test="phoneNumber != null and phoneNumber != ''">phone_number,</if>
+ 			<if test="description != null and description != ''">description,</if>
+ 			create_time,
+			update_time
+ 		)values(
+ 			<if test="userName != null and userName != ''">#{userName},</if>
+			<if test="password != null and password != ''">#{password},</if>
+ 			<if test="email != null and email != ''">#{email},</if>
+ 			<if test="phoneNumber != null and phoneNumber != ''">#{phone_number},</if>
+ 			<if test="description != null and description != ''">#{description},</if>
+ 			sysdate(),
+			sysdate()
+ 		)
+	</insert>
+	
+</mapper> 
+```
+
+RoleMapper.xml:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="tech.pdai.springboot.mysql57.mybatis.xml.dao.IRoleDao">
+
+	<resultMap type="tech.pdai.springboot.mysql57.mybatis.xml.entity.Role" id="RoleResult">
+		<id     property="id"       	column="id"      		/>
+		<result property="name" 		column="name"  />
+		<result property="roleKey" 		column="role_key"  />
+		<result property="description" 	column="description"  />
+		<result property="createTime"   column="create_time"  	/>
+		<result property="updateTime"   column="update_time"  	/>
+	</resultMap>
+	
+	<sql id="selectRoleSql">
+        select  r.id, r.name, r.role_key, r.description, r.create_time, r.update_time
+			from tb_role r
+    </sql>
+	
+	<select id="findList" parameterType="tech.pdai.springboot.mysql57.mybatis.xml.entity.query.RoleQueryBean" resultMap="RoleResult">
+		<include refid="selectRoleSql"/>
+		where r.id != 0
+		<if test="name != null and name != ''">
+			AND r.name like concat('%', #{name}, '%')
+		</if>
+		<if test="roleKey != null and roleKey != ''">
+			AND r.role_key = #{roleKey}
+		</if>
+		<if test="description != null and description != ''">
+			AND r.description like concat('%', #{description}, '%')
+		</if>
+	</select>
+	
+</mapper> 
+```
+
+### 38.5.3 定义dao与Mapper文件中方法对应
+
+UserDao:
+
+```java
+package tech.pdai.springboot.mysql57.mybatis.xml.dao;
+
+import java.util.List;
+
+import org.apache.ibatis.annotations.Mapper;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.User;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.query.UserQueryBean;
+
+/**
+ * @author pdai
+ */
+@Mapper
+public interface IUserDao {
+
+    List<User> findList(UserQueryBean userQueryBean);
+
+    User findById(Long id);
+
+    int deleteById(Long id);
+
+    int deleteByIds(Long[] ids);
+
+    int update(User user);
+
+    int save(User user);
+
+    int updatePassword(User user);
+}
+```
+
+RoleDao:
+
+```java
+package tech.pdai.springboot.mysql57.mybatis.xml.dao;
+
+import java.util.List;
+
+import org.apache.ibatis.annotations.Mapper;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.Role;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.query.RoleQueryBean;
+
+/**
+ * @author pdai
+ */
+@Mapper
+public interface IRoleDao {
+    List<Role> findList(RoleQueryBean roleQueryBean);
+}
+```
+
+### 38.5.4 定义Service接口和实现类
+
+UserService接口:
+
+```java
+package tech.pdai.springboot.mysql57.mybatis.xml.service;
+
+import java.util.List;
+
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.User;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.query.UserQueryBean;
+
+
+/**
+ * @author pdai
+ */
+public interface IUserService {
+
+    List<User> findList(UserQueryBean userQueryBean);
+
+    User findById(Long id);
+
+    int deleteById(Long id);
+
+    int deleteByIds(Long[] ids);
+
+    int update(User user);
+
+    int save(User user);
+
+    int updatePassword(User user);
+
+}
+```
+
+User Service的实现类:
+
+```java
+package tech.pdai.springboot.mysql57.mybatis.xml.service.impl;
+
+import java.util.List;
+
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.mysql57.mybatis.xml.dao.IUserDao;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.User;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.query.UserQueryBean;
+import tech.pdai.springboot.mysql57.mybatis.xml.service.IUserService;
+
+@Service
+public class UserDoServiceImpl implements IUserService {
+
+    /**
+     * userDao.
+     */
+    private final IUserDao userDao;
+
+    /**
+     * init.
+     *
+     * @param userDao2 user dao
+     */
+    public UserDoServiceImpl(final IUserDao userDao2) {
+        this.userDao = userDao2;
+    }
+
+    @Override
+    public List<User> findList(UserQueryBean userQueryBean) {
+        return userDao.findList(userQueryBean);
+    }
+
+    @Override
+    public User findById(Long id) {
+        return userDao.findById(id);
+    }
+
+    @Override
+    public int deleteById(Long id) {
+        return userDao.deleteById(id);
+    }
+
+    @Override
+    public int deleteByIds(Long[] ids) {
+        return userDao.deleteByIds(ids);
+    }
+
+    @Override
+    public int update(User user) {
+        return userDao.update(user);
+    }
+
+    @Override
+    public int save(User user) {
+        return userDao.save(user);
+    }
+
+    @Override
+    public int updatePassword(User user) {
+        return userDao.updatePassword(user);
+    }
+}
+```
+
+Role Service 接口:
+
+```java
+package tech.pdai.springboot.mysql57.mybatis.xml.service;
+
+import java.util.List;
+
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.Role;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.query.RoleQueryBean;
+
+public interface IRoleService {
+
+    List<Role> findList(RoleQueryBean roleQueryBean);
+
+}
+```
+
+Role Service 实现类:
+
+```java
+package tech.pdai.springboot.mysql57.mybatis.xml.service.impl;
+
+import java.util.List;
+
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.mysql57.mybatis.xml.dao.IRoleDao;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.Role;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.query.RoleQueryBean;
+import tech.pdai.springboot.mysql57.mybatis.xml.service.IRoleService;
+
+@Service
+public class RoleDoServiceImpl implements IRoleService {
+
+    /**
+     * roleDao.
+     */
+    private final IRoleDao roleDao;
+
+    /**
+     * init.
+     *
+     * @param roleDao2 role dao
+     */
+    public RoleDoServiceImpl(final IRoleDao roleDao2) {
+        this.roleDao = roleDao2;
+    }
+
+    @Override
+    public List<Role> findList(RoleQueryBean roleQueryBean) {
+        return roleDao.findList(roleQueryBean);
+    }
+}
+```
+
+### 38.5.5 controller
+
+User Controller:
+
+```java
+package tech.pdai.springboot.mysql57.mybatis.xml.controller;
+
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+import io.swagger.annotations.ApiOperation;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.User;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.query.UserQueryBean;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.response.ResponseResult;
+import tech.pdai.springboot.mysql57.mybatis.xml.service.IUserService;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @Autowired
+    private IUserService userService;
+
+    /**
+     * @param user user param
+     * @return user
+     */
+    @ApiOperation("Add/Edit User")
+    @PostMapping("add")
+    public ResponseResult<User> add(User user) {
+        if (user.getId()==null) {
+            user.setCreateTime(LocalDateTime.now());
+            user.setUpdateTime(LocalDateTime.now());
+            userService.save(user);
+        } else {
+            user.setUpdateTime(LocalDateTime.now());
+            userService.update(user);
+        }
+        return ResponseResult.success(userService.findById(user.getId()));
+    }
+
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User One")
+    @GetMapping("edit/{userId}")
+    public ResponseResult<User> edit(@PathVariable("userId") Long userId) {
+        return ResponseResult.success(userService.findById(userId));
+    }
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User List")
+    @GetMapping("list")
+    public ResponseResult<List<User>> list(UserQueryBean userQueryBean) {
+        return ResponseResult.success(userService.findList(userQueryBean));
+    }
+}
+```
+
+Role Controller:
+
+```java
+package tech.pdai.springboot.mysql57.mybatis.xml.controller;
+
+
+import java.util.List;
+
+import io.swagger.annotations.ApiOperation;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.Role;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.query.RoleQueryBean;
+import tech.pdai.springboot.mysql57.mybatis.xml.entity.response.ResponseResult;
+import tech.pdai.springboot.mysql57.mybatis.xml.service.IRoleService;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/role")
+public class RoleController {
+
+    @Autowired
+    private IRoleService roleService;
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query Role List")
+    @GetMapping("list")
+    public ResponseResult<List<Role>> list(RoleQueryBean roleQueryBean) {
+        return ResponseResult.success(roleService.findList(roleQueryBean));
+    }
+}
+```
+
+# 三十九、SpringBoot集成MySQL - MyBatis 注解方式
+## 39.1 准备知识
+在构建知识体系时：我们最重要的目标并不是如何使用注解方式，而是要理解：
+- 对于有原有xml方式改为注解方式（一定要有对比），如何写？ 
+  - 基本的CRUD怎么用注解写？
+  - 对于复杂的动态SQL如何写？
+  - 对于表关联的如何写？
+- 为什么xml方式依然是比注解方式使用广泛？
+  -  xml方式和注解方式混合使用？
+-  注解方式是如何工作的呢？
+## 39.2 基本查改删操作
+> 我们从最基本的增删改操作开始，对比xml方式进行理解。
+### 39.2.1 查询操作
+#### 39.2.1.1 @Results和@Result注解
+> 对于xml配置查询时定义的ResultMap, 在注解中如何定义呢？
+```xml
+<resultMap type="tech.pdai.springboot.mysql57.mybatis.xml.entity.User" id="UserResult1">
+  <id     property="id"       	column="id"      		/>
+  <result property="userName"     column="user_name"    	/>
+  <result property="password"     column="password"    	/>
+  <result property="email"        column="email"        	/>
+  <result property="phoneNumber"  column="phone_number"  	/>
+  <result property="description"  column="description"  	/>
+  <result property="createTime"   column="create_time"  	/>
+  <result property="updateTime"   column="update_time"  	/>
+</resultMap>
+```
+使用注解方式，用@Results注解对应
+```java
+@Results(
+        id = "UserResult1",
+        value = {
+                @Result(id = true, property = "id", column = "id"),
+                @Result(property = "userName", column = "user_name"),
+                @Result(property = "password", column = "password"),
+                @Result(property = "email", column = "email"),
+                @Result(property = "phoneNumber", column = "phone_number"),
+                @Result(property = "description", column = "description"),
+                @Result(property = "createTime", column = "create_time"),
+                @Result(property = "updateTime", column = "update_time")
+        }
+)l
+```
+#### 39.2.1.2 @Select和@Param注解
+> 对于查询，用@Select注解；对于参数, 使用@Param注解
+
+所以根据用户ID查询用户，使用注解方式写法如下：
+```java
+@Results(
+        id = "UserResult1",
+        value = {
+                @Result(id = true, property = "id", column = "id"),
+                @Result(property = "userName", column = "user_name"),
+                @Result(property = "password", column = "password"),
+                @Result(property = "email", column = "email"),
+                @Result(property = "phoneNumber", column = "phone_number"),
+                @Result(property = "description", column = "description"),
+                @Result(property = "createTime", column = "create_time"),
+                @Result(property = "updateTime", column = "update_time")
+        }
+)
+@Select("select u.id, u.password, u.user_name, u.email, u.phone_number, u.description, u.create_time, u.update_time from tb_user u where id = #{id}")
+User findById1(@Param("id") Long id);
+```
+#### 38.2.1.3 @ResultMap注解
+> xml配置查询时定义的ResultMap是可以复用的，那么我们上面通过@Results定义在某个方法上的，如何复用呢？
+
+比如查询所有用户返回用户实体@Results是和查询单个用户一致的，那么我们可以通过@ResultMap指定返回值对应关系
+```java
+@ResultMap("UserResult1")
+@Select("select u.id, u.password, u.user_name, u.email, u.phone_number, u.description, u.create_time, u.update_time from tb_user u")
+User findAll1();
+```
+由此你可以猜到，@ResultMap定义在哪个方法上并没有什么关系，因为它会被优先通过注解解析为数据库字段与Java字段的映射关系。 
+#### 38.2.1.4 表关联查询
+> 用户和角色存在着一对多的关系，上面的查询只是查询了用户的基本信息，如何关联查询（查询用户同时返回角色信息）呢？
+**无论是一对一还是一对多关系，在MyBatis中都有两种实现方式**：
+
+1. **嵌套查询方式**（分步查询/延迟加载）
+2. **JOIN查询方式**（一次性查询）
+
+下面我为您详细整理所有四种情况的XML和注解写法：
+
+##### 一、一对多关系的两种实现方式
+
+###### 方式1：嵌套查询（分步查询）
+
+**XML配置：**
+```xml
+<!-- UserMapper.xml -->
+<resultMap type="User" id="UserResult">
+    <id property="id" column="id"/>
+    <result property="userName" column="user_name"/>
+    <!-- 其他User字段 -->
+    <collection property="roles" ofType="Role" 
+                select="findRoleByUserId" column="id"/>
+</resultMap>
+
+<select id="findUserById" resultMap="UserResult">
+    SELECT * FROM user WHERE id = #{id}
+</select>
+
+<select id="findRoleByUserId" resultType="Role">
+    SELECT r.* FROM role r 
+    INNER JOIN user_role ur ON r.id = ur.role_id 
+    WHERE ur.user_id = #{userId}
+</select>
+```
+
+**注解配置：**
+```java
+@Mapper
+public interface UserMapper {
+    
+    @Select("SELECT * FROM user WHERE id = #{id}")
+    @Results(id = "UserResult", value = {
+        @Result(property = "id", column = "id"),
+        @Result(property = "userName", column = "user_name"),
+        // 其他User字段
+        @Result(property = "roles", column = "id", 
+                many = @Many(select = "findRoleByUserId", fetchType = FetchType.EAGER))
+    })
+    User findUserById(Long id);
+    
+    @Select("SELECT r.* FROM role r INNER JOIN user_role ur ON r.id = ur.role_id WHERE ur.user_id = #{userId}")
+    List<Role> findRoleByUserId(Long userId);
+}
+```
+
+###### 方式2：JOIN查询（一次性查询）
+
+**XML配置：**
+```xml
+<!-- UserMapper.xml -->
+<resultMap type="User" id="UserResult">
+    <id property="id" column="id"/>
+    <result property="userName" column="user_name"/>
+    <!-- 其他User字段 -->
+    <collection property="roles" ofType="Role">
+        <id property="id" column="role_id"/>
+        <result property="name" column="role_name"/>
+        <result property="roleKey" column="role_key"/>
+        <!-- 其他Role字段 -->
+    </collection>
+</resultMap>
+
+<select id="findUserById" resultMap="UserResult">
+    SELECT u.*, 
+           r.id as role_id, r.name as role_name, r.role_key as role_key
+    FROM user u
+    LEFT JOIN user_role ur ON u.id = ur.user_id
+    LEFT JOIN role r ON ur.role_id = r.id
+    WHERE u.id = #{id}
+</select>
+```
+
+**注解配置：**
+```java
+@Mapper
+public interface UserMapper {
+    
+    @Select("SELECT u.*, " +
+            "r.id as role_id, r.name as role_name, r.role_key as role_key " +
+            "FROM user u " +
+            "LEFT JOIN user_role ur ON u.id = ur.user_id " +
+            "LEFT JOIN role r ON ur.role_id = r.id " +
+            "WHERE u.id = #{id}")
+    @Results(id = "UserResult", value = {
+        @Result(property = "id", column = "id"),
+        @Result(property = "userName", column = "user_name"),
+        // 其他User字段
+        @Result(property = "roles", column = "id", 
+                many = @Many(resultMap = "roleResult", fetchType = FetchType.EAGER))
+    })
+    User findUserById(Long id);
+}
+
+@Mapper
+public interface RoleMapper {
+    @Results(id = "roleResult", value = {
+        @Result(property = "id", column = "role_id"),
+        @Result(property = "name", column = "role_name"),
+        @Result(property = "roleKey", column = "role_key")
+    })
+    @Select("SELECT * FROM role WHERE id = #{role_id}")
+    Role findById(Long id);
+}
+```
+注意如果存在关联关系的时候定义column要遵循sql查询中的命名规则
+##### 二、一对一关系的两种实现方式
+
+###### 方式1：嵌套查询（分步查询）
+
+**XML配置：**
+```xml
+<!-- UserMapper.xml -->
+<resultMap type="User" id="UserResult">
+    <id property="id" column="id"/>
+    <result property="userName" column="user_name"/>
+    <!-- 其他User字段 -->
+    <association property="organization" column="org_id" 
+                 select="findOrganizationById"/>
+</resultMap>
+
+<select id="findUserById" resultMap="UserResult">
+    SELECT * FROM user WHERE id = #{id}
+</select>
+
+<select id="findOrganizationById" resultType="Organization">
+    SELECT * FROM organization WHERE id = #{orgId}
+</select>
+```
+
+**注解配置：**
+```java
+@Mapper
+public interface UserMapper {
+    
+    @Select("SELECT * FROM user WHERE id = #{id}")
+    @Results(id = "UserResult", value = {
+        @Result(property = "id", column = "id"),
+        @Result(property = "userName", column = "user_name"),
+        // 其他User字段
+        @Result(property = "organization", column = "org_id", 
+                one = @One(select = "findOrganizationById", fetchType = FetchType.EAGER))
+    })
+    User findUserById(Long id);
+    
+    @Select("SELECT * FROM organization WHERE id = #{orgId}")
+    Organization findOrganizationById(Integer orgId);
+}
+```
+
+###### 方式2：JOIN查询（一次性查询）
+
+**XML配置：**
+```xml
+<!-- UserMapper.xml -->
+<resultMap type="User" id="UserResult">
+    <id property="id" column="id"/>
+    <result property="userName" column="user_name"/>
+    <!-- 其他User字段 -->
+    <association property="organization" javaType="Organization">
+        <id property="id" column="org_id"/>
+        <result property="name" column="org_name"/>
+        <result property="path" column="org_path"/>
+        <!-- 其他Organization字段 -->
+    </association>
+</resultMap>
+
+<select id="findUserById" resultMap="UserResult">
+    SELECT u.*, 
+           o.id as org_id, o.name as org_name, o.path as org_path
+    FROM user u
+    LEFT JOIN organization o ON u.org_id = o.id
+    WHERE u.id = #{id}
+</select>
+```
+
+**注解配置：**
+```java
+@Mapper
+public interface UserMapper {
+    
+    @Select("SELECT u.*, " +
+            "o.id as org_id, o.name as org_name, o.path as org_path " +
+            "FROM user u " +
+            "LEFT JOIN organization o ON u.org_id = o.id " +
+            "WHERE u.id = #{id}")
+    @Results(id = "UserResult", value = {
+        @Result(property = "id", column = "id"),
+        @Result(property = "userName", column = "user_name"),
+        // 其他User字段
+        @Result(property = "organization.id", column = "org_id"),
+        @Result(property = "organization.name", column = "org_name"),
+        @Result(property = "organization.path", column = "org_path")
+        // 其他Organization字段
+    })
+    User findUserById(Long id);
+}
+```
+
+##### 总结对比
+
+| 关系类型 | 实现方式 | 特点 | 适用场景 |
+|---------|---------|------|----------|
+| 一对多 | 嵌套查询 | 分两步执行SQL，可能N+1查询 | 数据量大，需要延迟加载 |
+| 一对多 | JOIN查询 | 一次性查询所有数据 | 数据量小，性能要求高 |
+| 一对一 | 嵌套查询 | 分两步执行SQL | 关联表数据量大，需要延迟加载 |
+| 一对一 | JOIN查询 | 一次性查询所有数据 | 关联表数据量小，性能要求高 |
+### 39.2.2 插入操作
+> 涉及插入操作的主要注解有：@Insert, @SelectKey等。
+
+#### 39.2.2.1 @Insert注解
+对于插入操作，在xml配置可以定义为：
+```xml
+<insert id="save" parameterType="tech.pdai.springboot.mysql57.mybatis.xml.entity.User" useGeneratedKeys="true" keyProperty="id">
+ 		insert into tb_user(
+ 			<if test="userName != null and userName != ''">user_name,</if>
+			<if test="password != null and password != ''">password,</if>
+ 			<if test="email != null and email != ''">email,</if>
+			<if test="phoneNumber != null and phoneNumber != ''">phone_number,</if>
+ 			<if test="description != null and description != ''">description,</if>
+ 			create_time,
+			update_time
+ 		)values(
+ 			<if test="userName != null and userName != ''">#{userName},</if>
+			<if test="password != null and password != ''">#{password},</if>
+ 			<if test="email != null and email != ''">#{email},</if>
+ 			<if test="phoneNumber != null and phoneNumber != ''">#{phoneNumber},</if>
+ 			<if test="description != null and description != ''">#{description},</if>
+ 			sysdate(),
+			sysdate()
+ 		)
+	</insert>
+```
+特别是，这里通过`<if>`判断条件更新的情况应该如何在注解中写呢？
+
+可以通过`@Insert + <script>`
+```java
+@Insert({"<script> ", "insert into tb_user(\n" +
+        " <if test=\"userName != null and userName != ''\">user_name,</if>\n" +
+        " <if test=\"password != null and password != ''\">password,</if>\n" +
+        " <if test=\"email != null and email != ''\">email,</if>\n" +
+        " <if test=\"phoneNumber != null and phoneNumber != ''\">phone_number,</if>\n" +
+        " <if test=\"description != null and description != ''\">description,</if>\n" +
+        " create_time,\n" +
+        " update_time\n" +
+        " )values(\n" +
+        " <if test=\"userName != null and userName != ''\">#{userName},</if>\n" +
+        " <if test=\"password != null and password != ''\">#{password},</if>\n" +
+        " <if test=\"email != null and email != ''\">#{email},</if>\n" +
+        " <if test=\"phoneNumber != null and phoneNumber != ''\">#{phoneNumber},</if>\n" +
+        " <if test=\"description != null and description != ''\">#{description},</if>\n" +
+        " sysdate(),\n" +
+        " sysdate()\n" +
+        " )", " </script>"})
+@Options(useGeneratedKeys = true, keyProperty = "id")
+int save(User user);
+```
+#### 39.2.2.2 返回Insert后实体的主键值
+> 上述@Options(useGeneratedKeys = true, keyProperty = "id") 表示什么意思呢？
+
+表示，如果数据库提供了自增列生成Key的方式(比如这里的id), 并且需要返回自增主键时，可以通过这种方式返回实体。
+
+那么，如果id的自增不使用数据库自增主键时, 在xml中可以使用SelectKey：
+```xml
+<selectKey keyColumn="id" resultType="long" keyProperty="id" order="AFTER">
+    SELECT LAST_INSERT_ID()
+</selectKey>
+```
+对应着注解：
+```java
+@SelectKey(statement = "SELECT LAST_INSERT_ID()", keyColumn = "id", keyProperty = "id", resultType = Long.class, before = false)
+```
+- before = false, 相当于XML中的order="AFTRE"，这是MySql数据库的配置。
+- before = true, 相当于XML中的order="BEFORE"，这是Oracle数据库的配置。
+
+注意事项：不同的数据库statement的值会不同，上面中的值适用于MySql数据库，使用其他类型的数据库时要注意修改。
+
+
+#### 39.2.2.3  `@SelectKey` 到底是干什么的？
+
+`@SelectKey`是MyBatis中用于**在插入操作前后获取数据库生成的键值**的注解。它的主要作用是：
+
+##### 核心功能
+- **在执行INSERT语句之前或之后，执行一个额外的SQL语句来获取生成的键值**
+- **将获取的键值设置到实体对象的指定属性中**
+
+##### 适用场景
+1. **数据库不支持自增主键**（如Oracle使用序列）
+2. **需要复杂的主键生成逻辑**
+3. **需要获取非自增的其他生成键**
+
+##### 参数详解
+```java
+@SelectKey(
+    statement = "SELECT LAST_INSERT_ID()",  // 要执行的SQL语句
+    keyColumn = "id",                       // 数据库中的主键列名
+    keyProperty = "id",                     // 实体类中的属性名
+    resultType = Long.class,                // 返回值的类型
+    before = false                          // 执行时机：false=INSERT之后，true=INSERT之前
+)
+```
+
+##### 具体示例
+
+**MySQL场景（INSERT之后获取）：**
+```java
+@Insert("INSERT INTO user(user_name, password) VALUES(#{userName}, #{password})")
+@SelectKey(statement = "SELECT LAST_INSERT_ID()", 
+           keyProperty = "id", 
+           resultType = Long.class, 
+           before = false)
+int insertUser(User user);
+```
+
+**Oracle场景（INSERT之前获取）：**
+```java
+@Insert("INSERT INTO user(id, user_name, password) VALUES(#{id}, #{userName}, #{password})")
+@SelectKey(statement = "SELECT user_seq.nextval FROM dual", 
+           keyProperty = "id", 
+           resultType = Long.class, 
+           before = true)
+int insertUser(User user);
+```
+
+#### 39.2.2.4 `@Options` 注解的作用
+
+`@Options`是一个更通用的配置注解，其中包含`useGeneratedKeys`参数用于处理自增主键：
+
+##### 核心功能
+- **自动使用数据库的自增机制生成主键**
+- **适用于支持自增主键的数据库（如MySQL、SQL Server等）**
+
+##### 参数详解
+```java
+@Options(
+    useGeneratedKeys = true,    // 使用数据库生成的主键
+    keyProperty = "id",         // 主键值设置到实体类的哪个属性
+    keyColumn = "id"            // 数据库中的主键列名（可选）
+)
+```
+
+##### 具体示例
+```java
+@Insert("INSERT INTO user(user_name, password) VALUES(#{userName}, #{password})")
+@Options(useGeneratedKeys = true, keyProperty = "id")
+int insertUser(User user);
+```
+
+##### 两者的主要区别
+
+| 特性 | `@Options(useGeneratedKeys=true)` | `@SelectKey` |
+|------|-----------------------------------|--------------|
+| **适用数据库** | 支持自增主键的数据库（MySQL等） | 所有数据库 |
+| **执行方式** | 自动利用数据库的自增机制 | 需要手动编写SQL语句获取键值 |
+| **灵活性** | 简单，但功能有限 | 灵活，可以处理复杂场景 |
+| **性能** | 通常更好（数据库原生支持） | 需要额外执行SQL语句 |
+
+##### 实际使用场景对比
+
+###### 场景1：MySQL数据库（推荐使用`@Options`）
+```java
+// 简单高效的方式
+@Insert("INSERT INTO user(user_name, password) VALUES(#{userName}, #{password})")
+@Options(useGeneratedKeys = true, keyProperty = "id")
+int insertUser(User user);
+
+// 插入后，user对象的id属性会自动被设置
+User user = new User();
+user.setUserName("test");
+user.setPassword("123456");
+userMapper.insertUser(user);
+System.out.println(user.getId()); // 这里会输出自动生成的主键ID
+```
+
+###### 场景2：Oracle数据库（必须使用`@SelectKey`）
+```java
+// Oracle使用序列生成主键
+@Insert("INSERT INTO user(id, user_name, password) VALUES(#{id}, #{userName}, #{password})")
+@SelectKey(statement = "SELECT user_seq.nextval FROM dual", 
+           keyProperty = "id", 
+           resultType = Long.class, 
+           before = true)
+int insertUser(User user);
+```
+
+##### 场景3：复杂的键生成逻辑（使用`@SelectKey`）
+```java
+// 需要根据业务规则生成复杂主键
+@Insert("INSERT INTO order(order_no, amount) VALUES(#{orderNo}, #{amount})")
+@SelectKey(statement = "SELECT generate_order_no()", 
+           keyProperty = "orderNo", 
+           resultType = String.class, 
+           before = true)
+int insertOrder(Order order);
+```
+
+##### 总结
+
+- **`@Options(useGeneratedKeys=true)`**：适用于简单的自增主键场景，代码简洁
+- **`@SelectKey`**：功能更强大，适用于所有数据库和复杂的主键生成需求
+
+您提供的文档中的说明是正确的，关键是理解两者的适用场景和区别。在MySQL环境下，通常推荐使用`@Options`，因为它更简洁高效；而在Oracle或其他需要复杂主键生成的场景下，`@SelectKey`是必不可少的。
+#### 39.2.2.5 @SelectKey中before参数的设置（true或false）的区别
+
+##### 执行时机的区别
+
+###### `before = false`（INSERT之后执行）
+```java
+@Insert("INSERT INTO user(user_name, password) VALUES(#{userName}, #{password})")
+@SelectKey(statement = "SELECT LAST_INSERT_ID()", 
+           keyProperty = "id", 
+           resultType = Long.class, 
+           before = false)
+int insertUser(User user);
+```
+
+**执行流程：**
+1. 先执行INSERT语句
+2. 再执行`SELECT LAST_INSERT_ID()`
+3. 将获取到的主键值设置到`user.id`属性中
+
+###### `before = true`（INSERT之前执行）
+```java
+@Insert("INSERT INTO user(id, user_name, password) VALUES(#{id}, #{userName}, #{password})")
+@SelectKey(statement = "SELECT user_seq.nextval FROM dual", 
+           keyProperty = "id", 
+           resultType = Long.class, 
+           before = true)
+int insertUser(User user);
+```
+
+**执行流程：**
+1. 先执行`SELECT user_seq.nextval FROM dual`
+2. 将获取到的主键值设置到`user.id`属性中
+3. 再执行INSERT语句（此时`#{id}`已经有值了）
+
+##### 适用场景的区别
+
+###### `before = false` 适用场景
+**主要适用于支持自增主键的数据库：**
+- MySQL、SQL Server、PostgreSQL等
+- 使用数据库的自增机制
+
+**特点：**
+- INSERT语句中**不包含主键字段**
+- 数据库自动生成主键值
+- 插入后通过特定函数获取生成的主键
+
+**示例：**
+```sql
+-- INSERT语句（不包含id字段）
+INSERT INTO user(user_name, password) VALUES('test', '123456');
+
+-- 插入后获取自增ID
+SELECT LAST_INSERT_ID();  -- 返回刚插入记录的自增ID
+```
+
+###### `before = true` 适用场景
+**主要适用于使用序列的数据库：**
+- Oracle、DB2等
+- 需要手动生成主键值的场景
+
+**特点：**
+- INSERT语句中**必须包含主键字段**
+- 先获取序列值，再执行插入
+- 适用于复杂的主键生成规则
+
+**示例：**
+```sql
+-- 先获取序列值
+SELECT user_seq.nextval FROM dual;  -- 返回序列的下一个值，比如1001
+
+-- 然后插入（包含id字段）
+INSERT INTO user(id, user_name, password) VALUES(1001, 'test', '123456');
+```
+
+##### 实际代码对比
+
+###### MySQL场景（before = false）
+```java
+// 实体类
+public class User {
+    private Long id;        // 插入前为null，插入后被设置
+    private String userName;
+    private String password;
+}
+
+// Mapper接口
+@Insert("INSERT INTO user(user_name, password) VALUES(#{userName}, #{password})")
+@SelectKey(statement = "SELECT LAST_INSERT_ID()", 
+           keyProperty = "id", 
+           resultType = Long.class, 
+           before = false)
+int insertUser(User user);
+
+// 使用示例
+User user = new User();
+user.setUserName("test");
+user.setPassword("123456");
+System.out.println(user.getId()); // null
+
+userMapper.insertUser(user);
+System.out.println(user.getId()); // 自动生成的主键值，如1001
+```
+
+###### Oracle场景（before = true）
+```java
+// 实体类
+public class User {
+    private Long id;        // 插入前就被设置，插入后不变
+    private String userName;
+    private String password;
+}
+
+// Mapper接口
+@Insert("INSERT INTO user(id, user_name, password) VALUES(#{id}, #{userName}, #{password})")
+@SelectKey(statement = "SELECT user_seq.nextval FROM dual", 
+           keyProperty = "id", 
+           resultType = Long.class, 
+           before = true)
+int insertUser(User user);
+
+// 使用示例
+User user = new User();
+user.setUserName("test");
+user.setPassword("123456");
+System.out.println(user.getId()); // null
+
+userMapper.insertUser(user);
+System.out.println(user.getId()); // 序列生成的值，如1001
+```
+
+##### 关键区别总结
+
+| 特性 | `before = false` | `before = true` |
+|------|------------------|-----------------|
+| **执行顺序** | INSERT → SELECT | SELECT → INSERT |
+| **适用数据库** | MySQL等自增数据库 | Oracle等序列数据库 |
+| **INSERT语句** | 不包含主键字段 | 必须包含主键字段 |
+| **实体对象状态** | 插入后才有id | 插入前就有id |
+
+##### 选择建议
+
+1. **如果是MySQL数据库**：推荐使用`before = false`，或者直接用`@Options(useGeneratedKeys = true)`
+2. **如果是Oracle数据库**：必须使用`before = true`
+3. **如果需要自定义主键生成逻辑**：根据生成逻辑的时机选择`before`参数
+
+**简单记忆：**
+- MySQL：`before = false` + `LAST_INSERT_ID()`
+- Oracle：`before = true` + `序列.nextval`
+
+理解这个区别对于在不同数据库环境下正确使用MyBatis非常重要！
+### 39.2.3 更新操作
+> 涉及更新操作的主要注解有：@Update等。
+#### 39.2.3.1 @Update 注解
+对于xml的更新操作如下：
+```xml
+<update id="update" parameterType="tech.pdai.springboot.mysql57.mybatis.xml.entity.User">
+  update tb_user
+  <set>
+    <if test="userName != null and userName != ''">user_name = #{userName},</if>
+    <if test="email != null and email != ''">email = #{email},</if>
+    <if test="phoneNumber != null and phoneNumber != ''">phone_number = #{phoneNumber},</if>
+    <if test="description != null and description != ''">description = #{description},</if>
+    update_time = sysdate()
+  </set>
+  where id = #{id}
+</update>
+
+<update id="updatePassword" parameterType="tech.pdai.springboot.mysql57.mybatis.xml.entity.User">
+  update tb_user
+  <set>
+    password = #{password}, update_time = sysdate()
+  </set>
+  where id = #{id}
+</update>
+```
+对应的注解写法如下：
+```java
+@Update({"update tb_user set password = #{password}, update_time = sysdate()", " where id = #{id}"})
+int updatePassword(User user);
+
+@Update({"<script> ", "update tb_user\n" +
+        " <set>\n" +
+        " <if test=\"userName != null and userName != ''\">user_name = #{userName},</if>\n" +
+        " <if test=\"email != null and email != ''\">email = #{email},</if>\n" +
+        " <if test=\"phoneNumber != null and phoneNumber != ''\">phone_number = #{phoneNumber},</if>\n" +
+        " <if test=\"description != null and description != ''\">description = #{description},</if>\n" +
+        " update_time = sysdate()\n" +
+        " </set>\n" +
+        " where id = #{id}", " </script>"})
+int update(User user);
+```
+### 39.2.4 删除操作
+> 涉及删除操作的主要注解有：@Delete等。
+#### 39.2.4.1@Delete 注解
+对于xml的删除操作如下：
+```xml
+<delete id="deleteById" parameterType="Long">
+  delete from tb_user where id = #{id}
+</delete>
+
+<delete id="deleteByIds" parameterType="Long">
+  delete from tb_user where id in
+  <foreach collection="array" item="id" open="(" separator="," close=")">
+    #{id}
+      </foreach> 
+</delete>
+```
+对应的注解写法如下：
+```java
+@Delete("delete from tb_user where id = #{id}")
+int deleteById(Long id);
+
+@Delete({"<script> ", "delete from tb_user where id in\n" +
+        "<foreach collection=\"array\" item=\"id\" open=\"(\" separator=\",\" close=\")\">\n" +
+        "#{id}\n" +
+        "</foreach>", " </script>"})
+int deleteByIds(Long[] ids);
+```
+## 39.3 Provider注解
+> 其实你可以发现通过注解方式，对于有一些需要通过动态构建查询条件的操作是非常不方便的。MyBatis的作者们自然就想到了动态构建SQL，动态构建SQL的方式是配合@Provider注解来完成的。
+
+MyBatis提供了4种Provider注解，分别是@SelectProvider、@InsertProvider、@UpdateProvider和@DeleteProvider。
+
+这里以@SelectProvider为例来根据Id查询User：
+1. 定义包含自定义生成的动态SQL的类，比如UserDaoProvider
+```java
+/**
+ * @author pdai
+ */
+public class UserDaoProvider {
+
+    public String findById(final Long id) {
+        SQL sql = new SQL();
+        sql.SELECT("u.id, u.password, u.user_name, u.email, u.phone_number, u.description, u.create_time, u.update_time");
+        sql.FROM("tb_user u");
+        sql.WHERE("id = " + id);
+        return sql.toString();
+    }
+}
+```
+2. 通过@SelectProvider注解关联到定义的类和方法
+```java
+@ResultMap("UserResult")
+@SelectProvider(type = UserDaoProvider.class, method = "findById")
+User findById2(Long id);
+```
+## 39.4 其它注解
+- `@CacheNamespace` ：为给定的命名空间 (比如类) 配置缓存。对应xml中的`<cache>`。
+- `@CacheNamespaceRef` ：参照另外一个命名空间的缓存来使用。属性:value,应该是一个名空间的字 符串值(也就是类的完全限定名) 。对应xml中的`<cacheRef>`标签。
+- `@ConstructorArgs` ：收集一组结果传递给一个劫夺对象的 构造方法。属性:value,是形式参数 的数组。
+- `@Arg` ：单 独 的 构 造 方 法 参 数 , 是 ConstructorArgs 集合的一部分。属性: id,column,javaType,typeHandler。id 属性是布尔值, 来标识用于比较的属 性,和XML 元素相似。对应xml中的`<arg>`标签。
+- `@Case` ：单独实例的值和它对应的映射。属性: value,type,results。Results 属性是结 果数组,因此这个注解和实际的 ResultMap 很相似,由下面的 Results 注解指定。对应xml中标签`<case>`。
+- `@TypeDiscriminator` : 一组实例值被用来决定结果映射的表 现。 属性: column, javaType, jdbcType, typeHandler,cases。cases 属性就是实 例的数组。对应xml中标签`<discriminator>`。
+- `@Flush`： 在MyBatis 3.3以上版本，可以通过此注解在Mapper接口中调用SqlSession#flushStatements()。
+## 39.5 xml方式和注解方式融合
+xml方式和注解方式是可以融合写的， 我们可以将复杂的SQL写在xml中
+
+比如将resultMap定义在xml中
+```xml
+<resultMap type="tech.pdai.springboot.mysql57.mybatis.xml.entity.User" id="UserResult3">
+  <id     property="id"       	column="id"      		/>
+  <result property="userName"     column="user_name"    	/>
+  <result property="password"     column="password"    	/>
+  <result property="email"        column="email"        	/>
+  <result property="phoneNumber"  column="phone_number"  	/>
+  <result property="description"  column="description"  	/>
+  <result property="createTime"   column="create_time"  	/>
+  <result property="updateTime"   column="update_time"  	/>
+  <collection property="roles" ofType="tech.pdai.springboot.mysql57.mybatis.xml.entity.Role">
+    <result property="id" column="id"  />
+    <result property="name" column="name"  />
+    <result property="roleKey" column="role_key"  />
+    <result property="description" column="description"  />
+    <result property="createTime"   column="create_time"  	/>
+    <result property="updateTime"   column="update_time"  	/>
+  </collection>
+</resultMap>
+```
+在方法中用@ResultMap
+```java
+@ResultMap("UserResult3")
+@Select("select u.id, u.password, u.user_name, u.email, u.phone_number, u.description, u.create_time, u.update_time from tb_user u")
+User findAll1();
+```
+## 39.6 为什么纯注解方式不是最佳选择?
+> 纯注解方式为何很少大规模呢？ 说说我的一些看法
+
+- 对于复杂的SQL，特别是按照条件动态生成方式极为不便，即便有`<script>`， 代码的阅读体验和维护极为不佳；
+- 对于复杂的SQL，即便有@Provider方式，这种充其量是一个半成品 
+  - 不是所见即所得的写法，需要再定义额外的类和方法
+  - 动态构建时不便利
+  - 函数式编程成为主流，lambda方式才是未来
+  - ...
+
+这也是mybatis-plus等工具改进的地方。
+## 39.7 @Options注解详解
+`@Options` 注解用于为单个 Mapper 方法提供细粒度的配置，这些配置通常对应 XML 映射文件中的标签属性。它非常强大，可以解决许多常见场景下的特定需求。
+
+---
+
+### 39.7.1 核心参数详解与使用案例
+
+#### 1. `useGeneratedKeys` 和 `keyProperty`（最常用组合）
+
+- **功能**：
+    - `useGeneratedKeys`：指示 MyBatis 使用 JDBC 的 `getGeneratedKeys` 方法来获取数据库内部生成的主键（如自增 ID、序列等）。默认值为 `false`。
+    - `keyProperty`：指定哪个对象属性来接收这个生成的主键值。
+
+- **使用场景**：**插入数据后，需要立即获取该数据在数据库中生成的主键ID。**
+
+- **案例代码**：
+假设我们有一个 `User` 表，其 `id` 字段是自增主键。
+
+```java
+// User 实体类
+public class User {
+    private Long id;    // 对应数据库自增主键
+    private String name;
+    private String email;
+    // ... 省略 getter/setter
+}
+
+// Mapper 接口
+public interface UserMapper {
+
+    @Insert("INSERT INTO user (name, email) VALUES (#{name}, #{email})")
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertUser(User user);
+}
+```
+
+- **如何使用**：
+```java
+User newUser = new User();
+newUser.setName("张三");
+newUser.setEmail("zhangsan@example.com");
+
+// 执行插入
+userMapper.insertUser(newUser);
+
+// 插入完成后，数据库生成的 id 会自动回填到 newUser 对象的 id 属性中
+System.out.println("新用户ID: " + newUser.getId()); // 这里可以直接获取到ID，例如 5
+```
+
+#### 2. `keyColumn`
+
+- **功能**：明确指定数据库表中主键列的名称。当数据库列名（如 `user_id`）与对象属性名（如 `id`）不一致时，需要使用此属性来建立映射。
+
+- **使用场景**：数据库主键列名与实体类属性名不匹配时。
+
+- **案例代码**：
+```java
+// 实体类属性名为 id，但数据库列名为 user_id
+public class User {
+    private Long id;
+    // ...
+}
+
+@Insert("INSERT INTO user (name, email) VALUES (#{name}, #{email})")
+@Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "user_id")
+int insertUser(User user);
+```
+
+#### 3. `flushCache`
+
+- **功能**：设置语句执行后是否清空一级缓存和二级缓存。可选值为 `FlushCachePolicy.TRUE`（默认） 或 `FlushCachePolicy.FALSE`。
+    - 对于 `@Insert`, `@Update`, `@Delete` 语句，**默认值为 `true`**，即执行后会清空缓存，以保证后续查询能获取到最新数据。
+    - 对于 `@Select` 语句，**默认值为 `false`**。
+
+- **使用场景**：在极少数需要极致性能、且能容忍一定时间内数据不一致（脏读）的写操作场景下，可以设置为 `false` 以避免清空缓存。**通常不建议修改默认值。**
+
+- **案例代码**：
+```java
+// 这是一个不常见的操作，仅用于演示：更新用户邮箱但不清空缓存（风险高！）
+@Update("UPDATE user SET email = #{email} WHERE id = #{id}")
+@Options(flushCache = FlushCachePolicy.FALSE)
+int updateUserEmailWithoutFlushCache(Long id, String email);
+```
+
+#### 4. `useCache`
+
+- **功能**：**仅对 `@Select` 语句有效**。设置是否将本次查询结果存入二级缓存。默认值为 `true`。
+
+- **使用场景**：对于实时性要求极高、数据变化频繁，或者结果集非常大的查询，可以设置为 `false` 以避免缓存占用内存或返回旧数据。
+
+- **案例代码**：
+```java
+// 查询最新在线用户列表，此数据变化快，不需要缓存
+@Select("SELECT * FROM user WHERE status = 'online' ORDER BY last_active_time DESC")
+@Options(useCache = false)
+List<User> selectOnlineUsers();
+```
+
+#### 5. `timeout`
+
+- **功能**：设置该 SQL 语句在数据库端的执行超时时间（单位：秒）。如果超时，数据库会抛出超时异常。
+
+- **使用场景**：防止复杂查询或慢 SQL 长时间占用数据库连接，影响系统整体性能。
+
+- **案例代码**：
+```java
+// 一个复杂的报表查询，我们设置超时时间为 30 秒
+@Select("SELECT ... (复杂的 JOIN 和 GROUP BY 语句) ...")
+@Options(timeout = 30)
+List<ReportVO> generateComplexReport();
+```
+
+#### 6. `fetchSize`
+
+- **功能**：给 JDBC 驱动程序的一个提示，希望每次从数据库服务器端批量获取的记录数。这是一个性能调优参数。
+
+- **使用场景**：当需要查询大量数据（如导出上万条记录）时，设置合理的 `fetchSize` 可以减少网络往返次数，提升性能。具体效果因数据库和驱动而异。
+
+- **案例代码**：
+```java
+// 需要导出全部用户数据，设置每次获取 500 条
+@Select("SELECT * FROM user")
+@Options(fetchSize = 500)
+List<User> selectAllUsersForExport();
+```
+
+---
+
+### 39.7.2 综合案例
+
+一个方法上可以同时配置多个选项。
+
+```java
+@Insert("INSERT INTO audit_log (operation, operator, detail) VALUES (#{operation}, #{operator}, #{detail})")
+@Options(
+    useGeneratedKeys = true,    // 需要获取生成的主键
+    keyProperty = "logId",      // 主键值设置到参数对象的 logId 属性上
+    timeout = 5,                // 插入日志操作应在5秒内完成
+    flushCache = FlushCachePolicy.FALSE // 日志插入不影响业务缓存（可选）
+)
+int insertAuditLog(AuditLog log);
+```
+
+### 39.7.3 总结
+
+| 参数 | 核心功能 | 适用语句 | 常用值 |
+| :--- | :--- | :--- | :--- |
+| **`useGeneratedKeys`** | **获取数据库生成的主键** | `@Insert` | `true` |
+| **`keyProperty`** | **指定接收主键的对象属性** | `@Insert` | 如 `"id"` |
+| `keyColumn` | 指定数据库主键列名（用于列名与属性名不一致时） | `@Insert` | 如 `"user_id"` |
+| `flushCache` | 执行后是否清空缓存 | 所有 | 通常保持默认 |
+| `useCache` | 是否缓存查询结果 | `@Select` | `true`（默认）或 `false`（实时数据） |
+| `timeout` | 设置SQL执行超时时间 | 所有 | 正整数，如 `10` |
+| `fetchSize` | 设置批量获取的记录数（性能优化） | `@Select` | 正整数，如 `500` |
+
+**核心要点**：
+1.  **`useGeneratedKeys` + `keyProperty`** 是日常开发中使用频率最高的组合，务必掌握。
+2.  其他参数主要用于特定的性能调优或控制场景，按需使用。
+3.  如果不确定是否需要某个配置，保持默认行为通常是最安全的选择。
+### 补充：fetchSize 参数的进一步说明
+**`fetchSize` 是 JDBC 层面的性能优化参数，它控制的是：**
+
+> **每次从数据库服务器到应用程序的内存中批量传输多少条记录**
+
+#### 具体解释：
+
+1. **不限制总返回数量**：你的 `SELECT * FROM user` 会返回表中**所有**的用户记录，可能是1000条、10000条甚至更多。
+
+2. **控制数据传输的"批次大小"**：
+   - 没有设置 `fetchSize` 时，JDBC 驱动可能一次性把所有数据都加载到内存中
+   - 设置 `fetchSize = 500` 后，JDBC 驱动会：
+     - 第一次从数据库获取500条记录
+     - 第二次再获取500条记录
+     - ...依此类推，直到获取所有数据
+
+#### 实际工作流程对比：
+
+**没有设置 fetchSize（或默认值）：**
+```
+应用程序 ←── 一次性加载 10000条记录 ──→ 数据库
+        （内存瞬间占用很大）
+```
+
+**设置了 `fetchSize = 500`：**
+```
+应用程序 ←── 第一批500条 ──→ 数据库
+        ←── 第二批500条 ──→
+        ←── 第三批500条 ──→
+        ...（分20次完成10000条数据的传输）
+```
+
+#### 为什么要这样设置？
+
+**性能优化好处：**
+- **减少内存峰值**：避免一次性加载海量数据导致内存溢出（OOM）
+- **改善响应性**：应用程序可以更早开始处理第一批数据
+- **减少网络延迟影响**：分批传输可以更好地利用网络带宽
+#### 核心问题：`List<User>` vs `Cursor<User>`
+
+##### 情况1：使用 `List<User>`（你的示例）
+
+```java
+@Select("SELECT * FROM user")
+@Options(fetchSize = 500)
+List<User> selectAllUsersForExport();  // ❌ 你的理解是对的！
+```
+
+**你说的完全正确：**
+- 即使设置了 `fetchSize = 500`，由于返回类型是 `List<User>`
+- **MyBatis 会等待所有数据都从数据库获取完毕，组装成完整的 List 后，才返回给调用方**
+- 所以调用方的代码确实会**阻塞**，直到所有数据准备就绪
+- 这时候 `fetchSize` 的主要作用是**优化JDBC驱动内部的数据获取过程**，减少内存峰值
+
+##### 情况2：使用 `Cursor<User>`（正确的流式处理方式）
+
+```java
+@Select("SELECT * FROM user")
+@Options(fetchSize = 500)
+Cursor<User> selectAllUsersForExport();  // ✅ 这才是真正的流式处理
+```
+
+**这才是 `fetchSize` 真正发挥价值的地方：**
+
+```java
+// 使用游标，真正的流式处理
+try (Cursor<User> users = userMapper.selectAllUsersForExport()) {
+    for (User user : users) {
+        // 🔥 重点：这里不是等所有数据都准备好！
+        // 当处理第一条记录时，JDBC可能只从数据库获取了500条
+        // 处理完500条后，会自动获取下一批500条
+        exportToFile(user);
+    }
+}
+```
+
+##### 两种方式的对比：
+
+| 特性 | `List<User>` + fetchSize | `Cursor<User>` + fetchSize |
+|------|--------------------------|----------------------------|
+| **是否阻塞** | ✅ **是**，等待所有数据 | ❌ **否**，边获取边处理 |
+| **内存占用** | 所有数据都在内存中 | 只有当前批次的数据在内存中 |
+| **适用场景** | 数据量不大（几千条） | 大数据量导出（几万条以上） |
+| **响应速度** | 慢，要等所有数据 | 快，立即开始处理 |
+
+##### 为什么有人会误用？
+
+很多开发者（包括一些教程）会错误地认为 `List + fetchSize` 就能实现流式查询，但实际上：
+
+```java
+// 错误理解：以为这样就能流式处理
+List<User> list = mapper.selectAllUsers(); // 这里已经阻塞了！
+for (User user : list) { // 到这里所有数据已在内存中
+    process(user);
+}
+
+// 正确做法：使用游标
+try (Cursor<User> cursor = mapper.selectAllUsers()) {
+    for (User user : cursor) { // 真正的流式处理
+        process(user);
+    }
+}
+```
+`fetchSize` 只有在配合 `Cursor` 返回类型时，才能实现真正的**非阻塞流式处理**。如果使用 `List`，无论 `fetchSize` 设多少，调用方都会阻塞等待所有数据加载完成。
+# 四十、SpringBoot集成MySQL - MyBatis PageHelper分页
+## 40.1 准备知识
+### 40.1.1 逻辑分页和物理分页的区别？
+> 为什么会出现PageHelper这类框架？
+
+这便要从逻辑分页和物理分页开始说起：
+- `逻辑分页`：从数据库将所有记录查询出来，存储到内存中，展示当前页，然后数据再直接从内存中获取（前台分页）
+- `物理分页`：只从数据库中查询当前页的数据（后台分页）
+
+由于MyBatis默认实现中采用的是逻辑分页，所以才诞生了PageHelper一类的物理分页框架。hibernate不要是因为hibernate采用的就是物理分页。
+### 40.1.2 不同数据库的物理分页是如何实现的？
+> 那物理分页通常是如何实现的呢？
+
+不同的数据库有不同的实现方式：（简单而言：mysql 使用limit ，SQLServer 使用top ，Oracle使用rowNum）
+- MySQL 使用LIMIT
+
+例如：
+```sql
+SELECT username, password 
+FROM tb_user 
+WHERE id = 1 
+LIMIT 100,10
+```
+- SQLServer 2012 使用top
+
+SQL SERVER 2012 支持了OFFSET + TOP方式提高了性能
+```sql
+SELECT top(50) LastName, FirstName, EmailAddress
+FROM Employee
+ORDER BY LastName, FirstName, EmailAddress
+OFFSET 14000 ROWS
+FETCH NEXT 50 ROWS ONLY;
+```
+- ORACLE
+```sql
+SELECT *  
+  FROM (SELECT AA.*, ROWNUM RN  
+          FROM (SELECT * FROM USERS ORDER BY ID DESC) AA  
+         WHERE ROWNUM <= 10 )  
+ WHERE RN > 0 
+```
+## 40.2 PageHelper是如何实现物理分页的前提:MyBatis的插件机制？
+- MyBatis提供了一种插件(plugin)的功能，虽然叫做插件，但其实这是拦截器功能。
+- Mybatis的分页功能很弱，它是基于内存的分页（查出所有记录再按偏移量和limit取结果），在大数据量的情况下这样的分页基本上是没有用的。本文基于插件，通过拦截StatementHandler重写sql语句，实现数据库的物理分页# 简单示例
+## 40.3 简单示例
+PageHelper 有多种用法，这里主要介绍官网提供的几种常见用法。具体请参考<a href ='https://github.com/pagehelper/Mybatis-PageHelper/blob/master/wikis/zh/HowToUse.md'>官网的介绍</a>
+
+### 第一种：RowBounds方式的调用
+
+RowBounds 是 MyBatis 提供的物理分页方式，通过传入 RowBounds 对象来指定偏移量和限制条数。
+
+```java
+List<User> list = sqlSession.selectList("x.y.selectIf", null, new RowBounds(0, 10));
+```
+
+### 第二种：Mapper接口方式的调用startPage
+
+使用 PageHelper 的 `startPage` 方法进行分页，推荐这种方式。它会自动拦截后续的 Mapper 方法调用并添加分页逻辑。
+
+```java
+PageHelper.startPage(1, 10);
+List<User> list = userMapper.selectIf(1);
+```
+
+### 第三种：Mapper接口方式的调用offsetPage
+
+使用 PageHelper 的 `offsetPage` 方法进行分页，同样推荐使用。这种方式基于偏移量进行分页。
+
+```java
+PageHelper.offsetPage(1, 10);
+List<User> list = userMapper.selectIf(1);
+```
+
+### 第四种：参数方法调用
+
+在 Mapper 接口方法中直接定义分页参数，无需在 XML 中处理分页逻辑。需要配置 `supportMethodsArguments=true`。
+
+Mapper 接口定义：
+```java
+public interface CountryMapper {
+    List<User> selectByPageNumSize(
+            @Param("user") User user,
+            @Param("pageNum") int pageNum, 
+            @Param("pageSize") int pageSize);
+}
+```
+
+调用方式：
+```java
+List<User> list = userMapper.selectByPageNumSize(user, 1, 10);
+```
+
+### 第五种：参数对象
+
+如果分页参数（pageNum 和 pageSize）存在于参数对象中，当这些参数有值时，会自动触发分页。
+
+User 对象定义：
+```java
+public class User {
+    // 其他字段
+    private Integer pageNum;
+    private Integer pageSize;
+    // getter 和 setter
+}
+```
+
+Mapper 接口定义：
+```java
+public interface CountryMapper {
+    List<User> selectByPageNumSize(User user);
+}
+```
+
+调用方式（当 user 中的 pageNum 和 pageSize 不为 null 时自动分页）：
+```java
+List<User> list = userMapper.selectByPageNumSize(user);
+```
+
+### 第六种：ISelect 接口方式
+
+通过 ISelect 接口实现分页查询，支持多种用法。
+
+#### jdk6、7 用法
+
+创建 ISelect 接口匿名实现类：
+
+```java
+Page<User> page = PageHelper.startPage(1, 10).doSelectPage(new ISelect() {
+    @Override
+    public void doSelect() {
+        userMapper.selectGroupBy();
+    }
+});
+```
+
+#### jdk8 lambda 用法
+
+使用 lambda 表达式简化代码：
+
+```java
+Page<User> page = PageHelper.startPage(1, 10).doSelectPage(() -> userMapper.selectGroupBy());
+```
+
+#### 直接返回 PageInfo
+
+也可以直接返回 PageInfo 对象，注意使用 `doSelectPageInfo` 方法。
+
+jdk6、7 用法：
+```java
+PageInfo pageInfo = PageHelper.startPage(1, 10).doSelectPageInfo(new ISelect() {
+    @Override
+    public void doSelect() {
+        userMapper.selectGroupBy();
+    }
+});
+```
+
+jdk8 lambda 用法：
+```java
+PageInfo pageInfo = PageHelper.startPage(1, 10).doSelectPageInfo(() -> userMapper.selectGroupBy());
+```
+
+#### count 查询
+
+进行 count 查询，返回查询语句的计数。
+
+jdk6、7 用法：
+```java
+long total = PageHelper.count(new ISelect() {
+    @Override
+    public void doSelect() {
+        userMapper.selectLike(user);
+    }
+});
+```
+
+jdk8 lambda 用法：
+```java
+long total = PageHelper.count(() -> userMapper.selectLike(user));
+```
+## 40.4 PageHelper是如何实现分页的？
+> 我们知道如何使用PageHelper后，我们发现使用PageHelper.startPage(pageNum, pageSize, orderBy)方法后的第一个select是具备分页能力的，那它是如何做到的呢？
+
+理解它的原理，有两个点：
+1. 第一，相对对于JDBC这种嵌入式的分页而言，PageHelper分页是独立的，能做到独立分页查询，那`它必然是通过某个拦截点进行了拦截，这样它才能够进行解耦分离出分页`。
+2. 第二，我们通过PageHelper.startPage(pageNum, pageSize, orderBy)方法后的第一个select是具备分页能力的，那它必然缓存了分页信息，同时结合线程知识，`这里必然使用的是本地栈ThreadLocal，即每个线程有一个本地缓存`。
+
+所以结合这两点，聪明的你就会想到它大概是如何实现的，关键就是两点（拦截，ThreadLocal), 我们看下源码：
+
+简单看下拦截
+```java
+/**
+ * Mybatis拦截器方法
+ *
+ * @param invocation 拦截器入参
+ * @return 返回执行结果
+ * @throws Throwable 抛出异常
+ */
+public Object intercept(Invocation invocation) throws Throwable {
+    if (autoRuntimeDialect) {
+        SqlUtil sqlUtil = getSqlUtil(invocation);
+        return sqlUtil.processPage(invocation);
+    } else {
+        if (autoDialect) {
+            initSqlUtil(invocation);
+        }
+        return sqlUtil.processPage(invocation);
+    }
+}
+```
+进而看下sqlUtil.processPage(invocation);方法
+```java
+/**
+ *
+ * @param invocation 拦截器入参
+ * @return 返回执行结果
+ * @throws Throwable 抛出异常
+ */
+private Object _processPage(Invocation invocation) throws Throwable {
+    final Object[] args = invocation.getArgs();
+    Page page = null;
+    //支持方法参数时，会先尝试获取Page
+    if (supportMethodsArguments) {
+        // 从线程本地变量中获取Page信息，就是我们刚刚设置的
+        page = getPage(args);
+    }
+    //分页信息
+    RowBounds rowBounds = (RowBounds) args[2];
+    //支持方法参数时，如果page == null就说明没有分页条件，不需要分页查询
+    if ((supportMethodsArguments && page == null)
+            //当不支持分页参数时，判断LocalPage和RowBounds判断是否需要分页
+            || (!supportMethodsArguments && SqlUtil.getLocalPage() == null && rowBounds == RowBounds.DEFAULT)) {
+        return invocation.proceed();
+    } else {
+        //不支持分页参数时，page==null，这里需要获取
+        if (!supportMethodsArguments && page == null) {
+            page = getPage(args);
+        }
+        // 进入查看
+        return doProcessPage(invocation, page, args);
+    }
+}
+```
+所以startPage方法和这里的getPage(args);这方法里应该包含了ThreadLocal中设置和获取分页参数的，让我们看下startPage方法即可：
+```java
+public static <E> Page<E> startPage(int pageNum, int pageSize, boolean count, Boolean reasonable, Boolean pageSizeZero) {
+    Page<E> page = new Page(pageNum, pageSize, count);
+    page.setReasonable(reasonable);
+    page.setPageSizeZero(pageSizeZero);
+    Page<E> oldPage = getLocalPage();
+    if (oldPage != null && oldPage.isOrderByOnly()) {
+        page.setOrderBy(oldPage.getOrderBy());
+    }
+
+    setLocalPage(page);
+    return page;
+}
+// ...
+protected static final ThreadLocal<Page> LOCAL_PAGE = new ThreadLocal();
+
+protected static void setLocalPage(Page page) {
+    LOCAL_PAGE.set(page); // 看这里
+}
+
+// ...
+```
+> 所以这里提示下想进阶的开发者，源码的阅读是伴随着思路现行的（有了思路，简单看源码），而不是直接源码。
+## 40.5 使用PageHelper有何注意点
+<a href ='https://github.com/pagehelper/Mybatis-PageHelper/blob/master/wikis/zh/Important.md'>官网说明</a>
+
+1. `PageHelper.startPage`方法重要提示
+
+只有紧跟在`PageHelper.startPage`方法后的<b>第一个</b>Mybatis的<b>查询（Select）</b>方法会被分页。
+
+2. 请不要配置多个分页插件
+
+请不要在系统中配置多个分页插件(使用Spring时,`mybatis-config.xml`和`Spring<bean>`配置方式，请选择其中一种，不要同时配置多个分页插件)！
+
+3. 分页插件不支持带有`for update`语句的分页
+
+对于带有`for update`的sql，会抛出运行时异常，对于这样的sql建议手动分页，毕竟这样的sql需要重视。
+
+4. 分页插件不支持嵌套结果映射
+
+由于嵌套结果方式会导致结果集被折叠，因此分页查询的结果在折叠后总数会减少，所以无法保证分页结果数量正确。
+## 40.6 PageHelper的配置方式
+### 40.6.1. Maven 依赖配置
+- 传统spring/非spring项目
+```xml
+<dependency>
+    <groupId>com.github.pagehelper</groupId>
+    <artifactId>pagehelper</artifactId>
+    <version>5.3.2</version>
+</dependency>
+```
+- springboot专属推荐
+```xml
+<dependency>
+    <groupId>com.github.pagehelper</groupId>
+    <artifactId>pagehelper-spring-boot-starter</artifactId>
+    <version>1.4.2</version>
+</dependency>
+```
+
+### 40.6.2. Spring Boot 配置（推荐）
+
+在 `application.yml` 或 `application.properties` 中配置：
+
+### YAML 配置方式
+```yaml
+# application.yml
+pagehelper:
+  helper-dialect: mysql
+  reasonable: true
+  support-methods-arguments: true
+  params: count=countSql
+  auto-runtime-dialect: true
+```
+
+### Properties 配置方式
+```properties
+# application.properties
+pagehelper.helper-dialect=mysql
+pagehelper.reasonable=true
+pagehelper.support-methods-arguments=true
+pagehelper.params=count=countSql
+pagehelper.auto-runtime-dialect=true
+```
+
+### 40.6.3. 传统 Spring 配置
+
+### XML 配置方式
+```xml
+<bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+    <property name="dataSource" ref="dataSource"/>
+    <property name="plugins">
+        <array>
+            <bean class="com.github.pagehelper.PageInterceptor">
+                <property name="properties">
+                    <props>
+                        <prop key="helperDialect">mysql</prop>
+                        <prop key="reasonable">true</prop>
+                        <prop key="supportMethodsArguments">true</prop>
+                        <prop key="params">count=countSql</prop>
+                    </props>
+                </property>
+            </bean>
+        </array>
+    </property>
+</bean>
+```
+
+### Java Config 配置方式
+```java
+@Configuration
+public class MyBatisConfig {
+    
+    @Bean
+    public PageInterceptor pageInterceptor() {
+        PageInterceptor pageInterceptor = new PageInterceptor();
+        Properties properties = new Properties();
+        properties.setProperty("helperDialect", "mysql");
+        properties.setProperty("reasonable", "true");
+        properties.setProperty("supportMethodsArguments", "true");
+        properties.setProperty("params", "count=countSql");
+        pageInterceptor.setProperties(properties);
+        return pageInterceptor;
+    }
+}
+```
+
+### 40.6.4. MyBatis 原生配置
+
+在 `mybatis-config.xml` 中配置：
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE configuration PUBLIC "-//mybatis.org//DTD Config 3.0//EN" 
+        "http://mybatis.org/dtd/mybatis-3-config.dtd">
+<configuration>
+    <plugins>
+        <plugin interceptor="com.github.pagehelper.PageInterceptor">
+            <property name="helperDialect" value="mysql"/>
+            <property name="reasonable" value="true"/>
+            <property name="supportMethodsArguments" value="true"/>
+            <property name="params" value="count=countSql"/>
+        </plugin>
+    </plugins>
+</configuration>
+```
+
+### 40.6.5. 主要配置参数说明
+
+| 参数名 | 默认值 | 说明 |
+|--------|--------|------|
+| `helperDialect` | - | **必须配置**，数据库方言：mysql, oracle, db2, postgresql, sqlserver 等 |
+| `reasonable` | false | 分页合理化参数，当 pageNum < 1 时查询第一页，pageNum > pages 时查询最后一页 |
+| `supportMethodsArguments` | false | 支持通过 Mapper 接口参数来传递分页参数 |
+| `params` | - | 用于从对象中根据属性名取值，可配置 pageNum, pageSize, count 等 |
+| `autoRuntimeDialect` | false | 多数据源时自动获取对应数据库方言 |
+| `autoDialect` | true | 自动获取数据库方言 |
+| `closeConn` | true | 当使用运行时动态数据源时，自动关闭连接 |
+
+### 40.6.6. 完整配置示例
+
+```yaml
+# 完整的 PageHelper 配置示例
+pagehelper:
+  # 数据库方言（必须）
+  helper-dialect: mysql
+  # 分页合理化
+  reasonable: true
+  # 支持方法参数
+  support-methods-arguments: true
+  # 参数映射
+  params: count=countSql
+  # 多数据源自动检测
+  auto-runtime-dialect: true
+  # 默认分页参数
+  page-size-zero: true
+  # 溢出总页数后处理
+  reasonable: true
+  # 默认页码参数名
+  offset-as-page-num: false
+  # RowBounds参数模式
+  row-bounds-with-count: false
+```
+
+### 40.6.7. 注意事项
+
+1. **必须配置数据库方言**：`helperDialect` 参数是必须的
+2. **调用顺序**：`PageHelper.startPage()` 必须在执行查询**之前**调用
+3. **线程安全**：PageHelper 使用了 ThreadLocal，所以是线程安全的
+4. **仅对第一个查询有效**：`startPage` 后执行的第一个 MyBatis 查询方法会被分页
+
+### 40.6.8. 验证配置是否成功
+
+```java
+@SpringBootTest
+class PageHelperTest {
+    
+    @Autowired
+    private UserMapper userMapper;
+    
+    @Test
+    void testPageHelper() {
+        // 第1页，每页10条
+        PageHelper.startPage(1, 10);
+        List<User> users = userMapper.selectAll();
+        
+        // 使用PageInfo包装结果
+        PageInfo<User> pageInfo = new PageInfo<>(users);
+        
+        System.out.println("总记录数: " + pageInfo.getTotal());
+        System.out.println("总页数: " + pageInfo.getPages());
+        System.out.println("当前页: " + pageInfo.getPageNum());
+        System.out.println("每页大小: " + pageInfo.getPageSize());
+    }
+}
+```
+# 四十一、SpringBoot集成MySQL - MyBatis 多个数据源
+> 前文介绍的SpringBoot集成单个MySQL数据库的情形，那么什么场景会使用多个数据源以及什么场景会需要多个数据源的动态切换呢？本文主要介绍上述场景及SpringBoot+MyBatis实现多个数据源的方案和示例。
+
+## 41.1 知识准备
+### 41.1.1 什么场景会出现多个数据源？
+> 一般而言有如下几种出现多数据源的场景。
+- 场景一：不同的业务涉及的表位于不同的数据库
+
+随着业务的拓展，模块解耦，服务化的拆分等，不同的业务涉及的表会放在不同的数据库中。
+- 场景二：主库和从库分离（读写分离）
+- 场景三：数据库的分片
+- 场景四：多租户隔离
+
+所有数据库表结构一致，只是不同客户的数据放在不同数据库中，通过数据库名对不同客户的数据隔离。这种场景有一个典型的叫法：多租户。
+
+(PS：除了这种多租户除了用不同的数据库隔离不同客户数据外，还会通过额外的表字段隔离（比如tenant_id字段，不同的tenant_id表示不同的客户）)
+### 41.1.2 常见的多数据源的实现思路？
+> 应对上述出现的场景，多数据源方式如何实现呢？
+- 针对场景一：不同的业务涉及的表位于不同的数据库
+  - 首先，出现这种场景且在一个模块中设计多数据源时，需要考虑当前架构的合理性，因为从设计的角度而言不同的业务拆分需要对应着不同的服务/模块。
+  - 其次，我们会考虑不同的package去隔离，不同的数据源放在不同的包下的代码中。
+- 针对场景二：主库和从库分离（读写分离）
+  - 这种场景下我们叫动态数据源，通常方式使用AOP方式拦截+ThreadLocal切换。（本文的示例主要针对这种场景）
+
+## 41.2 SpringBoot + MyBatis 多数据源集成方案
+
+针对你提到的两种场景，我将分别给出完整的集成方案。每个方案都包含完整的代码示例和配置。
+
+### 41.2.1 场景一：基于包隔离的多数据源（不同业务不同数据库）
+
+这种方案适用于不同的业务模块使用不同的数据库，通过包路径来隔离不同的数据源。
+
+#### 41.2.1.1. 项目结构和依赖
+
+##### Maven 依赖 (pom.xml)
+```xml
+<dependencies>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.mybatis.spring.boot</groupId>
+        <artifactId>mybatis-spring-boot-starter</artifactId>
+        <version>2.3.1</version>
+    </dependency>
+    <dependency>
+        <groupId>mysql</groupId>
+        <artifactId>mysql-connector-java</artifactId>
+        <scope>runtime</scope>
+    </dependency>
+</dependencies>
+```
+
+##### 项目结构
+```
+src/main/java/com/example/multids/
+├── config/
+│   ├── PrimaryDataSourceConfig.java
+│   └── SecondaryDataSourceConfig.java
+├── primary/
+│   ├── entity/User.java
+│   ├── mapper/UserMapper.java
+│   └── service/UserService.java
+├── secondary/
+│   ├── entity/Product.java
+│   ├── mapper/ProductMapper.java
+│   └── service/ProductService.java
+└── MultiDsApplication.java
+```
+
+#### 41.2.1.2. 配置文件 (application.yml)
+```yaml
+spring:
+  datasource:
+    primary:
+      jdbc-url: jdbc:mysql://localhost:3306/db_primary?useSSL=false&serverTimezone=UTC
+      username: root
+      password: 123456
+      driver-class-name: com.mysql.cj.jdbc.Driver
+    secondary:
+      jdbc-url: jdbc:mysql://localhost:3306/db_secondary?useSSL=false&serverTimezone=UTC
+      username: root
+      password: 123456
+      driver-class-name: com.mysql.cj.jdbc.Driver
+
+# MyBatis配置
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.example.multids.**.entity
+```
+
+#### 41.2.1.3. 数据源配置类
+
+##### 主数据源配置
+```java
+package com.example.multids.config;
+
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.mybatis.spring.SqlSessionFactoryBean;
+import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.jdbc.DataSourceBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+
+import javax.sql.DataSource;
+
+@Configuration
+@MapperScan(
+    basePackages = "com.example.multids.primary.mapper",
+    sqlSessionFactoryRef = "primarySqlSessionFactory"
+)
+public class PrimaryDataSourceConfig {
+
+    @Bean
+    @Primary
+    @ConfigurationProperties(prefix = "spring.datasource.primary")
+    public DataSource primaryDataSource() {
+        return DataSourceBuilder.create().build();
+    }
+
+    @Bean
+    @Primary
+    public SqlSessionFactory primarySqlSessionFactory() throws Exception {
+        SqlSessionFactoryBean sessionFactory = new SqlSessionFactoryBean();
+        sessionFactory.setDataSource(primaryDataSource());
+        sessionFactory.setMapperLocations(
+            new PathMatchingResourcePatternResolver()
+                .getResources("classpath:mapper/primary/*.xml")
+        );
+        return sessionFactory.getObject();
+    }
+}
+```
+
+##### 从数据源配置
+```java
+package com.example.multids.config;
+
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.mybatis.spring.SqlSessionFactoryBean;
+import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.jdbc.DataSourceBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+
+import javax.sql.DataSource;
+
+@Configuration
+@MapperScan(
+    basePackages = "com.example.multids.secondary.mapper",
+    sqlSessionFactoryRef = "secondarySqlSessionFactory"
+)
+public class SecondaryDataSourceConfig {
+
+    @Bean
+    @ConfigurationProperties(prefix = "spring.datasource.secondary")
+    public DataSource secondaryDataSource() {
+        return DataSourceBuilder.create().build();
+    }
+
+    @Bean
+    public SqlSessionFactory secondarySqlSessionFactory() throws Exception {
+        SqlSessionFactoryBean sessionFactory = new SqlSessionFactoryBean();
+        sessionFactory.setDataSource(secondaryDataSource());
+        sessionFactory.setMapperLocations(
+            new PathMatchingResourcePatternResolver()
+                .getResources("classpath:mapper/secondary/*.xml")
+        );
+        return sessionFactory.getObject();
+    }
+}
+```
+
+#### 41.2.1.4. 实体类和Mapper
+
+##### 主数据源相关
+```java
+// User.java
+package com.example.multids.primary.entity;
+
+public class User {
+    private Long id;
+    private String name;
+    private String email;
+    // getter/setter省略
+}
+
+// UserMapper.java
+package com.example.multids.primary.mapper;
+
+import com.example.multids.primary.entity.User;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Select;
+import java.util.List;
+
+@Mapper
+public interface UserMapper {
+    @Select("SELECT * FROM user")
+    List<User> findAll();
+    
+    @Select("SELECT * FROM user WHERE id = #{id}")
+    User findById(Long id);
+}
+
+// UserService.java
+package com.example.multids.primary.service;
+
+import com.example.multids.primary.entity.User;
+import com.example.multids.primary.mapper.UserMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import java.util.List;
+
+@Service
+public class UserService {
+    
+    @Autowired
+    private UserMapper userMapper;
+    
+    public List<User> getAllUsers() {
+        return userMapper.findAll();
+    }
+    
+    public User getUserById(Long id) {
+        return userMapper.findById(id);
+    }
+}
+```
+
+##### 从数据源相关
+```java
+// Product.java
+package com.example.multids.secondary.entity;
+
+public class Product {
+    private Long id;
+    private String name;
+    private Double price;
+    // getter/setter省略
+}
+
+// ProductMapper.java
+package com.example.multids.secondary.mapper;
+
+import com.example.multids.secondary.entity.Product;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Select;
+import java.util.List;
+
+@Mapper
+public interface ProductMapper {
+    @Select("SELECT * FROM product")
+    List<Product> findAll();
+    
+    @Select("SELECT * FROM product WHERE id = #{id}")
+    Product findById(Long id);
+}
+
+// ProductService.java
+package com.example.multids.secondary.service;
+
+import com.example.multids.secondary.entity.Product;
+import com.example.multids.secondary.mapper.ProductMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import java.util.List;
+
+@Service
+public class ProductService {
+    
+    @Autowired
+    private ProductMapper productMapper;
+    
+    public List<Product> getAllProducts() {
+        return productMapper.findAll();
+    }
+    
+    public Product getProductById(Long id) {
+        return productMapper.findById(id);
+    }
+}
+```
+
+#### 41.2.1.5. 控制器测试
+```java
+package com.example.multids.controller;
+
+import com.example.multids.primary.entity.User;
+import com.example.multids.primary.service.UserService;
+import com.example.multids.secondary.entity.Product;
+import com.example.multids.secondary.service.ProductService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import java.util.List;
+
+@RestController
+public class TestController {
+    
+    @Autowired
+    private UserService userService;
+    
+    @Autowired
+    private ProductService productService;
+    
+    @GetMapping("/users")
+    public List<User> getUsers() {
+        return userService.getAllUsers();
+    }
+    
+    @GetMapping("/products")
+    public List<Product> getProducts() {
+        return productService.getAllProducts();
+    }
+}
+```
+
+### 41.2.2 场景二：动态数据源切换（读写分离）
+
+这种方案适用于主从数据库分离的场景，通过AOP动态切换数据源。
+
+#### 41.2.2.1. 项目结构和依赖
+
+##### Maven 依赖 (pom.xml) - 额外添加AOP依赖
+```xml
+<dependencies>
+    <!-- 其他依赖同上 -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-aop</artifactId>
+    </dependency>
+</dependencies>
+```
+
+##### 项目结构
+```
+src/main/java/com/example/dynamicds/
+├── config/
+│   ├── DataSourceConfig.java
+│   ├── DynamicDataSource.java
+│   └── DataSourceAspect.java
+├── annotation/
+│   └── DataSource.java
+├── entity/User.java
+├── mapper/UserMapper.java
+├── service/UserService.java
+└── DynamicDsApplication.java
+```
+
+#### 41.2.2.2. 配置文件 (application.yml)
+```yaml
+spring:
+  datasource:
+    master:
+      jdbc-url: jdbc:mysql://localhost:3306/db_master?useSSL=false&serverTimezone=UTC
+      username: root
+      password: 123456
+      driver-class-name: com.mysql.cj.jdbc.Driver
+    slave:
+      jdbc-url: jdbc:mysql://localhost:3306/db_slave?useSSL=false&serverTimezone=UTC
+      username: root
+      password: 123456
+      driver-class-name: com.mysql.cj.jdbc.Driver
+
+# MyBatis配置
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.example.dynamicds.entity
+```
+
+#### 41.2.2.3. 数据源注解和上下文
+
+##### 数据源注解
+```java
+package com.example.dynamicds.annotation;
+
+import java.lang.annotation.*;
+
+@Target({ElementType.METHOD, ElementType.TYPE})
+@Retention(RetentionPolicy.RUNTIME)
+@Documented
+public @interface DataSource {
+    String value() default "master"; // 默认主库
+}
+```
+
+##### 数据源上下文（ThreadLocal）
+```java
+package com.example.dynamicds.config;
+
+public class DataSourceContextHolder {
+    private static final ThreadLocal<String> CONTEXT_HOLDER = new ThreadLocal<>();
+    
+    public static void setDataSource(String dataSource) {
+        CONTEXT_HOLDER.set(dataSource);
+    }
+    
+    public static String getDataSource() {
+        return CONTEXT_HOLDER.get();
+    }
+    
+    public static void clearDataSource() {
+        CONTEXT_HOLDER.remove();
+    }
+}
+```
+
+##### 41.2.2.4. 动态数据源配置
+
+##### 动态数据源类
+```java
+package com.example.dynamicds.config;
+
+import org.springframework.jdbc.datasource.lookup.AbstractRoutingDataSource;
+import javax.sql.DataSource;
+import java.util.Map;
+
+public class DynamicDataSource extends AbstractRoutingDataSource {
+    
+    @Override
+    protected Object determineCurrentLookupKey() {
+        return DataSourceContextHolder.getDataSource();
+    }
+    
+    // 设置默认数据源
+    public void setDefaultDataSource(Object defaultDataSource) {
+        super.setDefaultTargetDataSource(defaultDataSource);
+    }
+    
+    // 设置目标数据源
+    public void setTargetDataSources(Map<Object, Object> targetDataSources) {
+        super.setTargetDataSources(targetDataSources);
+    }
+}
+```
+
+##### 数据源配置类
+```java
+package com.example.dynamicds.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.jdbc.DataSourceBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+
+import javax.sql.DataSource;
+import java.util.HashMap;
+import java.util.Map;
+
+@Configuration
+public class DataSourceConfig {
+
+    @Bean
+    @ConfigurationProperties(prefix = "spring.datasource.master")
+    public DataSource masterDataSource() {
+        return DataSourceBuilder.create().build();
+    }
+
+    @Bean
+    @ConfigurationProperties(prefix = "spring.datasource.slave")
+    public DataSource slaveDataSource() {
+        return DataSourceBuilder.create().build();
+    }
+
+    @Bean
+    @Primary
+    public DataSource dynamicDataSource() {
+        DynamicDataSource dynamicDataSource = new DynamicDataSource();
+        
+        // 配置多数据源
+        Map<Object, Object> dataSourceMap = new HashMap<>();
+        dataSourceMap.put("master", masterDataSource());
+        dataSourceMap.put("slave", slaveDataSource());
+        
+        dynamicDataSource.setTargetDataSources(dataSourceMap);
+        dynamicDataSource.setDefaultTargetDataSource(masterDataSource());
+        
+        return dynamicDataSource;
+    }
+}
+```
+
+##### 41.2.2.5. AOP切面配置
+
+```java
+package com.example.dynamicds.config;
+
+import com.example.dynamicds.annotation.DataSource;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.reflect.MethodSignature;
+import org.springframework.stereotype.Component;
+
+import java.lang.reflect.Method;
+
+@Aspect
+@Component
+public class DataSourceAspect {
+
+    @Around("@annotation(com.example.dynamicds.annotation.DataSource)")
+    public Object around(ProceedingJoinPoint point) throws Throwable {
+        MethodSignature signature = (MethodSignature) point.getSignature();
+        Method method = signature.getMethod();
+        
+        DataSource dataSource = method.getAnnotation(DataSource.class);
+        if (dataSource != null) {
+            DataSourceContextHolder.setDataSource(dataSource.value());
+        }
+        
+        try {
+            return point.proceed();
+        } finally {
+            DataSourceContextHolder.clearDataSource();
+        }
+    }
+}
+```
+
+#### 41.2.2.6. MyBatis配置
+
+```java
+package com.example.dynamicds.config;
+
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.mybatis.spring.SqlSessionFactoryBean;
+import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+
+import javax.sql.DataSource;
+
+@Configuration
+@MapperScan("com.example.dynamicds.mapper")
+public class MyBatisConfig {
+
+    @Bean
+    public SqlSessionFactory sqlSessionFactory(DataSource dataSource) throws Exception {
+        SqlSessionFactoryBean sessionFactory = new SqlSessionFactoryBean();
+        sessionFactory.setDataSource(dataSource);
+        sessionFactory.setMapperLocations(
+            new PathMatchingResourcePatternResolver()
+                .getResources("classpath:mapper/*.xml")
+        );
+        return sessionFactory.getObject();
+    }
+}
+```
+
+#### 41.2.2.7. 业务代码示例
+
+```java
+// User.java
+package com.example.dynamicds.entity;
+
+public class User {
+    private Long id;
+    private String name;
+    private String email;
+    // getter/setter省略
+}
+
+// UserMapper.java
+package com.example.dynamicds.mapper;
+
+import com.example.dynamicds.entity.User;
+import org.apache.ibatis.annotations.*;
+
+import java.util.List;
+
+@Mapper
+public interface UserMapper {
+    
+    @Select("SELECT * FROM user WHERE id = #{id}")
+    User findById(Long id);
+    
+    @Select("SELECT * FROM user")
+    List<User> findAll();
+    
+    @Insert("INSERT INTO user(name, email) VALUES(#{name}, #{email})")
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insert(User user);
+    
+    @Update("UPDATE user SET name=#{name}, email=#{email} WHERE id=#{id}")
+    int update(User user);
+    
+    @Delete("DELETE FROM user WHERE id=#{id}")
+    int delete(Long id);
+}
+
+// UserService.java
+package com.example.dynamicds.service;
+
+import com.example.dynamicds.annotation.DataSource;
+import com.example.dynamicds.entity.User;
+import com.example.dynamicds.mapper.UserMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+@Service
+public class UserService {
+    
+    @Autowired
+    private UserMapper userMapper;
+    
+    // 读操作使用从库
+    @DataSource("slave")
+    public User getUserById(Long id) {
+        return userMapper.findById(id);
+    }
+    
+    // 读操作使用从库
+    @DataSource("slave")
+    public List<User> getAllUsers() {
+        return userMapper.findAll();
+    }
+    
+    // 写操作使用主库
+    @DataSource("master")
+    @Transactional
+    public void addUser(User user) {
+        userMapper.insert(user);
+    }
+    
+    // 写操作使用主库
+    @DataSource("master")
+    @Transactional
+    public void updateUser(User user) {
+        userMapper.update(user);
+    }
+    
+    // 写操作使用主库
+    @DataSource("master")
+    @Transactional
+    public void deleteUser(Long id) {
+        userMapper.delete(id);
+    }
+}
+```
+
+#### 41.2.2.8. 控制器测试
+```java
+package com.example.dynamicds.controller;
+
+import com.example.dynamicds.entity.User;
+import com.example.dynamicds.service.UserService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/users")
+public class UserController {
+    
+    @Autowired
+    private UserService userService;
+    
+    @GetMapping("/{id}")
+    public User getUser(@PathVariable Long id) {
+        return userService.getUserById(id);
+    }
+    
+    @GetMapping
+    public List<User> getUsers() {
+        return userService.getAllUsers();
+    }
+    
+    @PostMapping
+    public String addUser(@RequestBody User user) {
+        userService.addUser(user);
+        return "success";
+    }
+    
+    @PutMapping
+    public String updateUser(@RequestBody User user) {
+        userService.updateUser(user);
+        return "success";
+    }
+    
+    @DeleteMapping("/{id}")
+    public String deleteUser(@PathVariable Long id) {
+        userService.deleteUser(id);
+        return "success";
+    }
+}
+```
+
+### 41.2.3 方案总结
+
+#### 场景一方案（包隔离）特点：
+- **优点**：结构清晰，不同数据源的代码完全隔离，易于维护
+- **缺点**：不支持动态切换，每个Mapper固定绑定一个数据源
+- **适用场景**：业务模块明确分离，不同模块使用不同数据库
+
+#### 场景二方案（动态切换）特点：
+- **优点**：灵活性强，支持运行时动态切换数据源
+- **缺点**：配置相对复杂，需要处理线程安全和事务问题
+- **适用场景**：读写分离、多租户等需要动态切换数据源的场景
+## 41.3 进一步讲解多数据源切换
+- SpringBoot + MyBatis 多数据源实现原理详解
+
+### 两种方案的实现原理对比
+
+#### 方案一：基于包隔离的多数据源（静态绑定）
+
+##### 核心原理：**编译时绑定**
+- 在应用启动时，通过不同的配置类为不同的包路径创建独立的`SqlSessionFactory`
+- 每个Mapper接口在编译时就确定了使用哪个数据源
+- **本质是创建了多个独立的MyBatis会话工厂**
+
+##### 涉及的核心概念：
+
+1. **@ConfigurationProperties**
+
+`@ConfigurationProperties(prefix = "spring.datasource.slave")`这个注解的作用是将配置文件中的属性值自动绑定到Java Bean的属性上。
+   ```java
+   @ConfigurationProperties(prefix = "spring.datasource.primary")
+   public DataSource primaryDataSource() {
+       return DataSourceBuilder.create().build();
+   }
+   ```
+   - **作用**：将配置文件中的属性映射到DataSource对象
+   - **原理**：Spring Boot的属性绑定机制
+
+2. **@MapperScan**
+   ```java
+   @MapperScan(
+       basePackages = "com.example.multids.primary.mapper",
+       sqlSessionFactoryRef = "primarySqlSessionFactory"
+   )
+   ```
+   - **作用**：指定特定包下的Mapper使用特定的SqlSessionFactory
+   - **原理**：MyBatis-Spring的扫描注册机制
+
+3. **SqlSessionFactoryBean**
+   ```java
+   SqlSessionFactoryBean sessionFactory = new SqlSessionFactoryBean();
+   sessionFactory.setDataSource(primaryDataSource());
+   ```
+   - **作用**：创建MyBatis的会话工厂
+   - **原理**：每个SqlSessionFactory绑定一个特定的DataSource
+
+##### 工作流程：
+```
+应用启动 → 创建多个DataSource Bean → 为每个DataSource创建SqlSessionFactory → 
+Mapper扫描注册 → 不同包的Mapper绑定到不同的SqlSessionFactory → 
+业务调用时直接使用绑定的数据源
+```
+
+#### 方案二：动态数据源切换（运行时切换）
+
+##### 核心原理：**运行时动态路由**
+- 创建一个**路由数据源**，在每次数据库操作时动态决定使用哪个具体数据源
+- 通过AOP在方法执行前设置数据源标识，方法执行后清理
+- **本质是数据源的路由和代理模式**
+
+##### 涉及的核心概念：
+
+1. **AbstractRoutingDataSource（核心类）**
+   ```java
+   public class DynamicDataSource extends AbstractRoutingDataSource {
+       protected Object determineCurrentLookupKey() {
+           return DataSourceContextHolder.getDataSource();
+       }
+   }
+   ```
+   - **作用**：Spring提供的抽象路由数据源，根据key动态选择数据源
+   - **原理**：模板方法模式，在每次获取连接时调用`determineCurrentLookupKey()`
+
+2. **ThreadLocal（线程隔离）**
+   ```java
+   public class DataSourceContextHolder {
+       private static final ThreadLocal<String> CONTEXT_HOLDER = new ThreadLocal<>();
+   }
+   ```
+   - **作用**：在每个线程中独立存储数据源标识
+   - **原理**：线程本地存储，确保多线程环境下的数据隔离
+
+3. **AOP切面编程**
+   ```java
+   @Around("@annotation(com.example.dynamicds.annotation.DataSource)")
+   public Object around(ProceedingJoinPoint point) throws Throwable {
+       // 方法执行前设置数据源
+       // 方法执行后清理数据源
+   }
+   ```
+   - **作用**：拦截方法调用，在方法执行前后处理数据源切换逻辑
+   - **原理**：动态代理和环绕通知
+
+##### 工作流程：
+```
+方法调用 → AOP拦截 → 读取@DataSource注解 → 设置ThreadLocal数据源标识 → 
+AbstractRoutingDataSource.determineCurrentLookupKey()获取标识 → 
+路由到具体数据源 → 执行数据库操作 → 清理ThreadLocal标识
+```
+
+### 关键逻辑概念详解
+
+#### 1. 数据源路由机制（方案二的核心）
+
+```java
+// Spring框架的AbstractRoutingDataSource源码逻辑
+public abstract class AbstractRoutingDataSource extends AbstractDataSource {
+    
+    private Map<Object, Object> targetDataSources;  // 存储所有数据源的映射
+    private Object defaultTargetDataSource;         // 默认数据源
+    
+    public Connection getConnection() throws SQLException {
+        return determineTargetDataSource().getConnection();
+    }
+    
+    protected DataSource determineTargetDataSource() {
+        Object lookupKey = determineCurrentLookupKey();  // 获取路由key
+        DataSource dataSource = this.targetDataSources.get(lookupKey);
+        if (dataSource == null) {
+            dataSource = this.defaultTargetDataSource;   // 使用默认数据源
+        }
+        return dataSource;
+    }
+    
+    protected abstract Object determineCurrentLookupKey();  // 抽象方法，由子类实现
+}
+```
+
+#### 2. ThreadLocal的工作原理
+
+```java
+// ThreadLocal的简化实现逻辑
+public class ThreadLocal<T> {
+    // 每个线程都有自己的ThreadLocalMap
+    public void set(T value) {
+        Thread currentThread = Thread.currentThread();
+        ThreadLocalMap map = getMap(currentThread);
+        map.set(this, value);  // 以ThreadLocal实例为key存储值
+    }
+    
+    public T get() {
+        Thread currentThread = Thread.currentThread();
+        ThreadLocalMap map = getMap(currentThread);
+        return map.get(this);  // 从当前线程的map中获取值
+    }
+}
+```
+
+#### 3. AOP拦截的执行时序
+
+```
+1. 方法调用开始
+2. AOP切面拦截方法执行
+3. 读取方法上的@DataSource注解值
+4. DataSourceContextHolder.setDataSource("slave")
+5. 执行目标方法
+6. MyBatis获取数据库连接时调用determineCurrentLookupKey()
+7. 返回"slave"，路由到从库数据源
+8. 执行SQL操作
+9. AOP切面清理：DataSourceContextHolder.clearDataSource()
+10. 方法执行结束
+```
+
+### 两种方案的适用场景深度分析
+
+#### 方案一（包隔离）的适用场景：
+
+**架构特点**：
+- 业务模块边界清晰
+- 数据访问模式固定
+- 不需要跨数据源的事务
+
+**技术实现优势**：
+- 编译期就能发现配置错误
+- 性能更好（没有运行时路由开销）
+- 调试更容易（数据源关系明确）
+
+#### 方案二（动态切换）的适用场景：
+
+**架构特点**：
+- 需要根据业务逻辑动态选择数据源
+- 读写分离场景
+- 多租户数据隔离
+- A/B测试数据路由
+
+**技术实现挑战**：
+- **事务管理复杂**：在事务中切换数据源可能不生效
+- **连接泄漏风险**：必须确保ThreadLocal的清理
+- **性能开销**：每次数据库操作都需要路由判断
+
+### 重要注意事项
+
+#### 1. 事务管理的问题（方案二）
+```java
+@Service
+public class UserService {
+    
+    @DataSource("slave")  // 这个注解在事务中可能不生效！
+    @Transactional
+    public User getUserWithTransaction(Long id) {
+        // 因为@Transactional会先于@DataSource执行
+        // 数据源在事务开始时已经确定，后续切换无效
+        return userMapper.findById(id);
+    }
+}
+```
+
+**解决方案**：
+- 使用`TransactionSynchronizationManager`判断当前是否有事务
+- 在事务环境下使用主数据源
+- 或者使用更复杂的事务管理器
+
+#### 2. 连接池管理
+两种方案都需要注意连接池配置：
+```yaml
+spring:
+  datasource:
+    master:
+      hikari:
+        maximum-pool-size: 20
+        minimum-idle: 5
+    slave:
+      hikari:
+        maximum-pool-size: 15
+        minimum-idle: 3
+```
+
+#### 3. 健康检查（方案二）
+动态数据源需要自定义健康检查：
+```java
+@Component
+public class DynamicDataSourceHealthIndicator implements HealthIndicator {
+    
+    @Autowired
+    private DynamicDataSource dynamicDataSource;
+    
+    @Override
+    public Health health() {
+        // 检查所有数据源的健康状态
+        // 返回组合的健康信息
+    }
+}
+```
+
+### 总结
+
+**方案一（包隔离）**：通过**编译时绑定**实现数据源隔离，适合业务模块明确分离的场景。
+
+**方案二（动态切换）**：通过**运行时路由**实现数据源切换，适合需要灵活切换的场景。
+
+**选择建议**：
+- 如果业务模块边界清晰，优先选择方案一（更简单稳定）
+- 如果需要读写分离或多租户，选择方案二（更灵活）
+- 在方案二中要特别注意事务和线程安全的问题
+
+两种方案都体现了Spring框架的扩展性和MyBatis的灵活性，理解其底层原理有助于在实际项目中做出更好的架构决策。
+# 四十二、SpringBoot集成MySQL - MyBatis-Plus方式
+> MyBatis-Plus（简称 MP）是一个 MyBatis的增强工具，在 MyBatis 的基础上只做增强不做改变，为简化开发、提高效率而生。MyBatis-Plus在国内也有很多的用户，本文主要介绍MyBatis-Plus和SpringBoot的集成。
+## 42.1 知识准备
+> MyBatis-Plus（简称 MP）是一个 MyBatis的增强工具，在 MyBatis 的基础上只做增强不做改变，为简化开发、提高效率而生。
+
+### 42.1.1 为什么会诞生MyBatis-Plus？
+1. **考虑到MyBatis是半自动化OR**M，MyBatis-Plus 启动即会自动注入基本 CURD，性能基本无损耗，直接面向对象操作; 并且内置通用 Mapper、通用 Service，仅仅通过少量配置即可实现单表大部分 CRUD 操作，更有强大的条件构造器，满足各类使用需求；总体上让其支持全自动化的使用方式（本质上借鉴了Hibernate思路）。
+2. **考虑到Java8 Lambda（函数式编程）开始流行**，MyBatis-Plus支持 Lambda 表达式，方便的编写各类查询条件，无需再担心字段写错
+3. **考虑到MyBatis还需要独立引入PageHelper分页插件**，MyBatis-Plus支持了内置分页插件，同PageHelper一样基于 MyBatis 物理分页，开发者无需关心具体操作，配置好插件之后，写分页等同于普通 List 查询
+4. **考虑到自动化代码生成方式**，MyBatis-Plus也支持了内置代码生成器，采用代码或者 Maven 插件可快速生成 Mapper 、 Model 、 Service 、 Controller 层代码，支持模板引擎，更有超多自定义配置等您来使用
+5. **考虑到SQL性能优化等问题**，MyBatis-Plus内置性能分析插件, 可输出 SQL 语句以及其执行时间，建议开发测试时启用该功能，能快速揪出慢查询
+6. 其它还有解决一些常见开发问题，比如**支持主键自动生成**，支持4 种主键策略（内含分布式唯一 ID 生成器 - Sequence），可自由配置，完美解决主键问题；以及**内置全局拦截插件**，提供全表 delete 、 update 操作智能分析阻断，也可自定义拦截规则，预防误操作
+### 42.1.2 支持数据库
+任何能使用 MyBatis 进行 CRUD, 并且支持标准 SQL 的数据库，具体支持情况如下：
+- MySQL，Oracle，DB2，H2，HSQL，SQLite，PostgreSQL，SQLServer，Phoenix，Gauss ，ClickHouse，Sybase，OceanBase，Firebird，Cubrid，Goldilocks，csiidb
+- 达梦数据库，虚谷数据库，人大金仓数据库，南大通用(华库)数据库，南大通用数据库，神通数据库，瀚高数据库
+### 42.1.3 整体架构
+![167.springboot-mybatis-plus-1.jpeg](../../assets/images/04-主流框架/spring/167.springboot-mybatis-plus-1.jpeg)
+## 42.2 简单示例
+### 42.2.1 数据库准备
+
+创建MySQL数据库`test_db`，并导入以下SQL文件：
+
+```sql
+-- MySQL dump 10.13  Distrib 5.7.12, for Win64 (x86_64)
+--
+-- Host: localhost    Database: test_db
+-- ------------------------------------------------------
+-- Server version	5.7.17-log
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!40101 SET NAMES utf8 */;
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `tb_role`
+--
+
+DROP TABLE IF EXISTS `tb_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_role` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) NOT NULL,
+  `role_key` varchar(255) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_role`
+--
+
+LOCK TABLES `tb_role` WRITE;
+/*!40000 ALTER TABLE `tb_role` DISABLE KEYS */;
+INSERT INTO `tb_role` VALUES (1,'admin','admin','admin','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_role` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user`
+--
+
+DROP TABLE IF EXISTS `tb_user`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_user` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_name` varchar(45) NOT NULL,
+  `password` varchar(45) NOT NULL,
+  `email` varchar(45) DEFAULT NULL,
+  `phone_number` int(11) DEFAULT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user`
+--
+
+LOCK TABLES `tb_user` WRITE;
+/*!40000 ALTER TABLE `tb_user` DISABLE KEYS */;
+INSERT INTO `tb_user` VALUES (1,'pdai','dfasdf','suzhou.daipeng@gmail.com',1212121213,'afsdfsaf','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_user` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user_role`
+--
+
+DROP TABLE IF EXISTS `tb_user_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_user_role` (
+  `user_id` int(11) NOT NULL,
+  `role_id` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user_role`
+--
+
+LOCK TABLES `tb_user_role` WRITE;
+/*!40000 ALTER TABLE `tb_user_role` DISABLE KEYS */;
+INSERT INTO `tb_user_role` VALUES (1,1);
+/*!40000 ALTER TABLE `tb_user_role` ENABLE KEYS */;
+UNLOCK TABLES;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
+
+-- Dump completed on 2021-09-08 17:12:11
+```
+
+### 42.2.2 依赖配置
+
+在`pom.xml`中引入以下Maven依赖：
+
+```xml
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>8.0.28</version>
+</dependency>
+<dependency>
+    <groupId>com.baomidou</groupId>
+    <artifactId>mybatis-plus-boot-starter</artifactId>
+    <version>3.5.1</version>
+</dependency>
+```
+
+### 42.2.3 应用配置
+
+在`application.yml`中配置数据源和MyBatis-Plus：
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/test_db?useSSL=false&autoReconnect=true&characterEncoding=utf8
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: bfXa4Pt2lUUScy8jakXf
+
+mybatis-plus:
+  configuration:
+    cache-enabled: true
+    use-generated-keys: true
+    default-executor-type: REUSE
+    use-actual-param-name: true
+```
+
+### 42.2.4 DAO层定义
+
+#### 42.2.4.1 RoleDao
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno.dao;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.Role;
+
+/**
+ * @author pdai
+ */
+public interface IRoleDao extends BaseMapper<Role> {
+}
+```
+
+#### 42.2.4.2 UserDao
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno.dao;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.User;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.query.UserQueryBean;
+
+import java.util.List;
+
+/**
+ * @author pdai
+ */
+public interface IUserDao extends BaseMapper<User> {
+
+    List<User> findList(UserQueryBean userQueryBean);
+}
+```
+
+#### 42.2.4.3 UserDao XML映射配置
+
+`IUserDao.xml`（支持自定义SQL和关联查询）：
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="tech.pdai.springboot.mysql8.mybatisplus.anno.dao.IUserDao">
+
+	<resultMap type="tech.pdai.springboot.mysql8.mybatisplus.anno.entity.User" id="UserResult">
+		<id     property="id"       	column="id"      		/>
+		<result property="userName"     column="user_name"    	/>
+		<result property="password"     column="password"    	/>
+		<result property="email"        column="email"        	/>
+		<result property="phoneNumber"  column="phone_number"  	/>
+		<result property="description"  column="description"  	/>
+		<result property="createTime"   column="create_time"  	/>
+		<result property="updateTime"   column="update_time"  	/>
+		<collection property="roles" ofType="tech.pdai.springboot.mysql8.mybatisplus.anno.entity.Role">
+			<result property="id" column="id"  />
+			<result property="name" column="name"  />
+			<result property="roleKey" column="role_key"  />
+			<result property="description" column="description"  />
+			<result property="createTime"   column="create_time"  	/>
+			<result property="updateTime"   column="update_time"  	/>
+		</collection>
+	</resultMap>
+	
+	<sql id="selectUserSql">
+        select u.id, u.password, u.user_name, u.email, u.phone_number, u.description, u.create_time, u.update_time, r.name, r.role_key, r.description, r.create_time, r.update_time
+		from tb_user u
+		left join tb_user_role ur on u.id=ur.user_id
+		inner join tb_role r on ur.role_id=r.id
+    </sql>
+	
+	<select id="findList" parameterType="tech.pdai.springboot.mysql8.mybatisplus.anno.entity.query.UserQueryBean" resultMap="UserResult">
+		<include refid="selectUserSql"/>
+		where u.id != 0
+		<if test="userName != null and userName != ''">
+			AND u.user_name like concat('%', #{user_name}, '%')
+		</if>
+		<if test="description != null and description != ''">
+			AND u.description like concat('%', #{description}, '%')
+		</if>
+		<if test="phoneNumber != null and phoneNumber != ''">
+			AND u.phone_number like concat('%', #{phoneNumber}, '%')
+		</if>
+		<if test="email != null and email != ''">
+			AND u.email like concat('%', #{email}, '%')
+		</if>
+	</select>
+	
+</mapper> 
+```
+
+### 42.2.5 Service层实现
+
+#### 42.2.5.1 UserService接口
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno.service;
+
+import com.baomidou.mybatisplus.extension.service.IService;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.User;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.query.UserQueryBean;
+
+import java.util.List;
+
+/**
+ * @author pdai
+ */
+public interface IUserService extends IService<User> {
+
+    List<User> findList(UserQueryBean userQueryBean);
+
+}
+```
+
+#### 42.2.5.2 UserService实现类
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno.service.impl;
+
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.dao.IUserDao;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.User;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.query.UserQueryBean;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.service.IUserService;
+
+import java.util.List;
+
+@Service
+public class UserDoServiceImpl extends ServiceImpl<IUserDao, User> implements IUserService {
+
+    @Override
+    public List<User> findList(UserQueryBean userQueryBean) {
+        return baseMapper.findList(userQueryBean);
+    }
+}
+```
+
+#### 42.2.5.3 RoleService接口
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno.service;
+
+import com.baomidou.mybatisplus.extension.service.IService;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.Role;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.query.RoleQueryBean;
+
+import java.util.List;
+
+public interface IRoleService extends IService<Role> {
+
+    List<Role> findList(RoleQueryBean roleQueryBean);
+
+}
+```
+
+#### 42.2.5.4 RoleService实现类
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno.service.impl;
+
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.dao.IRoleDao;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.Role;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.query.RoleQueryBean;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.service.IRoleService;
+
+import java.util.List;
+
+@Service
+public class RoleDoServiceImpl extends ServiceImpl<IRoleDao, Role> implements IRoleService {
+
+    @Override
+    public List<Role> findList(RoleQueryBean roleQueryBean) {
+        return lambdaQuery().like(StringUtils.isNotEmpty(roleQueryBean.getName()), Role::getName, roleQueryBean.getName())
+                .like(StringUtils.isNotEmpty(roleQueryBean.getDescription()), Role::getDescription, roleQueryBean.getDescription())
+                .like(StringUtils.isNotEmpty(roleQueryBean.getRoleKey()), Role::getRoleKey, roleQueryBean.getRoleKey())
+                .list();
+    }
+}
+```
+
+### 42.2.6 Controller层
+
+#### 42.2.6.1 UserController
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno.controller;
+
+import io.swagger.annotations.ApiOperation;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.User;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.query.UserQueryBean;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.response.ResponseResult;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.service.IUserService;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @Autowired
+    private IUserService userService;
+
+    /**
+     * @param user user param
+     * @return user
+     */
+    @ApiOperation("Add/Edit User")
+    @PostMapping("add")
+    public ResponseResult<User> add(User user) {
+        if (user.getId() == null) {
+            user.setCreateTime(LocalDateTime.now());
+        }
+        user.setUpdateTime(LocalDateTime.now());
+        userService.save(user);
+        return ResponseResult.success(userService.getById(user.getId()));
+    }
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User One")
+    @GetMapping("edit/{userId}")
+    public ResponseResult<User> edit(@PathVariable("userId") Long userId) {
+        return ResponseResult.success(userService.getById(userId));
+    }
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User List")
+    @GetMapping("list")
+    public ResponseResult<List<User>> list(UserQueryBean userQueryBean) {
+        return ResponseResult.success(userService.findList(userQueryBean));
+    }
+}
+```
+
+#### 42.2.6.2 RoleController
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno.controller;
+
+import io.swagger.annotations.ApiOperation;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.Role;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.query.RoleQueryBean;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.response.ResponseResult;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.service.IRoleService;
+
+import java.util.List;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/role")
+public class RoleController {
+
+    @Autowired
+    private IRoleService roleService;
+
+    /**
+     * @return role list
+     */
+    @ApiOperation("Query Role List")
+    @GetMapping("list")
+    public ResponseResult<List<Role>> list(RoleQueryBean roleQueryBean) {
+        return ResponseResult.success(roleService.findList(roleQueryBean));
+    }
+}
+```
+
+### 42.2.7 分页配置
+
+通过配置`MyBatisPlusInterceptor`拦截器实现分页功能：
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno.config;
+
+import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * MyBatis-plus configuration, add pagination interceptor.
+ *
+ * @author pdai
+ */
+@Configuration
+public class MyBatisConfig {
+
+    /**
+     * inject pagination interceptor.
+     *
+     * @return pagination
+     */
+    @Bean
+    public PaginationInnerInterceptor paginationInnerInterceptor() {
+        return new PaginationInnerInterceptor();
+    }
+
+    /**
+     * add pagination interceptor.
+     *
+     * @return MybatisPlusInterceptor
+     */
+    @Bean
+    public MybatisPlusInterceptor mybatisPlusInterceptor() {
+        MybatisPlusInterceptor mybatisPlusInterceptor = new MybatisPlusInterceptor();
+        mybatisPlusInterceptor.addInnerInterceptor(paginationInnerInterceptor());
+        return mybatisPlusInterceptor;
+    }
+}
+```
+## 42.3 进一步理解
+### 42.3.1 MyBatis-plus学习梳理
+- <a href='https://baomidou.com/'>官方文档</a>
+- <a href='https://github.com/baomidou/mybatis-plus-samples'>官方案例</a>
+- <a href='https://github.com/baomidou/mybatis-plus'>官方源码仓库</a>
+- <a href='https://github.com/baomidou/awesome-mybatis-plus'>Awesome Mybatis-Plus</a>
+### 42.3.2 比较好的实践
+1. Mapper层：继承BaseMapper
+```java
+public interface IRoleDao extends BaseMapper<Role> {
+}
+```
+2. Service层：继承ServiceImpl并实现对应接口
+```java
+public interface IRoleService extends IService<Role> {
+
+    List<Role> findList(RoleQueryBean roleQueryBean);
+
+}
+```
+```java
+public class RoleDoServiceImpl extends ServiceImpl<IRoleDao, Role> implements IRoleService {
+
+}
+```
+3. Lambda函数式查询
+```java
+@Override
+public List<Role> findList(RoleQueryBean roleQueryBean) {
+    return lambdaQuery().like(StringUtils.isNotEmpty(roleQueryBean.getName()), Role::getName, roleQueryBean.getName())
+            .like(StringUtils.isNotEmpty(roleQueryBean.getDescription()), Role::getDescription, roleQueryBean.getDescription())
+            .like(StringUtils.isNotEmpty(roleQueryBean.getRoleKey()), Role::getRoleKey, roleQueryBean.getRoleKey())
+            .list();
+}
+```
+4. 分页采用内置MybatisPlusInterceptor
+```java
+/**
+  * inject pagination interceptor.
+  *
+  * @return pagination
+  */
+@Bean
+public PaginationInnerInterceptor paginationInnerInterceptor() {
+    return new PaginationInnerInterceptor();
+}
+
+/**
+  * add pagination interceptor.
+  *
+  * @return MybatisPlusInterceptor
+  */
+@Bean
+public MybatisPlusInterceptor mybatisPlusInterceptor() {
+    MybatisPlusInterceptor mybatisPlusInterceptor = new MybatisPlusInterceptor();
+    mybatisPlusInterceptor.addInnerInterceptor(paginationInnerInterceptor());
+    return mybatisPlusInterceptor;
+}
+```
+5. 对于复杂的关联查询
+
+可以配置原生xml方式, 在其中自定义ResultMap
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="tech.pdai.springboot.mysql8.mybatisplus.anno.dao.IUserDao">
+
+	<resultMap type="tech.pdai.springboot.mysql8.mybatisplus.anno.entity.User" id="UserResult">
+		<id     property="id"       	column="id"      		/>
+		<result property="userName"     column="user_name"    	/>
+		<result property="password"     column="password"    	/>
+		<result property="email"        column="email"        	/>
+		<result property="phoneNumber"  column="phone_number"  	/>
+		<result property="description"  column="description"  	/>
+		<result property="createTime"   column="create_time"  	/>
+		<result property="updateTime"   column="update_time"  	/>
+		<collection property="roles" ofType="tech.pdai.springboot.mysql8.mybatisplus.anno.entity.Role">
+			<result property="id" column="id"  />
+			<result property="name" column="name"  />
+			<result property="roleKey" column="role_key"  />
+			<result property="description" column="description"  />
+			<result property="createTime"   column="create_time"  	/>
+			<result property="updateTime"   column="update_time"  	/>
+		</collection>
+	</resultMap>
+	
+	<sql id="selectUserSql">
+        select u.id, u.password, u.user_name, u.email, u.phone_number, u.description, u.create_time, u.update_time, r.name, r.role_key, r.description, r.create_time, r.update_time
+		from tb_user u
+		left join tb_user_role ur on u.id=ur.user_id
+		inner join tb_role r on ur.role_id=r.id
+    </sql>
+	
+	<select id="findList" parameterType="tech.pdai.springboot.mysql8.mybatisplus.anno.entity.query.UserQueryBean" resultMap="UserResult">
+		<include refid="selectUserSql"/>
+		where u.id != 0
+		<if test="userName != null and userName != ''">
+			AND u.user_name like concat('%', #{user_name}, '%')
+		</if>
+		<if test="description != null and description != ''">
+			AND u.description like concat('%', #{description}, '%')
+		</if>
+		<if test="phoneNumber != null and phoneNumber != ''">
+			AND u.phone_number like concat('%', #{phoneNumber}, '%')
+		</if>
+		<if test="email != null and email != ''">
+			AND u.email like concat('%', #{email}, '%')
+		</if>
+	</select>
+	
+</mapper> 
+```
+### 42.3.3 除了分页插件之外还提供了哪些插件？
+插件都是基于拦截器实现的，MyBatis-Plus提供了如下<a href='https://baomidou.com/plugins/'>插件</a>：
+- 自动分页: PaginationInnerInterceptor
+- 多租户: TenantLineInnerInterceptor
+- 动态表名: DynamicTableNameInnerInterceptor
+- 乐观锁: OptimisticLockerInnerInterceptor
+- sql 性能规范: IllegalSQLInnerInterceptor
+- 防止全表更新与删除: BlockAttackInnerInterceptor
+### 42.3.4 乐观锁: OptimisticLockerInnerInterceptor插件示例
+MyBatis-Plus 乐观锁插件在 Spring Boot 中的使用
+
+乐观锁是解决并发问题的一种机制，通过在更新数据时检查版本号来避免数据冲突。MyBatis-Plus 提供了内置的乐观锁插件支持。
+
+#### 42.3.4.1. 数据库表结构
+
+为表添加版本号字段：
+
+```sql
+ALTER TABLE `tb_user` ADD COLUMN `version` INT DEFAULT 0 COMMENT '版本号';
+```
+
+#### 42.3.4.2. 实体类配置
+
+在实体类中添加版本号字段，并使用 `@Version` 注解：
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno.entity;
+
+import com.baomidou.mybatisplus.annotation.*;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+
+@Data
+@TableName("tb_user")
+public class User {
+    
+    @TableId(type = IdType.AUTO)
+    private Long id;
+    
+    private String userName;
+    private String password;
+    private String email;
+    private Integer phoneNumber;
+    private String description;
+    
+    @TableField(fill = FieldFill.INSERT)
+    private LocalDateTime createTime;
+    
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updateTime;
+    
+    // 乐观锁版本号字段
+    @Version
+    private Integer version;
+    
+    // 其他字段和方法...
+}
+```
+
+#### 42.3.4.3. 乐观锁插件配置
+
+创建配置类启用乐观锁插件：
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno.config;
+
+import com.baomidou.mybatisplus.annotation.DbType;
+import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.OptimisticLockerInnerInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class MybatisPlusConfig {
+
+    /**
+     * 配置MyBatis-Plus插件
+     */
+    @Bean
+    public MybatisPlusInterceptor mybatisPlusInterceptor() {
+        MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
+        
+        // 添加乐观锁插件
+        interceptor.addInnerInterceptor(new OptimisticLockerInnerInterceptor());
+        
+        // 添加分页插件（如果之前已配置）
+        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
+        
+        return interceptor;
+    }
+}
+```
+
+#### 42.3.4.4. 服务层使用示例
+
+**UserService 接口：**
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno.service;
+
+import com.baomidou.mybatisplus.extension.service.IService;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.User;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.query.UserQueryBean;
+
+import java.util.List;
+
+public interface IUserService extends IService<User> {
+
+    List<User> findList(UserQueryBean userQueryBean);
+    
+    // 乐观锁更新示例方法
+    boolean updateUserWithOptimisticLock(User user);
+    
+    // 并发测试方法
+    boolean concurrentUpdateTest(Long userId);
+}
+```
+
+**UserService 实现类：**
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno.service.impl;
+
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.dao.IUserDao;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.User;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.query.UserQueryBean;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.service.IUserService;
+
+import java.util.List;
+
+@Service
+public class UserServiceImpl extends ServiceImpl<IUserDao, User> implements IUserService {
+
+    @Override
+    public List<User> findList(UserQueryBean userQueryBean) {
+        return baseMapper.findList(userQueryBean);
+    }
+
+    /**
+     * 使用乐观锁更新用户信息
+     */
+    @Override
+    public boolean updateUserWithOptimisticLock(User user) {
+        // 先查询当前版本号
+        User currentUser = getById(user.getId());
+        if (currentUser == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        
+        // 设置版本号（必须与数据库中的版本号一致）
+        user.setVersion(currentUser.getVersion());
+        
+        // 执行更新操作
+        boolean success = updateById(user);
+        
+        if (!success) {
+            throw new RuntimeException("更新失败，可能数据已被其他线程修改");
+        }
+        
+        return true;
+    }
+
+    /**
+     * 乐观锁并发测试
+     */
+    @Override
+    @Transactional
+    public boolean concurrentUpdateTest(Long userId) {
+        // 模拟并发场景：两个线程同时读取并更新同一条记录
+        User user1 = getById(userId);
+        User user2 = getById(userId);
+        
+        // 线程1更新
+        user1.setEmail("thread1@example.com");
+        boolean result1 = updateById(user1);
+        
+        // 线程2更新（此时版本号已过期，会更新失败）
+        user2.setEmail("thread2@example.com");
+        boolean result2 = updateById(user2);
+        
+        return result1 && !result2; // 预期结果：第一个成功，第二个失败
+    }
+}
+```
+
+#### 42.3.4.5. Controller 层示例
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno.controller;
+
+import io.swagger.annotations.ApiOperation;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.User;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.query.UserQueryBean;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.response.ResponseResult;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.service.IUserService;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @Autowired
+    private IUserService userService;
+
+    /**
+     * 使用乐观锁更新用户
+     */
+    @ApiOperation("使用乐观锁更新用户")
+    @PostMapping("update-with-lock")
+    public ResponseResult<Boolean> updateWithLock(@RequestBody User user) {
+        try {
+            boolean result = userService.updateUserWithOptimisticLock(user);
+            return ResponseResult.success(result);
+        } catch (Exception e) {
+            return ResponseResult.fail(e.getMessage());
+        }
+    }
+
+    /**
+     * 乐观锁并发测试
+     */
+    @ApiOperation("乐观锁并发测试")
+    @GetMapping("concurrent-test/{userId}")
+    public ResponseResult<Boolean> concurrentTest(@PathVariable Long userId) {
+        try {
+            boolean result = userService.concurrentUpdateTest(userId);
+            return ResponseResult.success(result);
+        } catch (Exception e) {
+            return ResponseResult.fail(e.getMessage());
+        }
+    }
+}
+```
+
+#### 42.3.4.6. 测试用例
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.anno;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.entity.User;
+import tech.pdai.springboot.mysql8.mybatisplus.anno.service.IUserService;
+
+import javax.annotation.Resource;
+
+@SpringBootTest
+class OptimisticLockTest {
+
+    @Resource
+    private IUserService userService;
+
+    @Test
+    void testOptimisticLock() {
+        // 1. 创建测试用户
+        User user = new User();
+        user.setUserName("test_user");
+        user.setPassword("123456");
+        userService.save(user);
+        
+        Long userId = user.getId();
+        System.out.println("创建用户ID: " + userId);
+        
+        // 2. 模拟并发更新
+        boolean result = userService.concurrentUpdateTest(userId);
+        System.out.println("并发测试结果: " + result);
+        
+        // 3. 验证最终数据
+        User finalUser = userService.getById(userId);
+        System.out.println("最终邮箱: " + finalUser.getEmail());
+        System.out.println("最终版本号: " + finalUser.getVersion());
+    }
+}
+```
+
+#### 42.3.4.7. 乐观锁工作原理
+
+**更新时的SQL语句：**
+```sql
+UPDATE tb_user 
+SET user_name = '新名称', version = version + 1 
+WHERE id = 1 AND version = 1
+```
+
+**执行流程：**
+1. 读取数据时获取当前版本号
+2. 更新时在WHERE条件中包含版本号检查
+3. 如果版本号匹配，更新成功并自动增加版本号
+4. 如果版本号不匹配，更新返回影响行数为0
+
+#### 42.3.4.8. 注意事项
+
+1. **版本号字段必须存在**：数据库表和实体类中都必须有版本号字段
+2. **支持的数据类型**：版本号字段支持 `Integer`、`Long`、`Date`、`Timestamp` 等类型
+3. **新记录版本号**：新插入的记录版本号通常为0或1
+4. **异常处理**：更新失败时应进行适当的异常处理
+5. **重试机制**：在高并发场景下可以实现重试逻辑
+
+```java
+/**
+ * 带重试机制的乐观锁更新
+ */
+public boolean updateWithRetry(User user, int maxRetries) {
+    for (int i = 0; i < maxRetries; i++) {
+        try {
+            User currentUser = getById(user.getId());
+            user.setVersion(currentUser.getVersion());
+            if (updateById(user)) {
+                return true;
+            }
+        } catch (Exception e) {
+            // 记录日志，继续重试
+        }
+        // 短暂等待后重试
+        try {
+            Thread.sleep(100);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            break;
+        }
+    }
+    return false;
+}
+```
+
+通过以上配置和使用，MyBatis-Plus 的乐观锁插件可以有效解决并发更新时的数据一致性问题。
+# 四十三、SpringBoot集成MySQL - MyBatis-Plus代码自动生成
+## 43.1 知识准备
+
+### 43.1.1 为什么会产生此类代码生成工具？
+由于CRUD的工作占了普通开发很多工作，而这些工作是重复的，所以出现了此类的代码生成工具。这些工具通过模板引擎来生成代码，常见于三方集成工具，IDE插件等等。
+### 43.1.2 什么是模板引擎？
+模板引擎可以在代码生成过程中减少大量机械重复工作，大大提高开发效率，良好的设计使得代码重用，后期维护都降低成本。一个好的模板引擎的使用要考虑的方面无外乎：功能是否强大，使用是否简单，整合性、扩展性与灵活性，性能。
+
+比如：
+
+- Velocity
+- FreeMarker
+- Thymeleaf
+- ...
+![168.springboot-engine-1.png](../../assets/images/04-主流框架/spring/168.springboot-engine-1.png)
+## 43.2 简单示例
+
+### 准备DB
+
+创建MySQL数据库`test_db`，并导入以下SQL文件：
+
+```sql
+-- MySQL dump 10.13  Distrib 5.7.12, for Win64 (x86_64)
+--
+-- Host: localhost    Database: test_db
+-- ------------------------------------------------------
+-- Server version	5.7.17-log
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!40101 SET NAMES utf8 */;
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `tb_role`
+--
+
+DROP TABLE IF EXISTS `tb_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_role` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) NOT NULL,
+  `role_key` varchar(255) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_role`
+--
+
+LOCK TABLES `tb_role` WRITE;
+/*!40000 ALTER TABLE `tb_role` DISABLE KEYS */;
+INSERT INTO `tb_role` VALUES (1,'admin','admin','admin','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_role` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user`
+--
+
+DROP TABLE IF EXISTS `tb_user`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_user` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_name` varchar(45) NOT NULL,
+  `password` varchar(45) NOT NULL,
+  `email` varchar(45) DEFAULT NULL,
+  `phone_number` int(11) DEFAULT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user`
+--
+
+LOCK TABLES `tb_user` WRITE;
+/*!40000 ALTER TABLE `tb_user` DISABLE KEYS */;
+INSERT INTO `tb_user` VALUES (1,'pdai','dfasdf','suzhou.daipeng@gmail.com',1212121213,'afsdfsaf','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_user` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user_role`
+--
+
+DROP TABLE IF EXISTS `tb_user_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_user_role` (
+  `user_id` int(11) NOT NULL,
+  `role_id` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user_role`
+--
+
+LOCK TABLES `tb_user_role` WRITE;
+/*!40000 ALTER TABLE `tb_user_role` DISABLE KEYS */;
+INSERT INTO `tb_user_role` VALUES (1,1);
+/*!40000 ALTER TABLE `tb_user_role` ENABLE KEYS */;
+UNLOCK TABLES;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
+
+-- Dump completed on 2021-09-08 17:12:11
+```
+
+### 添加POM依赖
+
+在`pom.xml`中添加MyBatis-Plus代码生成器相关依赖：
+
+```xml
+<dependency>
+    <groupId>com.baomidou</groupId>
+    <artifactId>mybatis-plus-boot-starter</artifactId>
+    <version>3.5.1</version>
+</dependency>
+<dependency>
+    <groupId>com.baomidou</groupId>
+    <artifactId>mybatis-plus-generator</artifactId>
+    <version>3.5.2</version>
+</dependency>
+<dependency>
+    <groupId>org.apache.velocity</groupId>
+    <artifactId>velocity-engine-core</artifactId>
+    <version>2.0</version>
+</dependency>
+```
+
+### 代码生成配置
+
+**注意：** mybatis-plus-generator 3.5.1 及其以上版本对历史版本不兼容！3.5.1 以下版本请参考官方文档。
+
+```java
+import com.baomidou.mybatisplus.generator.FastAutoGenerator;
+
+/**
+ * This class is for xxxx.
+ *
+ * @author pdai
+ */
+public class TestGenCode {
+
+    public static void main(String[] args) {
+        FastAutoGenerator.create("jdbc:mysql://localhost:3306/test_db?useSSL=false&autoReconnect=true&characterEncoding=utf8", "test", "bfXa4Pt2lUUScy8jakXf")
+                .globalConfig(builder ->
+                        builder.author("pdai") // 设置作者
+                                .enableSwagger() // 开启 swagger 模式
+                )
+                .packageConfig(builder ->
+                        builder.parent("tech.pdai.springboot.mysql8.mybatisplus.anno") // 设置父包名
+                                .moduleName("gencode") // 设置父包模块名
+                )
+                .strategyConfig(builder ->
+                        builder.addInclude("tb_user", "tb_role", "tb_user_role")
+                )
+                .execute();
+    }
+}
+```
+
+### 生成的代码结构
+
+执行上述代码生成器后，将自动生成以下代码文件：
+
+```
+src/main/java/tech/pdai/springboot/mysql8/mybatisplus/anno/gencode/
+├── controller/
+│   ├── TbRoleController.java
+│   ├── TbUserController.java
+│   └── TbUserRoleController.java
+├── entity/
+│   ├── TbRole.java
+│   ├── TbUser.java
+│   └── TbUserRole.java
+├── mapper/
+│   ├── TbRoleMapper.java
+│   ├── TbUserMapper.java
+│   └── TbUserRoleMapper.java
+└── service/
+    ├── ITbRoleService.java
+    ├── ITbUserService.java
+    ├── ITbUserRoleService.java
+    ├── impl/
+    │   ├── TbRoleServiceImpl.java
+    │   ├── TbUserServiceImpl.java
+    │   └── TbUserRoleServiceImpl.java
+```
+
+### 高级配置示例
+
+如果需要更详细的配置，可以使用以下完整示例：
+
+```java
+import com.baomidou.mybatisplus.generator.FastAutoGenerator;
+import com.baomidou.mybatisplus.generator.config.OutputFile;
+import com.baomidou.mybatisplus.generator.engine.FreemarkerTemplateEngine;
+
+import java.util.Collections;
+
+public class AdvancedCodeGenerator {
+
+    public static void main(String[] args) {
+        FastAutoGenerator.create("jdbc:mysql://localhost:3306/test_db?useSSL=false&autoReconnect=true&characterEncoding=utf8", "root", "password")
+                .globalConfig(builder -> {
+                    builder.author("pdai") // 设置作者
+                            .enableSwagger() // 开启 swagger 模式
+                            .fileOverride() // 覆盖已生成文件
+                            .outputDir("D://mybatis-plus-code"); // 指定输出目录
+                })
+                .packageConfig(builder -> {
+                    builder.parent("tech.pdai.springboot") // 设置父包名
+                            .moduleName("system") // 设置父包模块名
+                            .pathInfo(Collections.singletonMap(OutputFile.xml, "D://mybatis-plus-code")); // 设置mapperXml生成路径
+                })
+                .strategyConfig(builder -> {
+                    builder.addInclude("tb_user", "tb_role") // 设置需要生成的表名
+                            .addTablePrefix("tb_") // 设置过滤表前缀
+                            .entityBuilder()
+                            .enableLombok() // 开启lombok
+                            .enableTableFieldAnnotation() // 开启字段注解
+                            .controllerBuilder()
+                            .enableRestStyle(); // 开启生成@RestController控制器
+                })
+                .templateEngine(new FreemarkerTemplateEngine()) // 使用Freemarker引擎模板，默认的是Velocity引擎模板
+                .execute();
+    }
+}
+```
+
+### 使用说明
+
+1. **运行代码生成器**：执行`TestGenCode`类的`main`方法
+2. **查看生成结果**：在指定包路径下查看生成的代码文件
+3. **集成到项目**：将生成的代码文件复制到项目中相应位置
+4. **配置数据源**：确保项目中的数据库连接配置正确
+
+### 注意事项
+
+- 确保数据库连接信息正确
+- 生成的代码文件可能需要根据项目结构进行调整
+- 如果使用不同的模板引擎（如Freemarker），需要添加相应依赖
+- 生成的代码建议进行二次定制以满足具体业务需求
+
+## 43.3 进一步理解
+> 主要了解MyBatis-Plus生成代码的原理。
+
+### 43.3.1 代码生成的基本原理
+> 其实代码生成是非常简单的，有了模板引擎的介绍，我们再看下MyBatis-Plus的代码生成工具是如何生成代码的。
+
+配置的装载, FastAutoGenerator本质上就是通过builder注入各种配置，并将它交给代码生成主类：AutoGenerator
+```java
+public void execute() {
+    new AutoGenerator(this.dataSourceConfigBuilder.build())
+        // 全局配置
+        .global(this.globalConfigBuilder.build())
+        // 包配置
+        .packageInfo(this.packageConfigBuilder.build())
+        // 策略配置
+        .strategy(this.strategyConfigBuilder.build())
+        // 注入配置
+        .injection(this.injectionConfigBuilder.build())
+        // 模板配置
+        .template(this.templateConfigBuilder.build())
+        // 执行
+        .execute(this.templateEngine);
+}
+```
+AutoGenerator中execute方法，包括初始化配置和模板引擎（默认是Velocity），然后将配置交给模板引擎初始化执行文件输出
+```java
+/**
+  * 生成代码
+  *
+  * @param templateEngine 模板引擎
+  */
+public void execute(AbstractTemplateEngine templateEngine) {
+    logger.debug("==========================准备生成文件...==========================");
+    // 初始化配置
+    if (null == config) {
+        config = new ConfigBuilder(packageInfo, dataSource, strategy, template, globalConfig, injection);
+    }
+    if (null == templateEngine) {
+        // 为了兼容之前逻辑，采用 Velocity 引擎 【 默认 】
+        templateEngine = new VelocityTemplateEngine();
+    }
+    templateEngine.setConfigBuilder(config);
+    // 模板引擎初始化执行文件输出
+    templateEngine.init(config).batchOutput().open();
+    logger.debug("==========================文件生成完成！！！==========================");
+}
+```
+模板引擎中batchOuput方法中，包含获取表的信息并根据模板来生成类文件。
+```java
+/**
+  * 批量输出 java xml 文件
+  */
+@NotNull
+public AbstractTemplateEngine batchOutput() {
+    try {
+        ConfigBuilder config = this.getConfigBuilder();
+        List<TableInfo> tableInfoList = config.getTableInfoList();
+        tableInfoList.forEach(tableInfo -> {
+            Map<String, Object> objectMap = this.getObjectMap(config, tableInfo);
+            Optional.ofNullable(config.getInjectionConfig()).ifPresent(t -> {
+                t.beforeOutputFile(tableInfo, objectMap);
+                // 输出自定义文件
+                outputCustomFile(t.getCustomFile(), tableInfo, objectMap);
+            });
+            // entity
+            outputEntity(tableInfo, objectMap);
+            // mapper and xml
+            outputMapper(tableInfo, objectMap);
+            // service
+            outputService(tableInfo, objectMap);
+            // controller
+            outputController(tableInfo, objectMap);
+        });
+    } catch (Exception e) {
+        throw new RuntimeException("无法创建文件，请检查配置信息！", e);
+    }
+    return this;
+}
+```
+获取表的列表，由ConfigBuilder完成
+```java
+public List<TableInfo> getTableInfoList() {
+    if (tableInfoList.isEmpty()) {
+        // TODO 暂时不开放自定义
+        List<TableInfo> tableInfos = new IDatabaseQuery.DefaultDatabaseQuery(this).queryTables();
+        if (!tableInfos.isEmpty()) {
+            this.tableInfoList.addAll(tableInfos);
+        }
+    }
+    return tableInfoList;
+}
+```
+然后获取上述单个表（tableInfo)的具体信息（objectMap)
+```java
+/**
+  * 渲染对象 MAP 信息
+  *
+  * @param config    配置信息
+  * @param tableInfo 表信息对象
+  * @return ignore
+  */
+@NotNull
+public Map<String, Object> getObjectMap(@NotNull ConfigBuilder config, @NotNull TableInfo tableInfo) {
+    StrategyConfig strategyConfig = config.getStrategyConfig();
+    Map<String, Object> controllerData = strategyConfig.controller().renderData(tableInfo);
+    Map<String, Object> objectMap = new HashMap<>(controllerData);
+    Map<String, Object> mapperData = strategyConfig.mapper().renderData(tableInfo);
+    objectMap.putAll(mapperData);
+    Map<String, Object> serviceData = strategyConfig.service().renderData(tableInfo);
+    objectMap.putAll(serviceData);
+    Map<String, Object> entityData = strategyConfig.entity().renderData(tableInfo);
+    objectMap.putAll(entityData);
+    objectMap.put("config", config);
+    objectMap.put("package", config.getPackageConfig().getPackageInfo());
+    GlobalConfig globalConfig = config.getGlobalConfig();
+    objectMap.put("author", globalConfig.getAuthor());
+    objectMap.put("kotlin", globalConfig.isKotlin());
+    objectMap.put("swagger", globalConfig.isSwagger());
+    objectMap.put("date", globalConfig.getCommentDate());
+    // 启用 schema 处理逻辑
+    String schemaName = "";
+    if (strategyConfig.isEnableSchema()) {
+        // 存在 schemaName 设置拼接 . 组合表名
+        schemaName = config.getDataSourceConfig().getSchemaName();
+        if (StringUtils.isNotBlank(schemaName)) {
+            schemaName += ".";
+            tableInfo.setConvert(true);
+        }
+    }
+    objectMap.put("schemaName", schemaName);
+    objectMap.put("table", tableInfo);
+    objectMap.put("entity", tableInfo.getEntityName());
+    return objectMap;
+}
+```
+根据TableInfo和objectMap输出类文件，以输出Entity实体类为例
+```java
+/**
+  * 输出实体文件
+  *
+  * @param tableInfo 表信息
+  * @param objectMap 渲染数据
+  * @since 3.5.0
+  */
+protected void outputEntity(@NotNull TableInfo tableInfo, @NotNull Map<String, Object> objectMap) {
+    String entityName = tableInfo.getEntityName();
+    String entityPath = getPathInfo(OutputFile.entity);
+    if (StringUtils.isNotBlank(entityName) && StringUtils.isNotBlank(entityPath)) {
+        getTemplateFilePath(template -> template.getEntity(getConfigBuilder().getGlobalConfig().isKotlin())).ifPresent((entity) -> {
+            String entityFile = String.format((entityPath + File.separator + "%s" + suffixJavaOrKt()), entityName);
+            outputFile(new File(entityFile), objectMap, entity, getConfigBuilder().getStrategyConfig().entity().isFileOverride());
+        });
+    }
+}
+```
+在outputFile中来确定生成文件的名字和路径
+```java
+/**
+  * 输出文件
+  *
+  * @param file         文件
+  * @param objectMap    渲染信息
+  * @param templatePath 模板路径
+  * @param fileOverride 是否覆盖已有文件
+  * @since 3.5.2
+  */
+protected void outputFile(@NotNull File file, @NotNull Map<String, Object> objectMap, @NotNull String templatePath, boolean fileOverride) {
+    if (isCreate(file, fileOverride)) {
+        try {
+            // 全局判断【默认】
+            boolean exist = file.exists();
+            if (!exist) {
+                File parentFile = file.getParentFile();
+                FileUtils.forceMkdir(parentFile);
+            }
+            writer(objectMap, templatePath, file);
+        } catch (Exception exception) {
+            throw new RuntimeException(exception);
+        }
+    }
+}
+```
+最后通过writer方法生成文件
+```java
+/**
+  * 将模板转化成为文件
+  *
+  * @param objectMap    渲染对象 MAP 信息
+  * @param templatePath 模板文件
+  * @param outputFile   文件生成的目录
+  * @throws Exception 异常
+  * @since 3.5.0
+  */
+public void writer(@NotNull Map<String, Object> objectMap, @NotNull String templatePath, @NotNull File outputFile) throws Exception {
+    this.writer(objectMap, templatePath, outputFile.getPath());
+    logger.debug("模板:" + templatePath + ";  文件:" + outputFile);
+}
+```
+本质上就是调用模板引擎来生成
+```java
+   @Override
+    public void writer(@NotNull Map<String, Object> objectMap, @NotNull String templatePath, @NotNull File outputFile) throws Exception {
+        Template template = velocityEngine.getTemplate(templatePath, ConstVal.UTF8);
+        try (FileOutputStream fos = new FileOutputStream(outputFile);
+             OutputStreamWriter ow = new OutputStreamWriter(fos, ConstVal.UTF8);
+             BufferedWriter writer = new BufferedWriter(ow)) {
+            template.merge(new VelocityContext(objectMap), writer);
+        }
+    }
+```
+比如Entity，velocityEngine.getTemplate会获取如下entity.vm模板生成Entity的类文件。
+```java
+package ${package.Entity};
+
+#foreach($pkg in ${table.importPackages})
+import ${pkg};
+#end
+#if(${swagger})
+import io.swagger.annotations.ApiModel;
+import io.swagger.annotations.ApiModelProperty;
+#end
+
+/**
+ * <p>
+ * $!{table.comment}
+ * </p>
+ *
+ * @author ${author}
+ * @since ${date}
+ */
+#if(${table.convert})
+@TableName("${schemaName}${table.name}")
+#end
+#if(${swagger})
+@ApiModel(value = "${entity}对象", description = "$!{table.comment}")
+#end
+#if(${superEntityClass})
+class ${entity} : ${superEntityClass}#if(${activeRecord})<${entity}>#end() {
+#elseif(${activeRecord})
+class ${entity} : Model<${entity}>() {
+#elseif(${entitySerialVersionUID})
+class ${entity} : Serializable {
+#else
+class ${entity} {
+#end
+
+## ----------  BEGIN 字段循环遍历  ----------
+#foreach($field in ${table.fields})
+#if(${field.keyFlag})
+#set($keyPropertyName=${field.propertyName})
+#end
+#if("$!field.comment" != "")
+    #if(${swagger})
+    @ApiModelProperty(value = "${field.comment}")
+    #else
+    /**
+     * ${field.comment}
+     */
+    #end
+#end
+#if(${field.keyFlag})
+## 主键
+#if(${field.keyIdentityFlag})
+    @TableId(value = "${field.annotationColumnName}", type = IdType.AUTO)
+#elseif(!$null.isNull(${idType}) && "$!idType" != "")
+    @TableId(value = "${field.annotationColumnName}", type = IdType.${idType})
+#elseif(${field.convert})
+    @TableId("${field.annotationColumnName}")
+#end
+## 普通字段
+#elseif(${field.fill})
+## -----   存在字段填充设置   -----
+#if(${field.convert})
+    @TableField(value = "${field.annotationColumnName}", fill = FieldFill.${field.fill})
+#else
+    @TableField(fill = FieldFill.${field.fill})
+#end
+#elseif(${field.convert})
+    @TableField("${field.annotationColumnName}")
+#end
+## 乐观锁注解
+#if(${field.versionField})
+    @Version
+#end
+## 逻辑删除注解
+#if(${field.logicDeleteField})
+    @TableLogic
+#end
+    #if(${field.propertyType} == "Integer")
+    var ${field.propertyName}: Int? = null
+    #else
+    var ${field.propertyName}: ${field.propertyType}? = null
+    #end
+
+#end
+## ----------  END 字段循环遍历  ----------
+#if(${entityColumnConstant})
+    companion object {
+#foreach($field in ${table.fields})
+
+        const val ${field.name.toUpperCase()} : String = "${field.name}"
+
+#end
+    }
+
+#end
+#if(${activeRecord})
+    override fun pkVal(): Serializable? {
+#if(${keyPropertyName})
+        return ${keyPropertyName}
+#else
+        return null
+#end
+    }
+
+#end
+    override fun toString(): String {
+        return "${entity}{" +
+#foreach($field in ${table.fields})
+#if($!{foreach.index}==0)
+        "${field.propertyName}=" + ${field.propertyName} +
+#else
+        ", ${field.propertyName}=" + ${field.propertyName} +
+#end
+#end
+        "}"
+    }
+}
+```
+同理生成mapper, service, controller等文件。是不是很简单？
+
+### 43.3.2 如何看MyBatis-Plus生成代码的功能？
+> 简单而言，对于初学者好像能生成代码作用很大，实际情况是很鸡肋！
+- 从上面的源码我们可以看出，生成类只适合单表结构，表的关联无法处理；
+- 对于单表的CRUD类，如果可以自动化生成，必然是可以很好的抽象的，而BaseMapper, BaseServiceImpl的封装已经足够了；
+- 通常真正可以通过一体化集成前端代码的生成，才有一定的意义；当
+- 然少部分情况快速提供接口的可以考虑，不过其实也省不了什么时间。
+# 四十四、SpringBoot集成MySQL - MyBatis-Plus基于字段隔离的多租户
+
+## 44.1 知识准备
+
+需要了解多租户及常见的实现方式，以及MyBatis-Plus的基于字段的隔离方式原理。
+
+## 44.2 什么是多租户？
+
+如下解释来源于百度百科：
+
+多租户技术（英语：multi-tenancy technology）或称多重租赁技术，是一种软件架构技术，它是在探讨与实现如何于多用户的环境下共用相同的系统或程序组件，并且仍可确保各用户间数据的隔离性。
+
+多租户简单来说是指一个单独的实例可以为多个组织服务。多租户技术为共用的数据中心内如何以单一系统架构与服务提供多数客户端相同甚至可定制化的服务，并且仍然可以保障客户的数据隔离。
+
+一个支持多租户技术的系统需要在设计上对它的数据和配置进行虚拟分区，从而使系统的每个租户或称组织都能够使用一个单独的系统实例，并且每个租户都可以根据自己的需求对租用的系统实例进行个性化配置。
+
+多租户技术可以实现多个租户之间共享系统实例，同时又可以实现租户的系统实例的个性化定制。通过使用多租户技术可以保证系统共性的部分被共享，个性的部分被单独隔离。通过在多个租户之间的资源复用，运营管理维护资源，有效节省开发应用的成本。而且，在租户之间共享应用程序的单个实例，可以实现当应用程序升级时，所有租户可以同时升级。同时，因为多个租户共享一份系统的核心代码，因此当系统升级时，只需要升级相同的核心代码即可。
+
+## 44.3 多租户在数据存储上有哪些实现方式？
+
+如下解释来源于百度百科：
+
+多租户在数据存储上存在三种主要的方案，分别是：
+
+### 44.3.1 DB隔离：独立数据库
+
+这是第一种方案，即一个租户一个数据库，这种方案的用户数据隔离级别最高，安全性最好，但成本也高。
+
+- 优点：为不同的租户提供独立的数据库，有助于简化数据模型的扩展设计，满足不同租户的独特需求；如果出现故障，恢复数据比较简单。
+- 缺点：增大了数据库的安装数量，随之带来维护成本和购置成本的增加。
+
+这种方案与传统的一个客户、一套数据、一套部署类似，差别只在于软件统一部署在运营商那里。如果面对的是银行、医院等需要非常高数据隔离级别的租户，可以选择这种模式，提高租用的定价。如果定价较低，产品走低价路线，这种方案一般对运营商来说是无法承受的。
+
+### 44.3.2 Schema隔离：共享数据库，隔离数据架构
+
+这是第二种方案，即多个或所有租户共享Database，但一个租户（Tenant）一个Schema。
+
+- 优点：为安全性要求较高的租户提供了一定程度的逻辑数据隔离，并不是完全隔离；每个数据库可以支持更多的租户数量。
+- 缺点：如果出现故障，数据恢复比较困难，因为恢复数据库将牵扯到其他租户的数据；如果需要跨租户统计数据，存在一定困难。
+
+### 44.3.3 字段隔离：共享数据库，共享数据架构
+
+这是第三种方案，即租户共享同一个Database、同一个Schema，但在表中通过TenantID区分租户的数据。这是共享程度最高、隔离级别最低的模式。
+
+- 优点：三种方案比较，第三种方案的维护和购置成本最低，允许每个数据库支持的租户数量最多。
+- 缺点：隔离级别最低，安全性最低，需要在设计开发时加大对安全的开发量；数据备份和恢复最困难，需要逐表逐条备份和还原。
+
+如果希望以最少的服务器为最多的租户提供服务，并且租户接受以牺牲隔离级别换取降低成本，这种方案最适合。
+
+## 44.4 MyBatis-Plus的基于字段的隔离方式原理是什么？
+
+这里请看MyBatis的插件机制：MyBatis详解 - 插件机制。
+
+## 44.5 简单示例
+
+这里沿用之前的test_db，在表中添加tenant_id，并命名为新的schema test_db_tenant。
+
+### 44.5.1 准备DB和依赖配置
+
+创建MySQL的schema test_db_tenant, 导入SQL 文件如下：
+
+```sql
+-- MySQL dump 10.13  Distrib 8.0.28, for Win64 (x86_64)
+--
+-- Host: localhost    Database: test_db_tenant
+-- ------------------------------------------------------
+-- Server version	8.0.28
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!50503 SET NAMES utf8 */;
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `tb_role`
+--
+
+DROP TABLE IF EXISTS `tb_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_role` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `tenant_id` int DEFAULT NULL,
+  `name` varchar(255) NOT NULL,
+  `role_key` varchar(255) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_role`
+--
+
+LOCK TABLES `tb_role` WRITE;
+/*!40000 ALTER TABLE `tb_role` DISABLE KEYS */;
+INSERT INTO `tb_role` VALUES (1,1,'admin','admin','admin','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_role` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user`
+--
+
+DROP TABLE IF EXISTS `tb_user`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_user` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `tenant_id` int DEFAULT NULL,
+  `user_name` varchar(45) NOT NULL,
+  `password` varchar(45) NOT NULL,
+  `email` varchar(45) DEFAULT NULL,
+  `phone_number` int DEFAULT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user`
+--
+
+LOCK TABLES `tb_user` WRITE;
+/*!40000 ALTER TABLE `tb_user` DISABLE KEYS */;
+INSERT INTO `tb_user` VALUES (1,1,'pdai','dfasdf','suzhou.daipeng@gmail.com',1212121213,'afsdfsaf','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_user` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user_role`
+--
+
+DROP TABLE IF EXISTS `tb_user_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_user_role` (
+  `user_id` int NOT NULL,
+  `role_id` int NOT NULL,
+  `tenant_id` int NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user_role`
+--
+
+LOCK TABLES `tb_user_role` WRITE;
+/*!40000 ALTER TABLE `tb_user_role` DISABLE KEYS */;
+INSERT INTO `tb_user_role` VALUES (1,1,1);
+/*!40000 ALTER TABLE `tb_user_role` ENABLE KEYS */;
+UNLOCK TABLES;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
+
+-- Dump completed on 2022-04-02 12:50:14
+```
+
+引入maven依赖：
+
+```xml
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>8.0.28</version>
+</dependency>
+<dependency>
+    <groupId>com.baomidou</groupId>
+    <artifactId>mybatis-plus-boot-starter</artifactId>
+    <version>3.5.1</version>
+</dependency>
+```
+
+增加yml配置：
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/test_db_tenant?useSSL=false&autoReconnect=true&characterEncoding=utf8
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: bfXa4Pt2lUUScy8jakXf
+
+mybatis-plus:
+  configuration:
+    cache-enabled: true
+    use-generated-keys: true
+    default-executor-type: REUSE
+    use-actual-param-name: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl # 输出SQL log 方便 debug
+```
+
+### 44.5.2 MyBatis-Plus配置
+
+通过添加TenantLineInnerInterceptor来完成。
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.tenant.config;
+
+import java.util.List;
+
+import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.handler.TenantLineHandler;
+import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
+import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.expression.LongValue;
+import net.sf.jsqlparser.schema.Column;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * MyBatis-plus configuration, add pagination interceptor.
+ *
+ * @author pdai
+ */
+@Configuration
+public class MyBatisConfig {
+
+    /**
+     * inject pagination interceptor.
+     *
+     * @return pagination
+     */
+    @Bean
+    public PaginationInnerInterceptor paginationInnerInterceptor() {
+        return new PaginationInnerInterceptor();
+    }
+
+    /**
+     * add interceptor.
+     *
+     * @return MybatisPlusInterceptor
+     */
+    @Bean
+    public MybatisPlusInterceptor mybatisPlusInterceptor() {
+        MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
+        // TenantLineInnerInterceptor
+        interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(new TenantLineHandler() {
+            @Override
+            public Expression getTenantId() {
+                // 实际可以将TenantId放在threadLocale中(比如xxxxContext中)，并获取。
+                return new LongValue(1);
+            }
+
+            @Override
+            public String getTenantIdColumn() {
+                return "tenant_id";
+            }
+
+            @Override
+            public boolean ignoreTable(String tableName) {
+            // 配置需要忽略多租户的表
+            List<String> ignoreTables = Arrays.asList("sys_config", "sys_dict", "common_log");
+            return ignoreTables.contains(tableName);
+            }
+
+            @Override
+            public boolean ignoreInsert(List<Column> columns, String tenantIdColumn) {
+                return TenantLineHandler.super.ignoreInsert(columns, tenantIdColumn);
+            }
+        }));
+        // 如果用了分页插件注意先 add TenantLineInnerInterceptor 再 add PaginationInnerInterceptor
+        interceptor.addInnerInterceptor(new PaginationInnerInterceptor());
+        return interceptor;
+    }
+
+}
+```
+- 有些表我们可能不需要多租户，如何处理：
+  - 在TenantLineHandler的ignoreTable方法中，你可以根据表名来决定是否忽略多租户：
+  -  使用@InterceptorIgnore注解
+  ```java
+    public interface IUserDao extends BaseMapper<User> {
+
+        List<User> findList(UserQueryBean userQueryBean);
+        
+        // 忽略租户拦截器
+        @InterceptorIgnore(tenantLine = "true")
+        List<User> findAllWithoutTenant();
+        
+        // 只忽略租户拦截器，其他拦截器正常生效
+        @InterceptorIgnore(tenantLine = "true")
+        Page<User> findPageWithoutTenant(Page<User> page, UserQueryBean userQueryBean);
+    }
+
+  ```
+  -  在XML中使用tenantLine属性
+    ```xml
+    <?xml version="1.0" encoding="UTF-8" ?>
+    <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+    <mapper namespace="tech.pdai.springboot.mysql8.mybatisplus.tenant.dao.IUserDao">
+
+        <!-- 这个查询会应用多租户 -->
+        <select id="findList" parameterType="UserQueryBean" resultMap="UserResult">
+            select * from tb_user
+            where 1=1
+            <if test="userName != null and userName != ''">
+                AND user_name like concat('%', #{userName}, '%')
+            </if>
+        </select>
+        
+        <!-- 这个查询忽略多租户 -->
+        <select id="findAllWithoutTenant" resultType="User">
+            select * from tb_user
+        </select>
+        
+        <!-- 使用tenantLine属性控制 -->
+        <select id="findByCondition" resultType="User" tenantLine="false">
+            select * from tb_user where user_name = #{userName}
+        </select>
+    </mapper>
+
+    ```
+### 44.5.3 定义DAO
+
+RoleDao：
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.tenant.dao;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.Role;
+
+/**
+ * @author pdai
+ */
+public interface IRoleDao extends BaseMapper<Role> {
+}
+```
+
+UserDao：
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.tenant.dao;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.User;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.query.UserQueryBean;
+
+import java.util.List;
+
+/**
+ * @author pdai
+ */
+public interface IUserDao extends BaseMapper<User> {
+
+    List<User> findList(UserQueryBean userQueryBean);
+}
+```
+
+这里你也同时可以支持BaseMapper方式和自己定义的xml的方法（比较适用于关联查询），比如findList是自定义xml配置：
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="tech.pdai.springboot.mysql8.mybatisplus.tenant.dao.IUserDao">
+
+	<resultMap type="tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.User" id="UserResult">
+		<id     property="id"       	column="id"      		/>
+		<result property="userName"     column="user_name"    	/>
+		<result property="password"     column="password"    	/>
+		<result property="email"        column="email"        	/>
+		<result property="phoneNumber"  column="phone_number"  	/>
+		<result property="description"  column="description"  	/>
+		<result property="createTime"   column="create_time"  	/>
+		<result property="updateTime"   column="update_time"  	/>
+		<collection property="roles" ofType="tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.Role">
+			<result property="id" column="id"  />
+			<result property="name" column="name"  />
+			<result property="roleKey" column="role_key"  />
+			<result property="description" column="description"  />
+			<result property="createTime"   column="create_time"  	/>
+			<result property="updateTime"   column="update_time"  	/>
+		</collection>
+	</resultMap>
+	
+	<sql id="selectUserSql">
+        select u.id, u.password, u.user_name, u.email, u.phone_number, u.description, u.create_time, u.update_time, r.name, r.role_key, r.description, r.create_time, r.update_time
+		from tb_user u
+		left join tb_user_role ur on u.id=ur.user_id
+		inner join tb_role r on ur.role_id=r.id
+    </sql>
+	
+	<select id="findList" parameterType="tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.query.UserQueryBean" resultMap="UserResult">
+		<include refid="selectUserSql"/>
+		where u.id != 0
+		<if test="userName != null and userName != ''">
+			AND u.user_name like concat('%', #{user_name}, '%')
+		</if>
+		<if test="description != null and description != ''">
+			AND u.description like concat('%', #{description}, '%')
+		</if>
+		<if test="phoneNumber != null and phoneNumber != ''">
+			AND u.phone_number like concat('%', #{phoneNumber}, '%')
+		</if>
+		<if test="email != null and email != ''">
+			AND u.email like concat('%', #{email}, '%')
+		</if>
+	</select>
+	
+</mapper> 
+```
+
+### 44.5.4 定义Service
+
+UserService接口：
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.tenant.service;
+
+import com.baomidou.mybatisplus.extension.service.IService;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.User;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.query.UserQueryBean;
+
+import java.util.List;
+
+/**
+ * @author pdai
+ */
+public interface IUserService extends IService<User> {
+
+    List<User> findList(UserQueryBean userQueryBean);
+
+}
+```
+
+User Service的实现类：
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.tenant.service.impl;
+
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.dao.IUserDao;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.User;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.query.UserQueryBean;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.service.IUserService;
+
+import java.util.List;
+
+@Service
+public class UserDoServiceImpl extends ServiceImpl<IUserDao, User> implements IUserService {
+
+    @Override
+    public List<User> findList(UserQueryBean userQueryBean) {
+        return baseMapper.findList(userQueryBean);
+    }
+}
+```
+
+Role Service 接口：
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.tenant.service;
+
+import com.baomidou.mybatisplus.extension.service.IService;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.Role;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.query.RoleQueryBean;
+
+import java.util.List;
+
+public interface IRoleService extends IService<Role> {
+
+    List<Role> findList(RoleQueryBean roleQueryBean);
+
+}
+```
+
+Role Service 实现类：
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.tenant.service.impl;
+
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.dao.IRoleDao;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.Role;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.query.RoleQueryBean;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.service.IRoleService;
+
+import java.util.List;
+
+@Service
+public class RoleDoServiceImpl extends ServiceImpl<IRoleDao, Role> implements IRoleService {
+
+    @Override
+    public List<Role> findList(RoleQueryBean roleQueryBean) {
+        return lambdaQuery().like(StringUtils.isNotEmpty(roleQueryBean.getName()), Role::getName, roleQueryBean.getName())
+                .like(StringUtils.isNotEmpty(roleQueryBean.getDescription()), Role::getDescription, roleQueryBean.getDescription())
+                .like(StringUtils.isNotEmpty(roleQueryBean.getRoleKey()), Role::getRoleKey, roleQueryBean.getRoleKey())
+                .list();
+    }
+}
+```
+
+### 44.5.5 Controller
+
+User Controller：
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.tenant.controller;
+
+
+import io.swagger.annotations.ApiOperation;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.User;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.query.UserQueryBean;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.response.ResponseResult;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.service.IUserService;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @Autowired
+    private IUserService userService;
+
+    /**
+     * @param user user param
+     * @return user
+     */
+    @ApiOperation("Add/Edit User")
+    @PostMapping("add")
+    public ResponseResult<User> add(User user) {
+        if (user.getId() == null) {
+            user.setCreateTime(LocalDateTime.now());
+        }
+        user.setUpdateTime(LocalDateTime.now());
+        userService.save(user);
+        return ResponseResult.success(userService.getById(user.getId()));
+    }
+
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User One")
+    @GetMapping("edit/{userId}")
+    public ResponseResult<User> edit(@PathVariable("userId") Long userId) {
+        return ResponseResult.success(userService.getById(userId));
+    }
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User List")
+    @GetMapping("list")
+    public ResponseResult<List<User>> list(UserQueryBean userQueryBean) {
+        return ResponseResult.success(userService.findList(userQueryBean));
+    }
+}
+```
+
+Role Controller：
+
+```java
+package tech.pdai.springboot.mysql8.mybatisplus.tenant.controller;
+
+
+import io.swagger.annotations.ApiOperation;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.Role;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.query.RoleQueryBean;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.entity.response.ResponseResult;
+import tech.pdai.springboot.mysql8.mybatisplus.tenant.service.IRoleService;
+
+import java.util.List;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/role")
+public class RoleController {
+
+    @Autowired
+    private IRoleService roleService;
+
+    /**
+     * @return role list
+     */
+    @ApiOperation("Query Role List")
+    @GetMapping("list")
+    public ResponseResult<List<Role>> list(RoleQueryBean roleQueryBean) {
+        return ResponseResult.success(roleService.findList(roleQueryBean));
+    }
+}
+```
+
+## 44.6 简单测试
+
+访问页面：http://localhost:8080/doc.html
+
+拦截之前的SQL：
+
+```sql
+original SQL: select u.id, u.password, u.user_name, u.email, u.phone_number, u.description, u.create_time, u.update_time, r.name, r.role_key, r.description, r.create_time, r.update_time
+		from tb_user u
+		left join tb_user_role ur on u.id=ur.user_id
+		inner join tb_role r on ur.role_id=r.id  
+		where u.id != 0
+```
+
+最后执行的SQL中，对联表查询的每个表都加了：tenant_id
+
+```log
+2021-09-22 20:26:22.368  INFO 28404 --- [nio-8080-exec-1] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+JDBC Connection [HikariProxyConnection@529070127 wrapping com.mysql.cj.jdbc.ConnectionImpl@785a9c8] will not be managed by Spring
+==>  Preparing: SELECT u.id, u.password, u.user_name, u.email, u.phone_number, u.description, u.create_time, u.update_time, r.name, r.role_key, r.description, r.create_time, r.update_time FROM tb_user u LEFT JOIN tb_user_role ur ON u.id = ur.user_id AND ur.tenant_id = 1 INNER JOIN tb_role r ON ur.role_id = r.id AND u.tenant_id = 1 AND r.tenant_id = 1 WHERE u.id != 0
+==> Parameters: 
+<==    Columns: id, password, user_name, email, phone_number, description, create_time, update_time, name, role_key, description, create_time, update_time
+<==        Row: 1, dfasdf, pdai, suzhou.daipeng@gmail.com, 1212121213, afsdfsaf, 2021-09-08 17:09:15, 2021-09-08 17:09:15, admin, admin, admin, 2021-09-08 17:09:15, 2021-09-08 17:09:15
+<==      Total: 1
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@5cf94cf9]
+```
+
+## 44.7 进一步理解
+
+在实际使用字段进行多租户隔离时有哪些注意点呢？
+
+### 44.7.1 来自官方的注意点
+
+相关建议：
+
+- 多租户 != 权限过滤,不要乱用,租户之间是完全隔离的!!!
+- 启用多租户后所有执行的method的sql都会进行处理.
+- 自写的sql请按规范书写(sql涉及到多个表的每个表都要给别名,特别是 inner join 的要写标准的 inner join)
+
+### 44.7.2 插件的顺序
+
+MyBatis-Plus使用多个功能插件需要注意顺序关系：
+
+MyBatis-Plus基于字段的多租户是通过插件机制拦截实现的，因为还有很多其它的拦截器，比如:
+
+- 自动分页: PaginationInnerInterceptor
+- 多租户: TenantLineInnerInterceptor
+- 动态表名: DynamicTableNameInnerInterceptor
+- 乐观锁: OptimisticLockerInnerInterceptor
+- sql 性能规范: IllegalSQLInnerInterceptor
+- 防止全表更新与删除: BlockAttackInnerInterceptor
+
+所以需要注意顺序: 使用多个功能需要注意顺序关系,建议使用如下顺序：
+
+1. 多租户,动态表名
+2. 分页,乐观锁
+3. sql 性能规范,防止全表更新与删除
+
+总结: 对 sql 进行单次改造的优先放入,不对 sql 进行改造的最后放入。
+
+### 44.7.3 封装性实践
+
+实际项目中还需要对配置进行封装。回看如下的处理， 我们看下可以封装的点：
+
+```java
+// TenantLineInnerInterceptor
+interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(new TenantLineHandler() {
+    @Override
+    public Expression getTenantId() {
+        // 实际可以将TenantId放在threadLocale中(比如xxxxContext中)，并获取。
+        return new LongValue(1);
+    }
+
+    @Override
+    public String getTenantIdColumn() {
+        return "tenant_id";
+    }
+
+    @Override
+    public boolean ignoreTable(String tableName) {
+        return false;
+    }
+
+    @Override
+    public boolean ignoreInsert(List<Column> columns, String tenantIdColumn) {
+        return TenantLineHandler.super.ignoreInsert(columns, tenantIdColumn);
+    }
+}));
+```
+
+对于配置相关配置可以封装到yml, 然后注入进来。
+
+- 对于TenantId实际可以将TenantId放在threadLocale中(比如xxxxContext中)，并获取。
+- 对于ignoreTable比如有些表不要自动进行拦截的，可以在yml中配置并重写ignoreTable方法。
+- 对于ignoreInsert对于插入数据是否需要携带TenantId，可以通过重写ignoreInsert方法。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
