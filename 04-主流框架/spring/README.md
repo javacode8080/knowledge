@@ -25869,6 +25869,4302 @@ interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(new TenantLineHan
 - 对于TenantId实际可以将TenantId放在threadLocale中(比如xxxxContext中)，并获取。
 - 对于ignoreTable比如有些表不要自动进行拦截的，可以在yml中配置并重写ignoreTable方法。
 - 对于ignoreInsert对于插入数据是否需要携带TenantId，可以通过重写ignoreInsert方法。
+# 四十五、▶SpringBoot集成ShardingJDBC - Sharding-JDBC简介和基于MyBatis的单库分表
+> 本文主要介绍分表分库，以及SpringBoot集成基于ShardingJDBC+MyBatis的单库分表实践。
+## 45.1 知识准备
+> 主要理解分表分库，Sharding-JDBC要解决什么问题，Sharding-JDBC及ShardingSphere的关系等。
+### 45.1.1 为什么要分表分库？
+#### 45.1.1.1 水平切分
+水平切分又称为 Sharding，它是将同一个表中的记录拆分到多个结构相同的表中。当一个表的数据不断增多时，Sharding 是必然的选择，它可以将数据分布到集群的不同节点上，从而缓存单个数据库的压力。
+![169.63c2909f-0c5f-496f-9fe5-ee9176b31aba.jpg](../../assets/images/04-主流框架/spring/169.63c2909f-0c5f-496f-9fe5-ee9176b31aba.jpg)
+#### 45.1.1.2 垂直切分
+![170.e130e5b8-b19a-4f1e-b860-223040525cf6.jpg](../../assets/images/04-主流框架/spring/170.e130e5b8-b19a-4f1e-b860-223040525cf6.jpg)
+
+垂直切分是将一张表按列切分成多个表，通常是按照列的关系密集程度进行切分，也可以利用垂直切分将经常被使用的列和不经常被使用的列切分到不同的表中。
+
+在数据库的层面使用垂直切分将按数据库中表的密集程度部署到不同的库中，例如将原来的电商数据库垂直切分成商品数据库、用户数据库等。
+#### 45.1.1.3 Sharding 策略
+- 哈希取模: hash(key) % NUM_DB
+- 范围: 可以是 ID 范围也可以是时间范围
+- 映射表: 使用单独的一个数据库来存储映射关系
+#### 45.1.1.4 Sharding 存在的问题及解决方案
+ 1. 事务问题
+   
+使用分布式事务来解决，比如 XA 接口。
+ 2. 链接
+   
+可以将原来的 JOIN 分解成多个单表查询，然后在用户程序中进行 JOIN。
+ 3. ID 唯一性
+
+- 使用全局唯一 ID: GUID
+- 为每个分片指定一个 ID 范围
+- 分布式 ID 生成器 (如 Twitter 的 Snowflake 算法)
+### 45.1.2 什么是Sharding-JDBC？
+> 来自ShardingSphere官网
+
+Sharding-JDBC是ShardingSphere的第一个产品，也是ShardingSphere的前身。 它定位为轻量级Java框架，在Java的JDBC层提供的额外服务。它使用客户端直连数据库，以jar包形式提供服务，无需额外部署和依赖，可理解为增强版的JDBC驱动，完全兼容JDBC和各种ORM框架。
+- 适用于任何基于Java的ORM框架，如：JPA, Hibernate, Mybatis, Spring JDBC Template或直接使用JDBC。
+- 基于任何第三方的数据库连接池，如：DBCP, C3P0, BoneCP, Druid, HikariCP等。
+- 支持任意实现JDBC规范的数据库。目前支持MySQL，Oracle，SQLServer和PostgreSQL。
+![171.spring-sharding-3.png](../../assets/images/04-主流框架/spring/171.spring-sharding-3.png)
+### 45.1.3 和ShardingSphere是什么关系？
+> 来自ShardingSphere官网
+
+ShardingSphere是一套开源的分布式数据库中间件解决方案组成的生态圈，它由Sharding-JDBC、Sharding-Proxy和Sharding-Sidecar（计划中）这3款相互独立的产品组成。 他们均提供标准化的数据分片、分布式事务和数据库治理功能，可适用于如Java同构、异构语言、容器、云原生等各种多样化的应用场景。
+
+ShardingSphere定位为关系型数据库中间件，旨在充分合理地在分布式的场景下利用关系型数据库的计算和存储能力，而并非实现一个全新的关系型数据库。 它与NoSQL和NewSQL是并存而非互斥的关系。NoSQL和NewSQL作为新技术探索的前沿，放眼未来，拥抱变化，是非常值得推荐的。反之，也可以用另一种思路看待问题，放眼未来，关注不变的东西，进而抓住事物本质。 关系型数据库当今依然占有巨大市场，是各个公司核心业务的基石，未来也难于撼动，我们目前阶段更加关注在原有基础上的增量，而非颠覆。
+![172.spring-sharding-1.png](../../assets/images/04-主流框架/spring/172.spring-sharding-1.png)
+
+对应的版本功能
+![173.spring-sharding-2.png](../../assets/images/04-主流框架/spring/173.spring-sharding-2.png)
+## 45.2 简单示例
+
+这里主要介绍SpringBoot集成基于ShardingJDBC的单库分表实践，主要承接之前的相关文章在MyBatis的注解方式的基础上实现的。
+
+### 45.2.1 准备DB和依赖配置
+
+创建MySQL的schema test_db_sharding，导入SQL文件如下：
+
+```sql
+-- MySQL dump 10.13  Distrib 8.0.28, for Win64 (x86_64)
+--
+-- Host: localhost    Database: test_db_sharding
+-- ------------------------------------------------------
+-- Server version	8.0.28
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!50503 SET NAMES utf8 */;
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `tb_role_0`
+--
+
+DROP TABLE IF EXISTS `tb_role_0`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_role_0` (
+  `id` bigint NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `role_key` varchar(255) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_role_0`
+--
+
+LOCK TABLES `tb_role_0` WRITE;
+/*!40000 ALTER TABLE `tb_role_0` DISABLE KEYS */;
+INSERT INTO `tb_role_0` VALUES (3,'333','333','33','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_role_0` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_role_1`
+--
+
+DROP TABLE IF EXISTS `tb_role_1`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_role_1` (
+  `id` bigint NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `role_key` varchar(255) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_role_1`
+--
+
+LOCK TABLES `tb_role_1` WRITE;
+/*!40000 ALTER TABLE `tb_role_1` DISABLE KEYS */;
+INSERT INTO `tb_role_1` VALUES (1,'admin','admin','admin','2021-09-08 17:09:15','2021-09-08 17:09:15'),(2,'11','11','11','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_role_1` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user_0`
+--
+
+DROP TABLE IF EXISTS `tb_user_0`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_user_0` (
+  `id` bigint NOT NULL,
+  `user_name` varchar(45) NOT NULL,
+  `password` varchar(45) NOT NULL,
+  `email` varchar(45) DEFAULT NULL,
+  `phone_number` int DEFAULT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user_0`
+--
+
+LOCK TABLES `tb_user_0` WRITE;
+/*!40000 ALTER TABLE `tb_user_0` DISABLE KEYS */;
+INSERT INTO `tb_user_0` VALUES (718415228786159616,'pdai','dad','pdai@pdai.tech',121212121,'pdai','2022-04-06 20:45:38','2022-04-06 20:45:38');
+/*!40000 ALTER TABLE `tb_user_0` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user_1`
+--
+
+DROP TABLE IF EXISTS `tb_user_1`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_user_1` (
+  `id` bigint NOT NULL,
+  `user_name` varchar(45) NOT NULL,
+  `password` varchar(45) NOT NULL,
+  `email` varchar(45) DEFAULT NULL,
+  `phone_number` int DEFAULT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user_1`
+--
+
+LOCK TABLES `tb_user_1` WRITE;
+/*!40000 ALTER TABLE `tb_user_1` DISABLE KEYS */;
+INSERT INTO `tb_user_1` VALUES (1,'pdai','dfasdf','suzhou.daipeng@gmail.com',1212121213,'afsdfsaf','2021-09-08 17:09:15','2021-09-08 17:09:15'),(718415481409089537,'pdai2','dad2','pdai2@pdai.tech',1212121212,'pdai2','2022-04-06 20:46:38','2022-04-06 20:46:38');
+/*!40000 ALTER TABLE `tb_user_1` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user_role_0`
+--
+
+DROP TABLE IF EXISTS `tb_user_role_0`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_user_role_0` (
+  `id` bigint NOT NULL,
+  `user_id` bigint NOT NULL,
+  `role_id` bigint NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user_role_0`
+--
+
+LOCK TABLES `tb_user_role_0` WRITE;
+/*!40000 ALTER TABLE `tb_user_role_0` DISABLE KEYS */;
+INSERT INTO `tb_user_role_0` VALUES (1,1,1);
+/*!40000 ALTER TABLE `tb_user_role_0` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user_role_1`
+--
+
+DROP TABLE IF EXISTS `tb_user_role_1`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_user_role_1` (
+  `id` bigint NOT NULL,
+  `user_id` bigint NOT NULL,
+  `role_id` bigint NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user_role_1`
+--
+
+LOCK TABLES `tb_user_role_1` WRITE;
+/*!40000 ALTER TABLE `tb_user_role_1` DISABLE KEYS */;
+INSERT INTO `tb_user_role_1` VALUES (11,718415481409089537,3),(13,718415228786159616,2);
+/*!40000 ALTER TABLE `tb_user_role_1` ENABLE KEYS */;
+UNLOCK TABLES;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
+
+-- Dump completed on 2022-04-06 23:06:23
+------
+著作权归@pdai所有
+原文链接：https://pdai.tech/md/spring/springboot/springboot-x-mysql-shardingjdbc-jpa.html
+```
+
+引入maven依赖，包含mysql驱动、mybatis和pageHelper，以及sharding-jdbc的依赖：
+
+```xml
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>8.0.28</version>
+</dependency>
+<dependency>
+    <groupId>org.mybatis.spring.boot</groupId>
+    <artifactId>mybatis-spring-boot-starter</artifactId>
+    <version>2.1.0</version>
+</dependency>
+<dependency>
+    <groupId>com.github.pagehelper</groupId>
+    <artifactId>pagehelper-spring-boot-starter</artifactId>
+    <version>1.2.10</version>
+</dependency>
+<dependency>
+    <groupId>org.apache.shardingsphere</groupId>
+    <artifactId>sharding-jdbc-spring-boot-starter</artifactId>
+    <version>4.1.1</version>
+</dependency>
+```
+
+增加yml配置：
+
+```yaml
+spring:
+  shardingsphere:
+    datasource:
+      names: ds
+      ds:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://localhost:3306/test_db_sharding?allowPublicKeyRetrieval=true&useSSL=false&autoReconnect=true&characterEncoding=utf8
+        username: test
+        password: bfXa4Pt2lUUScy8jakXf
+    sharding:
+      tables:
+        tb_user:
+          actual-data-nodes: ds.tb_user_$->{0..1}
+          table-strategy:
+            inline:
+              sharding-column: id
+              algorithm-expression: tb_user_$->{id % 2}
+          key-generator:
+            column: id
+            type: SNOWFLAKE
+            props:
+              worker:
+                id: 123
+      binding-tables: tb_user
+      broadcast-tables: t_address
+mybatis:
+  type-aliases-package: tech.pdai.springboot.shardingjdbc.mybatis.tables.entity
+  configuration:
+    cache-enabled: true
+    use-generated-keys: true
+    default-executor-type: REUSE
+    use-actual-param-name: true
+```
+
+### 45.2.2 DAO
+
+mapper/dao：
+
+```java
+package tech.pdai.springboot.shardingjdbc.mybatis.tables.dao;
+
+import org.apache.ibatis.annotations.*;
+import tech.pdai.springboot.shardingjdbc.mybatis.tables.dao.provider.UserDaoProvider;
+import tech.pdai.springboot.shardingjdbc.mybatis.tables.entity.User;
+import tech.pdai.springboot.shardingjdbc.mybatis.tables.entity.query.UserQueryBean;
+
+import java.util.List;
+
+/**
+ * @author pdai
+ */
+@Mapper
+public interface IUserDao {
+
+    String SELECT_USER_SQL = "select u.id, u.password, u.user_name, u.email, u.phone_number, u.description, u.create_time, u.update_time from tb_user u";
+
+    @Results(
+            id = "UserResult",
+            value = {
+                    @Result(property = "id", column = "id"),
+                    @Result(property = "userName", column = "user_name"),
+                    @Result(property = "password", column = "password"),
+                    @Result(property = "email", column = "email"),
+                    @Result(property = "phoneNumber", column = "phone_number"),
+                    @Result(property = "description", column = "description"),
+                    @Result(property = "createTime", column = "create_time"),
+                    @Result(property = "updateTime", column = "update_time")
+            }
+    )
+    @Select({SELECT_USER_SQL, " where id = #{id}"})
+    User findById(@Param("id") Long id);
+
+    @ResultMap("UserResult")
+    @Select(SELECT_USER_SQL)
+    User findAll();
+
+    @ResultMap("UserResult")
+    @Select({"<script> ", SELECT_USER_SQL, " where u.id != 0\n" +
+            "\t\t<if test=\"userName != null and userName != ''\">\n" +
+            "AND u.user_name like concat('%', #{user_name}, '%')\n" +
+            "\t\t</if>\n" +
+            "\t\t<if test=\"description != null and description != ''\">\n" +
+            "AND u.description like concat('%', #{description}, '%')\n" +
+            "\t\t</if>\n" +
+            "\t\t<if test=\"phoneNumber != null and phoneNumber != ''\">\n" +
+            "AND u.phone_number like concat('%', #{phoneNumber}, '%')\n" +
+            "\t\t</if>\n" +
+            "\t\t<if test=\"email != null and email != ''\">\n" +
+            "AND u.email like concat('%', #{email}, '%')\n" +
+            "\t\t</if>", " </script>"})
+    List<User> findList(UserQueryBean userQueryBean);
+
+    @Delete("delete from tb_user where id = #{id}")
+    int deleteById(Long id);
+
+    @Delete({"<script> ", "delete from tb_user where id in\n" +
+            "<foreach collection=\"array\" item=\"id\" open=\"(\" separator=\",\" close=\")\">\n" +
+            "#{id}\n" +
+            "</foreach>", " </script>"})
+    int deleteByIds(Long[] ids);
+
+    @Update({"<script> ", "update tb_user\n" +
+            " <set>\n" +
+            " <if test=\"userName != null and userName != ''\">user_name = #{userName},</if>\n" +
+            " <if test=\"email != null and email != ''\">email = #{email},</if>\n" +
+            " <if test=\"phoneNumber != null and phoneNumber != ''\">phone_number = #{phoneNumber},</if>\n" +
+            " <if test=\"description != null and description != ''\">description = #{description},</if>\n" +
+            " update_time = sysdate()\n" +
+            " </set>\n" +
+            " where id = #{id}", " </script>"})
+    int update(User user);
+
+    @Insert({"<script> ", "insert into tb_user(\n" +
+            " <if test=\"userName != null and userName != ''\">user_name,</if>\n" +
+            " <if test=\"password != null and password != ''\">password,</if>\n" +
+            " <if test=\"email != null and email != ''\">email,</if>\n" +
+            " <if test=\"phoneNumber != null and phoneNumber != ''\">phone_number,</if>\n" +
+            " <if test=\"description != null and description != ''\">description,</if>\n" +
+            " create_time,\n" +
+            " update_time\n" +
+            " )values(\n" +
+            " <if test=\"userName != null and userName != ''\">#{userName},</if>\n" +
+            " <if test=\"password != null and password != ''\">#{password},</if>\n" +
+            " <if test=\"email != null and email != ''\">#{email},</if>\n" +
+            " <if test=\"phoneNumber != null and phoneNumber != ''\">#{phoneNumber},</if>\n" +
+            " <if test=\"description != null and description != ''\">#{description},</if>\n" +
+            " sysdate(),\n" +
+            " sysdate()\n" +
+            " )", " </script>"})
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int save(User user);
+
+    @Update({"update tb_user set password = #{password}, update_time = sysdate()", " where id = #{id}"})
+    int updatePassword(User user);
+
+    @ResultMap("UserResult")
+    @SelectProvider(type = UserDaoProvider.class, method = "findById")
+    User findById2(Long id);
+}
+```
+
+### 45.2.3 Service
+
+user service 接口：
+
+```java
+package tech.pdai.springboot.shardingjdbc.mybatis.tables.service;
+
+import tech.pdai.springboot.shardingjdbc.mybatis.tables.entity.User;
+import tech.pdai.springboot.shardingjdbc.mybatis.tables.entity.query.UserQueryBean;
+
+import java.util.List;
+
+/**
+ * @author pdai
+ */
+public interface IUserService {
+
+    List<User> findList(UserQueryBean userQueryBean);
+
+    User findById(Long id);
+
+    int deleteById(Long id);
+
+    int deleteByIds(Long[] ids);
+
+    int update(User user);
+
+    int save(User user);
+
+    int updatePassword(User user);
+
+    User findById2(Long userId);
+}
+```
+
+service实现类：
+
+```java
+package tech.pdai.springboot.shardingjdbc.mybatis.tables.service.impl;
+
+import tech.pdai.springboot.shardingjdbc.mybatis.tables.dao.IUserDao;
+import tech.pdai.springboot.shardingjdbc.mybatis.tables.entity.User;
+import tech.pdai.springboot.shardingjdbc.mybatis.tables.entity.query.UserQueryBean;
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.shardingjdbc.mybatis.tables.service.IUserService;
+
+import java.util.List;
+
+@Service
+public class UserDoServiceImpl implements IUserService {
+
+    /**
+     * userDao.
+     */
+    private final IUserDao userDao;
+
+    /**
+     * init.
+     *
+     * @param userDao2 user dao
+     */
+    public UserDoServiceImpl(final IUserDao userDao2) {
+        this.userDao = userDao2;
+    }
+
+    @Override
+    public List<User> findList(UserQueryBean userQueryBean) {
+        return userDao.findList(userQueryBean);
+    }
+
+    @Override
+    public User findById(Long id) {
+        return userDao.findById(id);
+    }
+
+    @Override
+    public int deleteById(Long id) {
+        return userDao.deleteById(id);
+    }
+
+    @Override
+    public int deleteByIds(Long[] ids) {
+        return userDao.deleteByIds(ids);
+    }
+
+    @Override
+    public int update(User user) {
+        return userDao.update(user);
+    }
+
+    @Override
+    public int save(User user) {
+        return userDao.save(user);
+    }
+
+    @Override
+    public int updatePassword(User user) {
+        return userDao.updatePassword(user);
+    }
+
+    @Override
+    public User findById2(Long userId) {
+        return userDao.findById2(userId);
+    }
+}
+```
+
+### 45.2.4 Controller
+
+user controller：
+
+```java
+package tech.pdai.springboot.shardingjdbc.mybatis.tables.controller;
+
+import tech.pdai.springboot.shardingjdbc.mybatis.tables.entity.User;
+import tech.pdai.springboot.shardingjdbc.mybatis.tables.entity.query.UserQueryBean;
+import tech.pdai.springboot.shardingjdbc.mybatis.tables.entity.response.ResponseResult;
+import io.swagger.annotations.ApiOperation;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+import tech.pdai.springboot.shardingjdbc.mybatis.tables.service.IUserService;
+
+import java.util.List;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @Autowired
+    private IUserService userService;
+
+    /**
+     * @param user user param
+     * @return user
+     */
+    @ApiOperation("Add/Edit User")
+    @PostMapping("add")
+    public ResponseResult<User> add(User user) {
+        if (user.getId() == null) {
+            userService.save(user);
+        } else {
+            userService.update(user);
+        }
+        return ResponseResult.success(userService.findById(user.getId()));
+    }
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User One")
+    @GetMapping("edit/{userId}")
+    public ResponseResult<User> edit(@PathVariable("userId") Long userId) {
+        return ResponseResult.success(userService.findById(userId));
+    }
+
+    /**
+     * @return user list 2
+     */
+    @ApiOperation("Query User One 2")
+    @GetMapping("edit2/{userId}")
+    public ResponseResult<User> edit2(@PathVariable("userId") Long userId) {
+        return ResponseResult.success(userService.findById2(userId));
+    }
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User List")
+    @GetMapping("list")
+    public ResponseResult<List<User>> list(UserQueryBean userQueryBean) {
+        return ResponseResult.success(userService.findList(userQueryBean));
+    }
+
+    @ApiOperation("Delete by id")
+    @PostMapping("delete")
+    public ResponseResult<Integer> delete(Long userId) {
+        return ResponseResult.success(userService.deleteById(userId));
+    }
+}
+```
+
+### 45.2.5 简单测试
+
+访问页面：http://localhost:8080/doc.html插入数据。
+
+## 45.3 进一步理解
+### 45.3.1 几个常见的错误
+在使用sharding-jdbc以及和其它组件集成（比如mybatis，mybatis-plus，druid等）遇到的问题会比较多，这里举几个典型的报错例子：
+- Sharding value must implements Comparable.
+
+由于数据分片，原有的数据库自动增长ID设置以及ORM层相关配置策略都不能再使用，所以需要取消数据库自增长以及ORM层@ID或者@TableID等注解。
+
+key-generator 由如下配置替代
+```yml
+  key-generator:
+    column: id
+    type: SNOWFLAKE
+    props:
+      worker:
+        id: 123
+```
+- Data truncation: Out of range value for column 'id'
+
+正是由于上述SNOWFLAKE雪花算法（相关文章请参考分布式算法 - Snowflake算法）， 相关ID是64位的long类型，所以需要设置相关字段位BIGINT类型。
+- java.sql.SQLFeatureNotSupportedException: getObject with type
+
+这是与Mybatis等其它框架集成的一个bug：LocalDateTimeTypeHandler未能进行关联处理； 官方在5.0版本修复了这个问题，只是当前sharding-jdbc-spring-boot-starter的版本依然是4.1.1，所以依然有问题。这也凸显出了国产开源（即便是进入Apache且在不断完善）整体上还有很长的路（文档，闭环，Ecosystem...等等）要走。
+
+https://github.com/apache/shardingsphere/pull/6202
+
+### 45.3.2 核心作者采访谈Sharding-JDBC
+https://juejin.cn/post/6844903476393164813
+# 四十六、SpringBoot集成ShardingJDBC - 基于JPA的读写分离
+## 46.1 知识准备
+### 46.1.1 读写分离库的场景和设计目标？
+> 透明化读写分离所带来的影响，**让使用方尽量像使用一个数据库一样使用主从数据库集群**，是ShardingSphere读写分离模块的主要设计目标。
+
+面对日益增加的系统访问量，数据库的吞吐量面临着巨大瓶颈。 对于同一时刻有大量并发读操作和较少写操作类型的应用系统来说，将数据库拆分为主库和从库，**主库负责处理事务性的增删改操作，从库负责处理查询操作**，能够有效的避免由数据更新导致的行锁，使得整个系统的查询性能得到极大的改善。
+
+通过一主多从的配置方式，可以将查询请求均匀的分散到多个数据副本，能够进一步的提升系统的处理能力。 使用多主多从的方式，不但能够提升系统的吞吐量，还能够提升系统的可用性，可以达到在任何一个数据库宕机，甚至磁盘物理损坏的情况下仍然不影响系统的正常运行。
+
+与将数据根据分片键打散至各个数据节点的水平分片不同，读写分离则是根据SQL语义的分析，将读操作和写操作分别路由至主库与从库。
+![174.spring-sharding-11.png](../../assets/images/04-主流框架/spring/174.spring-sharding-11.png)
+
+读写分离的数据节点中的数据内容是一致的，而水平分片的每个数据节点的数据内容却并不相同。将水平分片和读写分离联合使用，能够更加有效的提升系统性能。
+
+读写分离虽然可以提升系统的吞吐量和可用性，但同时也带来了数据不一致的问题。 这包括多个主库之间的数据一致性，以及主库与从库之间的数据一致性的问题。 并且，读写分离也带来了与数据分片同样的问题，它同样会使得应用开发和运维人员对数据库的操作和运维变得更加复杂。 下图展现了将分库分表与读写分离一同使用时，应用程序与数据库集群之间的复杂拓扑关系。
+![175.spring-sharding-12.png](../../assets/images/04-主流框架/spring/175.spring-sharding-12.png)
+### 46.1.2 核心功能
+- 提供一主多从的读写分离配置，可独立使用，也可配合分库分表使用。
+- 独立使用读写分离支持SQL透传。
+- 同一线程且同一数据库连接内，如有写入操作，以后的读操作均从主库读取，用于保证数据一致性。
+- 基于Hint的强制主库路由。
+## 46.2 简单示例
+
+这里主要介绍SpringBoot集成基于ShardingJDBC的读写分离和数据分片实践，主要承接之前的相关文章在JPA方式的基础上实现的。
+
+### 46.2.1 准备DB和依赖配置
+
+创建MySQL的schema test_db_sharding_master 和 test_db_sharding_slave，导入SQL文件如下：
+
+test_db_sharding_master：
+
+```sql
+-- MySQL dump 10.13  Distrib 8.0.28, for macos11 (x86_64)
+--
+-- Host: localhost    Database: test_db_sharding_master
+-- ------------------------------------------------------
+-- Server version	8.0.22
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!50503 SET NAMES utf8 */;
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `tb_role`
+--
+
+DROP TABLE IF EXISTS `tb_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_role` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) NOT NULL,
+  `role_key` varchar(255) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_role`
+--
+
+LOCK TABLES `tb_role` WRITE;
+/*!40000 ALTER TABLE `tb_role` DISABLE KEYS */;
+/*!40000 ALTER TABLE `tb_role` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user`
+--
+
+DROP TABLE IF EXISTS `tb_user`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_user` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `user_name` varchar(45) NOT NULL,
+  `password` varchar(45) NOT NULL,
+  `email` varchar(45) DEFAULT NULL,
+  `phone_number` int DEFAULT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user`
+--
+
+LOCK TABLES `tb_user` WRITE;
+/*!40000 ALTER TABLE `tb_user` DISABLE KEYS */;
+INSERT INTO `tb_user` VALUES (2,'pdai2','aaa','pdai@pdai.tech',123133332,'pdai2','2022-04-06 20:44:34','2022-04-06 20:44:34');
+/*!40000 ALTER TABLE `tb_user` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user_role`
+--
+
+DROP TABLE IF EXISTS `tb_user_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_user_role` (
+  `user_id` int NOT NULL,
+  `role_id` int NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user_role`
+--
+
+LOCK TABLES `tb_user_role` WRITE;
+/*!40000 ALTER TABLE `tb_user_role` DISABLE KEYS */;
+/*!40000 ALTER TABLE `tb_user_role` ENABLE KEYS */;
+UNLOCK TABLES;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
+
+-- Dump completed on 2022-04-06 21:08:09
+```
+
+test_db_sharding_slave：
+
+```sql
+-- MySQL dump 10.13  Distrib 8.0.28, for macos11 (x86_64)
+--
+-- Host: localhost    Database: test_db_sharding_slave0
+-- ------------------------------------------------------
+-- Server version	8.0.22
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!50503 SET NAMES utf8 */;
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `tb_role`
+--
+
+DROP TABLE IF EXISTS `tb_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_role` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) NOT NULL,
+  `role_key` varchar(255) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_role`
+--
+
+LOCK TABLES `tb_role` WRITE;
+/*!40000 ALTER TABLE `tb_role` DISABLE KEYS */;
+/*!40000 ALTER TABLE `tb_role` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user`
+--
+
+DROP TABLE IF EXISTS `tb_user`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_user` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `user_name` varchar(45) NOT NULL,
+  `password` varchar(45) NOT NULL,
+  `email` varchar(45) DEFAULT NULL,
+  `phone_number` int DEFAULT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user`
+--
+
+LOCK TABLES `tb_user` WRITE;
+/*!40000 ALTER TABLE `tb_user` DISABLE KEYS */;
+INSERT INTO `tb_user` VALUES (2,'pdai-salve','xxx','xx',12111,'pdai','2022-04-06 20:44:34','2022-04-06 20:44:34');
+/*!40000 ALTER TABLE `tb_user` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user_role`
+--
+
+DROP TABLE IF EXISTS `tb_user_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_user_role` (
+  `user_id` int NOT NULL,
+  `role_id` int NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user_role`
+--
+
+LOCK TABLES `tb_user_role` WRITE;
+/*!40000 ALTER TABLE `tb_user_role` DISABLE KEYS */;
+/*!40000 ALTER TABLE `tb_user_role` ENABLE KEYS */;
+UNLOCK TABLES;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
+
+-- Dump completed on 2022-04-06 21:08:28
+```
+
+引入maven依赖，包含mysql驱动、JPA包，以及sharding-jdbc的依赖：
+
+```xml
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>8.0.28</version>
+</dependency>
+<dependency>
+    <groupId>com.github.wenhao</groupId>
+    <artifactId>jpa-spec</artifactId>
+    <version>3.1.0</version>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.apache.shardingsphere</groupId>
+    <artifactId>sharding-jdbc-spring-boot-starter</artifactId>
+    <version>4.1.1</version>
+</dependency>
+```
+
+增加yml配置：
+
+```yaml
+spring:
+  shardingsphere:
+    datasource:
+      names: master,slave0
+      master:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://localhost:3306/test_db_sharding_master?allowPublicKeyRetrieval=true&useSSL=false&autoReconnect=true&characterEncoding=utf8
+        username: root
+        password: bfXa4Pt2lUUScy8jakXf
+      slave0:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://localhost:3306/test_db_sharding_slave0?allowPublicKeyRetrieval=true&useSSL=false&autoReconnect=true&characterEncoding=utf8
+        username: root
+        password: bfXa4Pt2lUUScy8jakXf
+    sharding:
+      tables:
+        tb_user:
+          database-strategy:
+            inline:
+              sharding-column: id
+              algorithm-expression: master
+          key-generator:
+            column: id
+            type: SNOWFLAKE
+            props:
+              worker:
+                id: 123
+        tb_role:
+          database-strategy:
+            inline:
+              sharding-column: id
+              algorithm-expression: master
+          key-generator:
+            column: id
+            type: SNOWFLAKE
+            props:
+              worker:
+                id: 123
+        tb_user_role:
+          database-strategy:
+            inline:
+              sharding-column: id
+              algorithm-expression: master
+          key-generator:
+            column: id
+            type: SNOWFLAKE
+            props:
+              worker:
+                id: 123
+    master-slave:
+        name: ms
+        load-balance-algorithm-type: round_robin
+        master-data-source-name: master
+        slave-data-source-names: slave0
+    props:
+      sql:
+        show: true
+  jpa:
+    open-in-view: false
+    generate-ddl: false
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+        use-new-id-generator-mappings: false
+```
+
+### 46.2.2 Entity
+
+user entity：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity;
+
+import java.time.LocalDateTime;
+import java.util.Set;
+
+import javax.persistence.CascadeType;
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.FetchType;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.JoinColumn;
+import javax.persistence.JoinTable;
+import javax.persistence.ManyToMany;
+import javax.persistence.Table;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
+
+/**
+ * @author pdai
+ */
+@Getter
+@Setter
+@ToString
+@Entity
+@Table(name = "tb_user")
+public class User implements BaseEntity {
+
+    /**
+     * user id.
+     */
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id", nullable = false)
+    private Long id;
+
+    /**
+     * username.
+     */
+    private String userName;
+
+    /**
+     * user pwd.
+     */
+    private String password;
+
+    /**
+     * email.
+     */
+    private String email;
+
+    /**
+     * phoneNumber.
+     */
+    private long phoneNumber;
+
+    /**
+     * description.
+     */
+    private String description;
+
+    /**
+     * create date time.
+     */
+    private LocalDateTime createTime;
+
+    /**
+     * update date time.
+     */
+    private LocalDateTime updateTime;
+
+    /**
+     * join to role table.
+     */
+    @ManyToMany(cascade = {CascadeType.REFRESH}, fetch = FetchType.EAGER)
+    @JoinTable(name = "tb_user_role", joinColumns = {
+            @JoinColumn(name = "user_id")}, inverseJoinColumns = {@JoinColumn(name = "role_id")})
+    private Set<Role> roles;
+
+}
+```
+
+role entity：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity;
+
+import java.time.LocalDateTime;
+
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.Table;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
+
+/**
+ * @author pdai
+ */
+@Getter
+@Setter
+@ToString
+@Entity
+@Table(name = "tb_role")
+public class Role implements BaseEntity {
+
+    /**
+     * role id.
+     */
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id", nullable = false)
+    private Long id;
+
+    /**
+     * role name.
+     */
+    private String name;
+
+    /**
+     * role key.
+     */
+    private String roleKey;
+
+    /**
+     * description.
+     */
+    private String description;
+
+    /**
+     * create date time.
+     */
+    private LocalDateTime createTime;
+
+    /**
+     * update date time.
+     */
+    private LocalDateTime updateTime;
+
+}
+```
+
+### 46.2.3 DAO
+
+user dao：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.masterslave.dao;
+
+import org.springframework.stereotype.Repository;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity.User;
+
+/**
+ * @author pdai
+ */
+@Repository
+public interface IUserDao extends IBaseDao<User, Long> {
+
+}
+```
+
+role dao：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.masterslave.dao;
+
+import org.springframework.stereotype.Repository;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity.Role;
+
+/**
+ * @author pdai
+ */
+@Repository
+public interface IRoleDao extends IBaseDao<Role, Long> {
+
+}
+```
+
+### 46.2.4 Service
+
+user service 接口：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.masterslave.service;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity.User;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity.query.UserQueryBean;
+
+/**
+ * @author pdai
+ */
+public interface IUserService extends IBaseService<User, Long> {
+
+    /**
+     * find by page.
+     *
+     * @param userQueryBean query
+     * @param pageRequest   pageRequest
+     * @return page
+     */
+    Page<User> findPage(UserQueryBean userQueryBean, PageRequest pageRequest);
+
+}
+```
+
+user service 实现类：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.masterslave.service.impl;
+
+import com.github.wenhao.jpa.Specifications;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.dao.IBaseDao;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.dao.IUserDao;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity.User;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity.query.UserQueryBean;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.service.IUserService;
+
+@Service
+public class UserDoServiceImpl extends BaseDoServiceImpl<User, Long> implements IUserService {
+
+    /**
+     * userDao.
+     */
+    private final IUserDao userDao;
+
+    /**
+     * init.
+     *
+     * @param userDao2 user dao
+     */
+    public UserDoServiceImpl(final IUserDao userDao2) {
+        this.userDao = userDao2;
+    }
+
+    /**
+     * @return base dao
+     */
+    @Override
+    public IBaseDao<User, Long> getBaseDao() {
+        return this.userDao;
+    }
+
+    /**
+     * find by page.
+     *
+     * @param queryBean   query
+     * @param pageRequest pageRequest
+     * @return page
+     */
+    @Override
+    public Page<User> findPage(UserQueryBean queryBean, PageRequest pageRequest) {
+        Specification<User> specification = Specifications.<User>and()
+                .like(StringUtils.isNotEmpty(queryBean.getName()), "user_name", queryBean.getName())
+                .like(StringUtils.isNotEmpty(queryBean.getDescription()), "description",
+                        queryBean.getDescription())
+                .build();
+        return this.getBaseDao().findAll(specification, pageRequest);
+    }
+
+}
+```
+
+role service 接口：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.masterslave.service;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity.Role;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity.query.RoleQueryBean;
+
+public interface IRoleService extends IBaseService<Role, Long> {
+
+    /**
+     * find page by query.
+     *
+     * @param roleQueryBean query
+     * @param pageRequest   pageRequest
+     * @return page
+     */
+    Page<Role> findPage(RoleQueryBean roleQueryBean, PageRequest pageRequest);
+
+}
+```
+
+role service 实现类：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.masterslave.service.impl;
+
+import com.github.wenhao.jpa.Specifications;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.dao.IBaseDao;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.dao.IRoleDao;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity.Role;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity.query.RoleQueryBean;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.service.IRoleService;
+
+@Service
+public class RoleDoServiceImpl extends BaseDoServiceImpl<Role, Long> implements IRoleService {
+
+    /**
+     * roleDao.
+     */
+    private final IRoleDao roleDao;
+
+    /**
+     * init.
+     *
+     * @param roleDao2 role dao
+     */
+    public RoleDoServiceImpl(final IRoleDao roleDao2) {
+        this.roleDao = roleDao2;
+    }
+
+    /**
+     * @return base dao
+     */
+    @Override
+    public IBaseDao<Role, Long> getBaseDao() {
+        return this.roleDao;
+    }
+
+    /**
+     * find page by query.
+     *
+     * @param roleQueryBean query
+     * @param pageRequest   pageRequest
+     * @return page
+     */
+    @Override
+    public Page<Role> findPage(RoleQueryBean roleQueryBean, PageRequest pageRequest) {
+        Specification<Role> specification = Specifications.<Role>and()
+                .like(StringUtils.isNotEmpty(roleQueryBean.getName()), "name",
+                        roleQueryBean.getName())
+                .like(StringUtils.isNotEmpty(roleQueryBean.getDescription()), "description",
+                        roleQueryBean.getDescription())
+                .build();
+        return this.roleDao.findAll(specification, pageRequest);
+    }
+
+}
+```
+
+### 46.2.5 Controller
+
+user controller：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.masterslave.controller;
+
+import java.time.LocalDateTime;
+
+import io.swagger.annotations.ApiOperation;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity.User;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity.query.UserQueryBean;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.entity.response.ResponseResult;
+import tech.pdai.springboot.shardingjdbc.jpa.masterslave.service.IUserService;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @Autowired
+    private IUserService userService;
+
+    /**
+     * @param user user param
+     * @return user
+     */
+    @ApiOperation("Add/Edit User")
+    @PostMapping("add")
+    public ResponseResult<User> add(User user) {
+        if (user.getId()==null || !userService.exists(user.getId())) {
+            user.setCreateTime(LocalDateTime.now());
+            user.setUpdateTime(LocalDateTime.now());
+            userService.save(user);
+        } else {
+            user.setUpdateTime(LocalDateTime.now());
+            userService.update(user);
+        }
+        return ResponseResult.success(userService.find(user.getId()));
+    }
+
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User One")
+    @GetMapping("edit/{userId}")
+    public ResponseResult<User> edit(@PathVariable("userId") Long userId) {
+        return ResponseResult.success(userService.find(userId));
+    }
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User Page")
+    @GetMapping("list")
+    public ResponseResult<Page<User>> list(@RequestParam int pageSize, @RequestParam int pageNumber) {
+        return ResponseResult.success(userService.findPage(UserQueryBean.builder().build(), PageRequest.of(pageNumber, pageSize)));
+    }
+}
+```
+
+### 46.2.6 简单测试
+
+访问页面：http://localhost:8080/doc.html
+- 插入数据，写入master库
+![176.springboot-sharding-5.png](../../assets/images/04-主流框架/spring/176.springboot-sharding-5.png)
+- (注意：主库和从库的数据同步不是shardingJDBC做的，需要自行同步)
+![177.springboot-sharding-6.png](../../assets/images/04-主流框架/spring/177.springboot-sharding-6.png)
+- 查询数据，从slave中查询
+
+slave db中的数据
+![178.springboot-sharding-7.png](../../assets/images/04-主流框架/spring/178.springboot-sharding-7.png)
+
+查询结果
+![179.springboot-sharding-8.png](../../assets/images/04-主流框架/spring/179.springboot-sharding-8.png)
+
+相关查询console打印出的日志：
+```sh
+// pdai: 如下是插入
+2022-04-06 20:44:11.045  INFO 26013 --- [nio-8080-exec-4] o.s.web.servlet.DispatcherServlet        : Completed initialization in 1 ms
+2022-04-06 20:44:34.127  INFO 26013 --- [nio-8080-exec-8] ShardingSphere-SQL                       : Logic SQL: insert into tb_user (create_time, description, email, password, phone_number, update_time, user_name) values (?, ?, ?, ?, ?, ?, ?)
+2022-04-06 20:44:34.127  INFO 26013 --- [nio-8080-exec-8] ShardingSphere-SQL                       : SQLStatement: CommonSQLStatementContext(sqlStatement=org.apache.shardingsphere.sql.parser.sql.statement.dml.InsertStatement@5a160db9, tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@4070419f)
+2022-04-06 20:44:34.128  INFO 26013 --- [nio-8080-exec-8] ShardingSphere-SQL                       : Actual SQL: master ::: insert into tb_user (create_time, description, email, password, phone_number, update_time, user_name) values (?, ?, ?, ?, ?, ?, ?)
+2022-04-06 20:44:34.184  INFO 26013 --- [nio-8080-exec-8] ShardingSphere-SQL                       : Logic SQL: select user0_.id as id1_1_0_, user0_.create_time as create_t2_1_0_, user0_.description as descript3_1_0_, user0_.email as email4_1_0_, user0_.password as password5_1_0_, user0_.phone_number as phone_nu6_1_0_, user0_.update_time as update_t7_1_0_, user0_.user_name as user_nam8_1_0_, roles1_.user_id as user_id1_2_1_, role2_.id as role_id2_2_1_, role2_.id as id1_0_2_, role2_.create_time as create_t2_0_2_, role2_.description as descript3_0_2_, role2_.name as name4_0_2_, role2_.role_key as role_key5_0_2_, role2_.update_time as update_t6_0_2_ from tb_user user0_ left outer join tb_user_role roles1_ on user0_.id=roles1_.user_id left outer join tb_role role2_ on roles1_.role_id=role2_.id where user0_.id=?
+2022-04-06 20:44:34.184  INFO 26013 --- [nio-8080-exec-8] ShardingSphere-SQL                       : SQLStatement: SelectStatementContext(super=CommonSQLStatementContext(sqlStatement=org.apache.shardingsphere.sql.parser.sql.statement.dml.SelectStatement@1089fea0, tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@60fc819), tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@60fc819, projectionsContext=ProjectionsContext(startIndex=7, stopIndex=541, distinctRow=false, projections=[ColumnProjection(owner=user0_, name=id, alias=Optional[id1_1_0_]), ColumnProjection(owner=user0_, name=create_time, alias=Optional[create_t2_1_0_]), ColumnProjection(owner=user0_, name=description, alias=Optional[descript3_1_0_]), ColumnProjection(owner=user0_, name=email, alias=Optional[email4_1_0_]), ColumnProjection(owner=user0_, name=password, alias=Optional[password5_1_0_]), ColumnProjection(owner=user0_, name=phone_number, alias=Optional[phone_nu6_1_0_]), ColumnProjection(owner=user0_, name=update_time, alias=Optional[update_t7_1_0_]), ColumnProjection(owner=user0_, name=user_name, alias=Optional[user_nam8_1_0_]), ColumnProjection(owner=roles1_, name=user_id, alias=Optional[user_id1_2_1_]), ColumnProjection(owner=role2_, name=id, alias=Optional[role_id2_2_1_]), ColumnProjection(owner=role2_, name=id, alias=Optional[id1_0_2_]), ColumnProjection(owner=role2_, name=create_time, alias=Optional[create_t2_0_2_]), ColumnProjection(owner=role2_, name=description, alias=Optional[descript3_0_2_]), ColumnProjection(owner=role2_, name=name, alias=Optional[name4_0_2_]), ColumnProjection(owner=role2_, name=role_key, alias=Optional[role_key5_0_2_]), ColumnProjection(owner=role2_, name=update_time, alias=Optional[update_t6_0_2_])]), groupByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.groupby.GroupByContext@456da89f, orderByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.orderby.OrderByContext@4f139aa4, paginationContext=org.apache.shardingsphere.sql.parser.binder.segment.select.pagination.PaginationContext@10b01118, containsSubquery=false)
+2022-04-06 20:44:34.184  INFO 26013 --- [nio-8080-exec-8] ShardingSphere-SQL                       : Actual SQL: slave0 ::: select user0_.id as id1_1_0_, user0_.create_time as create_t2_1_0_, user0_.description as descript3_1_0_, user0_.email as email4_1_0_, user0_.password as password5_1_0_, user0_.phone_number as phone_nu6_1_0_, user0_.update_time as update_t7_1_0_, user0_.user_name as user_nam8_1_0_, roles1_.user_id as user_id1_2_1_, role2_.id as role_id2_2_1_, role2_.id as id1_0_2_, role2_.create_time as create_t2_0_2_, role2_.description as descript3_0_2_, role2_.name as name4_0_2_, role2_.role_key as role_key5_0_2_, role2_.update_time as update_t6_0_2_ from tb_user user0_ left outer join tb_user_role roles1_ on user0_.id=roles1_.user_id left outer join tb_role role2_ on roles1_.role_id=role2_.id where user0_.id=?
+
+// pdai: 如下是查询
+2022-04-06 20:58:50.220  INFO 26013 --- [nio-8080-exec-5] ShardingSphere-SQL                       : Logic SQL: select user0_.id as id1_1_0_, user0_.create_time as create_t2_1_0_, user0_.description as descript3_1_0_, user0_.email as email4_1_0_, user0_.password as password5_1_0_, user0_.phone_number as phone_nu6_1_0_, user0_.update_time as update_t7_1_0_, user0_.user_name as user_nam8_1_0_, roles1_.user_id as user_id1_2_1_, role2_.id as role_id2_2_1_, role2_.id as id1_0_2_, role2_.create_time as create_t2_0_2_, role2_.description as descript3_0_2_, role2_.name as name4_0_2_, role2_.role_key as role_key5_0_2_, role2_.update_time as update_t6_0_2_ from tb_user user0_ left outer join tb_user_role roles1_ on user0_.id=roles1_.user_id left outer join tb_role role2_ on roles1_.role_id=role2_.id where user0_.id=?
+2022-04-06 20:58:50.220  INFO 26013 --- [nio-8080-exec-5] ShardingSphere-SQL                       : SQLStatement: SelectStatementContext(super=CommonSQLStatementContext(sqlStatement=org.apache.shardingsphere.sql.parser.sql.statement.dml.SelectStatement@1089fea0, tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@75ff28f7), tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@75ff28f7, projectionsContext=ProjectionsContext(startIndex=7, stopIndex=541, distinctRow=false, projections=[ColumnProjection(owner=user0_, name=id, alias=Optional[id1_1_0_]), ColumnProjection(owner=user0_, name=create_time, alias=Optional[create_t2_1_0_]), ColumnProjection(owner=user0_, name=description, alias=Optional[descript3_1_0_]), ColumnProjection(owner=user0_, name=email, alias=Optional[email4_1_0_]), ColumnProjection(owner=user0_, name=password, alias=Optional[password5_1_0_]), ColumnProjection(owner=user0_, name=phone_number, alias=Optional[phone_nu6_1_0_]), ColumnProjection(owner=user0_, name=update_time, alias=Optional[update_t7_1_0_]), ColumnProjection(owner=user0_, name=user_name, alias=Optional[user_nam8_1_0_]), ColumnProjection(owner=roles1_, name=user_id, alias=Optional[user_id1_2_1_]), ColumnProjection(owner=role2_, name=id, alias=Optional[role_id2_2_1_]), ColumnProjection(owner=role2_, name=id, alias=Optional[id1_0_2_]), ColumnProjection(owner=role2_, name=create_time, alias=Optional[create_t2_0_2_]), ColumnProjection(owner=role2_, name=description, alias=Optional[descript3_0_2_]), ColumnProjection(owner=role2_, name=name, alias=Optional[name4_0_2_]), ColumnProjection(owner=role2_, name=role_key, alias=Optional[role_key5_0_2_]), ColumnProjection(owner=role2_, name=update_time, alias=Optional[update_t6_0_2_])]), groupByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.groupby.GroupByContext@1d491acc, orderByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.orderby.OrderByContext@61fdb66b, paginationContext=org.apache.shardingsphere.sql.parser.binder.segment.select.pagination.PaginationContext@2ee96c65, containsSubquery=false)
+2022-04-06 20:58:50.220  INFO 26013 --- [nio-8080-exec-5] ShardingSphere-SQL                       : Actual SQL: slave0 ::: select user0_.id as id1_1_0_, user0_.create_time as create_t2_1_0_, user0_.description as descript3_1_0_, user0_.email as email4_1_0_, user0_.password as password5_1_0_, user0_.phone_number as phone_nu6_1_0_, user0_.update_time as update_t7_1_0_, user0_.user_name as user_nam8_1_0_, roles1_.user_id as user_id1_2_1_, role2_.id as role_id2_2_1_, role2_.id as id1_0_2_, role2_.create_time as create_t2_0_2_, role2_.description as descript3_0_2_, role2_.name as name4_0_2_, role2_.role_key as role_key5_0_2_, role2_.update_time as update_t6_0_2_ from tb_user user0_ left outer join tb_user_role roles1_ on user0_.id=roles1_.user_id left outer join tb_role role2_ on roles1_.role_id=role2_.id where user0_.id=?
+```
+## 46.3 进一步理解
+### 46.3.1 shardingJDBC的主从分离解决不了什么问题？
+- 主库和从库的数据同步。
+- 主库和从库的数据同步延迟导致的数据不一致。
+- 主库双写或多写。
+### 46.3.2 读写分离加数据分片？
+可以参考官方给的如下配置：
+```yml
+dataSources:
+  ds0: !!org.apache.commons.dbcp.BasicDataSource
+    driverClassName: com.mysql.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/ds0
+    username: root
+    password: 
+  ds0_slave0: !!org.apache.commons.dbcp.BasicDataSource
+      driverClassName: com.mysql.jdbc.Driver
+      url: jdbc:mysql://localhost:3306/ds0_slave0
+      username: root
+      password: 
+  ds0_slave1: !!org.apache.commons.dbcp.BasicDataSource
+      driverClassName: com.mysql.jdbc.Driver
+      url: jdbc:mysql://localhost:3306/ds0_slave1
+      username: root
+      password: 
+  ds1: !!org.apache.commons.dbcp.BasicDataSource
+    driverClassName: com.mysql.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/ds1
+    username: root
+    password: 
+  ds1_slave0: !!org.apache.commons.dbcp.BasicDataSource
+        driverClassName: com.mysql.jdbc.Driver
+        url: jdbc:mysql://localhost:3306/ds1_slave0
+        username: root
+        password: 
+  ds1_slave1: !!org.apache.commons.dbcp.BasicDataSource
+        driverClassName: com.mysql.jdbc.Driver
+        url: jdbc:mysql://localhost:3306/ds1_slave1
+        username: root
+        password: 
+
+shardingRule:  
+  tables:
+    t_order: 
+      actualDataNodes: ms_ds${0..1}.t_order${0..1}
+      databaseStrategy:
+        inline:
+          shardingColumn: user_id
+          algorithmExpression: ms_ds${user_id % 2}
+      tableStrategy: 
+        inline:
+          shardingColumn: order_id
+          algorithmExpression: t_order${order_id % 2}
+      keyGenerator:
+        type: SNOWFLAKE
+        column: order_id
+    t_order_item:
+      actualDataNodes: ms_ds${0..1}.t_order_item${0..1}
+      databaseStrategy:
+        inline:
+          shardingColumn: user_id
+          algorithmExpression: ms_ds${user_id % 2}
+      tableStrategy:
+        inline:
+          shardingColumn: order_id
+          algorithmExpression: t_order_item${order_id % 2}  
+  bindingTables:
+    - t_order,t_order_item
+  broadcastTables:
+    - t_config
+  
+  defaultDataSourceName: ds0
+  defaultTableStrategy:
+    none:
+  defaultKeyGenerator:
+    type: SNOWFLAKE
+    column: order_id
+  
+  masterSlaveRules:
+      ms_ds0:
+        masterDataSourceName: ds0
+        slaveDataSourceNames:
+          - ds0_slave0
+          - ds0_slave1
+        loadBalanceAlgorithmType: ROUND_ROBIN
+      ms_ds1:
+        masterDataSourceName: ds1
+        slaveDataSourceNames: 
+          - ds1_slave0
+          - ds1_slave1
+        loadBalanceAlgorithmType: ROUND_ROBIN
+props:
+  sql.show: true
+```
+!! 表示实例化该类
+- 表示可以包含一个或多个
+
+[] 表示数组，可以与减号相互替换使用
+# 四十七、SpringBoot集成ShardingJDBC - 基于JPA的DB隔离多租户方案
+## 47.1 知识准备
+### 47.1.1 逻辑表？绑定表？
+> <a href='https://shardingsphere.apache.org/'>如下内容来自官网</a>
+- 逻辑表
+  - 水平拆分的数据库（表）的相同逻辑和数据结构表的总称。例：订单数据根据主键尾数拆分为10张表，分别是t_order_0到t_order_9，他们的逻辑表名为t_order。
+- 真实表
+  - 在分片的数据库中真实存在的物理表。即上个示例中的t_order_0到t_order_9。
+- 数据节点
+  - 数据分片的最小单元。由数据源名称和数据表组成，例：ds_0.t_order_0。
+- 绑定表
+  - 指分片规则一致的主表和子表。例如：t_order表和t_order_item表，均按照order_id分片，则此两张表互为绑定表关系。绑定表之间的多表关联查询不会出现笛卡尔积关联，关联查询效率将大大提升。举例说明，如果SQL为：
+```sql
+SELECT i.* FROM t_order o JOIN t_order_item i ON o.order_id=i.order_id WHERE o.order_id in (10, 11);
+```
+在不配置绑定表关系时，假设分片键order_id将数值10路由至第0片，将数值11路由至第1片，那么路由后的SQL应该为4条，它们呈现为笛卡尔积：
+```sql
+SELECT i.* FROM t_order_0 o JOIN t_order_item_0 i ON o.order_id=i.order_id WHERE o.order_id in (10, 11);
+
+SELECT i.* FROM t_order_0 o JOIN t_order_item_1 i ON o.order_id=i.order_id WHERE o.order_id in (10, 11);
+
+SELECT i.* FROM t_order_1 o JOIN t_order_item_0 i ON o.order_id=i.order_id WHERE o.order_id in (10, 11);
+
+SELECT i.* FROM t_order_1 o JOIN t_order_item_1 i ON o.order_id=i.order_id WHERE o.order_id in (10, 11);
+```
+在配置绑定表关系后，路由的SQL应该为2条：
+```sql
+SELECT i.* FROM t_order_0 o JOIN t_order_item_0 i ON o.order_id=i.order_id WHERE o.order_id in (10, 11);
+
+SELECT i.* FROM t_order_1 o JOIN t_order_item_1 i ON o.order_id=i.order_id WHERE o.order_id in (10, 11);
+```
+其中t_order在FROM的最左侧，ShardingSphere将会以它作为整个绑定表的主表。 所有路由计算将会只使用主表的策略，那么t_order_item表的分片计算将会使用t_order的条件。故绑定表之间的分区键要完全相同。
+- 广播表
+
+指所有的分片数据源中都存在的表，表结构和表中的数据在每个数据库中均完全一致。适用于数据量不大且需要与海量数据的表进行关联查询的场景，例如：字典表。
+### 47.1.2 分片算法？分片策略？
+#### 47.1.2.1 分片键
+用于分片的数据库字段，是将数据库(表)水平拆分的关键字段。例：将订单表中的订单主键的尾数取模分片，则订单主键为分片字段。 SQL中如果无分片字段，将执行全路由，性能较差。 除了对单分片字段的支持，ShardingSphere也支持根据多个字段进行分片。
+#### 47.1.2.2 分片算法
+> 通过分片算法将数据分片，支持通过=、>=、<=、>、<、BETWEEN和IN分片。分片算法需要应用方开发者自行实现，可实现的灵活度非常高。
+
+目前提供4种分片算法。由于分片算法和业务实现紧密相关，因此并未提供内置分片算法，而是通过分片策略将各种场景提炼出来，提供更高层级的抽象，并提供接口让应用开发者自行实现分片算法。
+- 精确分片算法
+
+对应PreciseShardingAlgorithm，用于处理使用单一键作为分片键的=与IN进行分片的场景。需要配合StandardShardingStrategy使用。
+- 范围分片算法
+
+对应RangeShardingAlgorithm，用于处理使用单一键作为分片键的BETWEEN AND、>、<、>=、<=进行分片的场景。需要配合StandardShardingStrategy使用。
+- 复合分片算法
+
+对应ComplexKeysShardingAlgorithm，用于处理使用多键作为分片键进行分片的场景，包含多个分片键的逻辑较复杂，需要应用开发者自行处理其中的复杂度。需要配合ComplexShardingStrategy使用。
+- Hint分片算法
+
+对应HintShardingAlgorithm，用于处理使用Hint行分片的场景。需要配合HintShardingStrategy使用。
+![180.spring-sharding-21.png](../../assets/images/04-主流框架/spring/180.spring-sharding-21.png)
+#### 47.1.2.3 分片策略
+> 包含分片键和分片算法，由于分片算法的独立性，将其独立抽离。真正可用于分片操作的是分片键 + 分片算法，也就是分片策略。目前提供5种分片策略。
+- 标准分片策略
+  - 对应StandardShardingStrategy。提供对SQL语句中的=, >, <, >=, <=, IN和BETWEEN AND的分片操作支持。StandardShardingStrategy只支持单分片键，提供PreciseShardingAlgorithm和RangeShardingAlgorithm两个分片算法。PreciseShardingAlgorithm是必选的，用于处理=和IN的分片。RangeShardingAlgorithm是可选的，用于处理BETWEEN AND, >, <, >=, <=分片，如果不配置RangeShardingAlgorithm，SQL中的BETWEEN AND将按照全库路由处理。
+- 复合分片策略
+  - 对应ComplexShardingStrategy。 复合分片策略。提供对SQL语句中的=, >, <, >=, <=, IN和BETWEEN AND的分片操作支持。ComplexShardingStrategy支持多分片键，由于多分片键之间的关系复杂，因此并未进行过多的封装，而是直接将分片键值组合以及分片操作符透传至分片算法，完全由应用开发者实现，提供最大的灵活度。
+- 行表达式分片策略
+  - 对应InlineShardingStrategy。使用Groovy的表达式，提供对SQL语句中的=和IN的分片操作支持，只支持单分片键。对于简单的分片算法，可以通过简单的配置使用，从而避免繁琐的Java代码开发，如: t_user_$->{u_id % 8} 表示t_user表根据u_id模8，而分成8张表，表名称为t_user_0到t_user_7。
+- Hint分片策略
+  - 对应HintShardingStrategy。通过Hint指定分片值而非从SQL中提取分片值的方式进行分片的策略。
+- 不分片策略
+  - 对应NoneShardingStrategy。不分片的策略。
+![181.spring-sharding-22.png](../../assets/images/04-主流框架/spring/181.spring-sharding-22.png)
+### 47.1.3 SQL Hint
+对于分片字段非SQL决定，而由其他外置条件决定的场景，可使用SQL Hint灵活的注入分片字段。例：内部系统，按照员工登录主键分库，而数据库中并无此字段。SQL Hint支持通过Java API和SQL注释(待实现)两种方式使用。
+- ShardingJDBC 内部结构
+![182.spring-sharding-23.png](../../assets/images/04-主流框架/spring/182.spring-sharding-23.png)
+
+
+- 黄色部分
+  - 图中黄色部分表示的是Sharding-JDBC的入口API，采用工厂方法的形式提供。 目前有ShardingDataSourceFactory和MasterSlaveDataSourceFactory两个工厂类。ShardingDataSourceFactory用于创建分库分表或分库分表+读写分离的JDBC驱动，MasterSlaveDataSourceFactory用于创建独立使用读写分离的JDBC驱动。
+- 蓝色部分
+  - 图中蓝色部分表示的是Sharding-JDBC的配置对象，提供灵活多变的配置方式。 ShardingRuleConfiguration是分库分表配置的核心和入口，它可以包含多个TableRuleConfiguration和MasterSlaveRuleConfiguration。每一组相同规则分片的表配置一个TableRuleConfiguration。如果需要分库分表和读写分离共同使用，每一个读写分离的逻辑库配置一个MasterSlaveRuleConfiguration。 每个TableRuleConfiguration对应一个ShardingStrategyConfiguration，它有5中实现类可供选择。仅读写分离使用MasterSlaveRuleConfiguration即可。
+- 红色部分
+  - 图中红色部分表示的是内部对象，由Sharding-JDBC内部使用，应用开发者无需关注。Sharding-JDBC通过ShardingRuleConfiguration和MasterSlaveRuleConfiguration生成真正供ShardingDataSource和MasterSlaveDataSource使用的规则对象。ShardingDataSource和MasterSlaveDataSource实现了DataSource接口，是JDBC的完整实现方案。
+### 47.1.4 初始化流程配置
+1. Configuration对象。
+2. 通过Factory对象将Configuration对象转化为Rule对象。
+3. 通过Factory对象将Rule对象与DataSource对象装配。
+4. Sharding-JDBC使用DataSource对象进行分库。
+### 47.1.5 使用约定
+在org.apache.shardingsphere.api和org.apache.shardingsphere.shardingjdbc.api 包中的类是面向用户的API，每次修改都会在release notes中明确声明。 其他包中的类属于内部实现，可能随时进行调整，请勿直接使用。
+<think>首先，用户提供了一个关于SpringBoot集成ShardingJDBC的按字段分库的示例，要求整理成markdown格式。格式要求以"## 47.2 简单示例"开头，后面的编号继续往下，例如"### 47.2.1"。
+
+我需要回顾之前的对话历史。在历史中，第一个示例是45.2，第二个是46.2，所以这个应该是47.2。用户指定了"## 47.2 简单示例"，所以我应该从这里开始。
+
+内容是关于按字段分库的两种策略：标准分片策略和行表达式分片策略。基于JPA方式。
+
+用户提供了以下部分：
+- 准备DB和依赖配置
+- Entity
+- DAO
+- Service
+- Controller
+
+我需要将这些内容组织成markdown格式，使用标题层次结构。
+
+标题结构应该是：
+- ## 47.2 简单示例
+- 然后子标题如### 47.2.1 准备DB和依赖配置
+- 继续编号，如### 47.2.2 Entity 等。
+
+从用户输入中，内容已经分成了几个部分：
+1. 准备DB和依赖配置
+2. Entity
+3. DAO
+4. Service
+5. Controller
+
+我需要为每个部分创建子标题。
+
+用户输入中有一些代码块和SQL，我需要确保它们被正确格式化为代码块。
+
+用户输入的开头是："简单示例这里主要介绍SpringBoot集成基于ShardingJDBC的按字段分库，两种策略（标准分片策略 和 行表达式分片策略），主要承接之前的相关文章在JPA方式的基础上实现的。"
+
+我应该将这个描述放在## 47.2 简单示例下面，作为介绍。
+
+然后，按照用户提供的顺序组织内容。
+
+用户输入中有SQL文件和代码，我需要将它们放入代码块中。
+
+在之前的响应中，我使用了```sql和```java等来格式化代码。
+
+现在，编号应该是47.2，因为之前的对话中，第一个是45.2，第二个是46.2，所以这个是47.2。
+
+用户说："整理为markdown格式，以## 47.2 简单示例开头后面按照编号排序，例如### 47.2.1"
+
+所以，我需要：
+- ## 47.2 简单示例
+- 然后是子标题，如### 47.2.1 准备DB和依赖配置
+- ### 47.2.2 Entity
+- 等等。
+
+用户输入中，部分内容有重复或相似的结构，我需要保持原样。
+
+用户输入中有两个SQL文件：test_db_tenant_a 和 test_db_tenant_b，我应该将它们分别放在代码块中。
+
+在依赖配置部分，有maven依赖和yml配置。
+
+在Entity部分，有user和role的entity代码。
+
+在DAO部分，有user和role的dao接口。
+
+在Service部分，有user和role的service接口和实现类。
+
+在Controller部分，有user controller。
+
+我需要确保代码块使用正确的语言标记。
+
+最后，用户输入以"# 简单测试"结束，但没有具体内容，只有"访问页面：http://localhost:8080/doc.html"，我应该将其作为一个部分。
+
+用户输入的最后是："整理为markdown格式，以## 47.2 简单示例开头后面按照编号排序，例如### 47.2.1"
+
+所以，我需要从### 47.2.1开始编号。
+
+让我列出所有部分：
+
+1. 介绍（放在## 47.2 简单示例下）
+2. 准备DB和依赖配置
+3. Entity
+4. DAO
+5. Service
+6. Controller
+7. 简单测试
+
+所以，子标题可以是：
+- ### 47.2.1 准备DB和依赖配置
+- ### 47.2.2 Entity
+- ### 47.2.3 DAO
+- ### 47.2.4 Service
+- ### 47.2.5 Controller
+- ### 47.2.6 简单测试
+
+现在，构建markdown响应。
+
+首先，## 47.2 简单示例，然后介绍文本。
+
+然后，每个子标题。
+
+在代码块中，使用正确的语言。
+
+例如，SQL文件用```sql，Java代码用```java，yml用```yaml。
+
+用户输入中，SQL文件有注释和结构，我应该保持原样。
+
+在依赖部分，maven依赖是XML，yml配置是YAML。
+
+在Entity部分，有两个entity类：User和Role。
+
+在DAO部分，有两个dao接口。
+
+在Service部分，有接口和实现类。
+
+在Controller部分，有一个controller。
+
+我需要将它们分别放入代码块。
+
+确保格式正确。
+
+现在，写出响应。</think>## 47.2 简单示例
+
+这里主要介绍SpringBoot集成基于ShardingJDBC的按字段分库，两种策略（标准分片策略 和 行表达式分片策略），主要承接之前的相关文章在JPA方式的基础上实现的。
+
+### 47.2.1 准备DB和依赖配置
+
+创建MySQL的schema test_db_tenant_a 和 test_db_tenant_b，导入SQL文件如下：
+
+test_db_tenant_a：
+
+```sql
+-- MySQL dump 10.13  Distrib 8.0.28, for Win64 (x86_64)
+--
+-- Host: localhost    Database: test_db_tenant_a
+-- ------------------------------------------------------
+-- Server version	8.0.28
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!50503 SET NAMES utf8 */;
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `tb_role`
+--
+
+DROP TABLE IF EXISTS `tb_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_role` (
+  `id` bigint NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `role_key` varchar(255) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  `tenant` varchar(45) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_role`
+--
+
+LOCK TABLES `tb_role` WRITE;
+/*!40000 ALTER TABLE `tb_role` DISABLE KEYS */;
+/*!40000 ALTER TABLE `tb_role` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user`
+--
+
+DROP TABLE IF EXISTS `tb_user`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_user` (
+  `id` bigint NOT NULL,
+  `user_name` varchar(45) NOT NULL,
+  `password` varchar(45) NOT NULL,
+  `email` varchar(45) DEFAULT NULL,
+  `phone_number` int DEFAULT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  `tenant` varchar(45) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user`
+--
+
+LOCK TABLES `tb_user` WRITE;
+/*!40000 ALTER TABLE `tb_user` DISABLE KEYS */;
+/*!40000 ALTER TABLE `tb_user` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user_role`
+--
+
+DROP TABLE IF EXISTS `tb_user_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_user_role` (
+  `id` bigint NOT NULL,
+  `user_id` bigint NOT NULL,
+  `role_id` bigint NOT NULL,
+  `tenant` varchar(45) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user_role`
+--
+
+LOCK TABLES `tb_user_role` WRITE;
+/*!40000 ALTER TABLE `tb_user_role` DISABLE KEYS */;
+/*!40000 ALTER TABLE `tb_user_role` ENABLE KEYS */;
+UNLOCK TABLES;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
+
+-- Dump completed on 2022-04-07 20:28:34
+```
+
+test_db_tenant_b：
+
+```sql
+-- MySQL dump 10.13  Distrib 8.0.28, for Win64 (x86_64)
+--
+-- Host: localhost    Database: test_db_tenant_b
+-- ------------------------------------------------------
+-- Server version	8.0.28
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!50503 SET NAMES utf8 */;
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `tb_role`
+--
+
+DROP TABLE IF EXISTS `tb_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_role` (
+  `id` bigint NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `role_key` varchar(255) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  `tenant` varchar(45) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_role`
+--
+
+LOCK TABLES `tb_role` WRITE;
+/*!40000 ALTER TABLE `tb_role` DISABLE KEYS */;
+/*!40000 ALTER TABLE `tb_role` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user`
+--
+
+DROP TABLE IF EXISTS `tb_user`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_user` (
+  `id` bigint NOT NULL,
+  `user_name` varchar(45) NOT NULL,
+  `password` varchar(45) NOT NULL,
+  `email` varchar(45) DEFAULT NULL,
+  `phone_number` int DEFAULT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  `tenant` varchar(45) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user`
+--
+
+LOCK TABLES `tb_user` WRITE;
+/*!40000 ALTER TABLE `tb_user` DISABLE KEYS */;
+/*!40000 ALTER TABLE `tb_user` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user_role`
+--
+
+DROP TABLE IF EXISTS `tb_user_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tb_user_role` (
+  `id` bigint NOT NULL,
+  `user_id` bigint NOT NULL,
+  `role_id` bigint NOT NULL,
+  `tenant` varchar(45) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user_role`
+--
+
+LOCK TABLES `tb_user_role` WRITE;
+/*!40000 ALTER TABLE `tb_user_role` DISABLE KEYS */;
+/*!40000 ALTER TABLE `tb_user_role` ENABLE KEYS */;
+UNLOCK TABLES;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
+
+-- Dump completed on 2022-04-07 20:28:29
+```
+
+引入maven依赖，包含mysql驱动、JPA包，以及sharding-jdbc的依赖：
+
+```xml
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>8.0.28</version>
+</dependency>
+<dependency>
+    <groupId>com.github.wenhao</groupId>
+    <artifactId>jpa-spec</artifactId>
+    <version>3.1.0</version>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.apache.shardingsphere</groupId>
+    <artifactId>sharding-jdbc-spring-boot-starter</artifactId>
+    <version>4.1.1</version>
+</dependency>
+```
+
+增加yml配置：
+
+```yaml
+spring:
+  shardingsphere:
+    datasource:
+      names: tenant-a,tenant-b
+      tenant-a:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://localhost:3306/test_db_tenant_a?allowPublicKeyRetrieval=true&useSSL=false&autoReconnect=true&characterEncoding=utf8
+        username: root
+        password: bfXa4Pt2lUUScy8jakXf
+      tenant-b:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://localhost:3306/test_db_tenant_b?allowPublicKeyRetrieval=true&useSSL=false&autoReconnect=true&characterEncoding=utf8
+        username: root
+        password: bfXa4Pt2lUUScy8jakXf
+    sharding:
+      default-database-strategy:
+        # way 1: standard strategy
+        # standard:
+        #  precise-algorithm-class-name: tech.pdai.springboot.shardingjdbc.jpa.tenant.db.config.MyPreciseShardingDBAlgorithm
+        #  sharding-column: tenant
+        # way 2: inline strategy
+        inline:
+          sharding-column: tenant
+          algorithm-expression: tenant-$->{tenant}
+      tables:
+        tb_user:
+          actual-data-nodes: tenant-${['a','b']}.tb_user
+          key-generator:
+            column: id
+            type: SNOWFLAKE
+            props:
+              worker:
+                id: 123
+        tb_role:
+          actual-data-nodes: tenant-${['a','b']}.tb_role
+          key-generator:
+            column: id
+            type: SNOWFLAKE
+            props:
+              worker:
+                id: 123
+        tb_user_role:
+          actual-data-nodes: tenant-${['a','b']}.tb_user_role
+          key-generator:
+            column: id
+            type: SNOWFLAKE
+            props:
+              worker:
+                id: 123
+      binding-tables: tb_user,tb_role,tb_user_role
+    props:
+      sql:
+        show: true
+  jpa:
+    open-in-view: false
+    generate-ddl: false
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+        use-new-id-generator-mappings: false
+```
+
+### 47.2.2 Entity
+
+user entity：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity;
+
+import java.time.LocalDateTime;
+import java.util.Set;
+
+import javax.persistence.CascadeType;
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.FetchType;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.JoinColumn;
+import javax.persistence.JoinTable;
+import javax.persistence.ManyToMany;
+import javax.persistence.Table;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
+
+/**
+ * @author pdai
+ */
+@Getter
+@Setter
+@ToString
+@Entity
+@Table(name = "tb_user")
+public class User implements BaseEntity {
+
+    /**
+     * user id.
+     */
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id", nullable = false)
+    private Long id;
+
+    /**
+     * username.
+     */
+    private String userName;
+
+    /**
+     * user pwd.
+     */
+    private String password;
+
+    /**
+     * email.
+     */
+    private String email;
+
+    /**
+     * phoneNumber.
+     */
+    private long phoneNumber;
+
+    /**
+     * description.
+     */
+    private String description;
+
+    /**
+     * create date time.
+     */
+    private LocalDateTime createTime;
+
+    /**
+     * update date time.
+     */
+    private LocalDateTime updateTime;
+
+    /**
+     * tenant.
+     */
+    private String tenant;
+
+    /**
+     * join to role table.
+     */
+    @ManyToMany(cascade = {CascadeType.REFRESH}, fetch = FetchType.EAGER)
+    @JoinTable(name = "tb_user_role", joinColumns = {
+            @JoinColumn(name = "user_id")}, inverseJoinColumns = {@JoinColumn(name = "role_id")})
+    private Set<Role> roles;
+
+}
+```
+
+role entity：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity;
+
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
+
+import javax.persistence.*;
+import java.time.LocalDateTime;
+
+/**
+ * @author pdai
+ */
+@Getter
+@Setter
+@ToString
+@Entity
+@Table(name = "tb_role")
+public class Role implements BaseEntity {
+
+    /**
+     * role id.
+     */
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id", nullable = false)
+    private Long id;
+
+    /**
+     * role name.
+     */
+    private String name;
+
+    /**
+     * role key.
+     */
+    private String roleKey;
+
+    /**
+     * description.
+     */
+    private String description;
+
+    /**
+     * create date time.
+     */
+    private LocalDateTime createTime;
+
+    /**
+     * update date time.
+     */
+    private LocalDateTime updateTime;
+
+    /**
+     * tenant.
+     */
+    private String tenant;
+
+}
+```
+
+### 47.2.3 DAO
+
+user dao：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.tenant.db.dao;
+
+import org.springframework.stereotype.Repository;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity.User;
+
+/**
+ * @author pdai
+ */
+@Repository
+public interface IUserDao extends IBaseDao<User, Long> {
+
+}
+```
+
+role dao：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.tenant.db.dao;
+
+import org.springframework.stereotype.Repository;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity.Role;
+
+/**
+ * @author pdai
+ */
+@Repository
+public interface IRoleDao extends IBaseDao<Role, Long> {
+
+}
+```
+
+### 47.2.4 Service
+
+user service 接口：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.tenant.db.service;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity.User;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity.query.UserQueryBean;
+
+/**
+ * @author pdai
+ */
+public interface IUserService extends IBaseService<User, Long> {
+
+    /**
+     * find by page.
+     *
+     * @param userQueryBean query
+     * @param pageRequest   pageRequest
+     * @return page
+     */
+    Page<User> findPage(UserQueryBean userQueryBean, PageRequest pageRequest);
+
+}
+```
+
+user service 实现类：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.tenant.db.service.impl;
+
+import com.github.wenhao.jpa.Specifications;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.dao.IBaseDao;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.dao.IUserDao;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity.User;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity.query.UserQueryBean;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.service.IUserService;
+
+@Service
+public class UserDoServiceImpl extends BaseDoServiceImpl<User, Long> implements IUserService {
+
+    /**
+     * userDao.
+     */
+    private final IUserDao userDao;
+
+    /**
+     * init.
+     *
+     * @param userDao2 user dao
+     */
+    public UserDoServiceImpl(final IUserDao userDao2) {
+        this.userDao = userDao2;
+    }
+
+    /**
+     * @return base dao
+     */
+    @Override
+    public IBaseDao<User, Long> getBaseDao() {
+        return this.userDao;
+    }
+
+    /**
+     * find by page.
+     *
+     * @param queryBean   query
+     * @param pageRequest pageRequest
+     * @return page
+     */
+    @Override
+    public Page<User> findPage(UserQueryBean queryBean, PageRequest pageRequest) {
+        Specification<User> specification = Specifications.<User>and()
+                .eq(StringUtils.isNotEmpty(queryBean.getTenant()), "tenant", queryBean.getTenant())
+                .like(StringUtils.isNotEmpty(queryBean.getName()), "user_name", queryBean.getName())
+                .like(StringUtils.isNotEmpty(queryBean.getDescription()), "description",
+                        queryBean.getDescription())
+                .build();
+        return this.getBaseDao().findAll(specification, pageRequest);
+    }
+
+}
+```
+
+role service 接口：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.tenant.db.service;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity.Role;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity.query.RoleQueryBean;
+
+public interface IRoleService extends IBaseService<Role, Long> {
+
+    /**
+     * find page by query.
+     *
+     * @param roleQueryBean query
+     * @param pageRequest   pageRequest
+     * @return page
+     */
+    Page<Role> findPage(RoleQueryBean roleQueryBean, PageRequest pageRequest);
+
+}
+```
+
+role service 实现类：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.tenant.db.service.impl;
+
+import com.github.wenhao.jpa.Specifications;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.dao.IBaseDao;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.dao.IRoleDao;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity.Role;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity.query.RoleQueryBean;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.service.IRoleService;
+
+@Service
+public class RoleDoServiceImpl extends BaseDoServiceImpl<Role, Long> implements IRoleService {
+
+    /**
+     * roleDao.
+     */
+    private final IRoleDao roleDao;
+
+    /**
+     * init.
+     *
+     * @param roleDao2 role dao
+     */
+    public RoleDoServiceImpl(final IRoleDao roleDao2) {
+        this.roleDao = roleDao2;
+    }
+
+    /**
+     * @return base dao
+     */
+    @Override
+    public IBaseDao<Role, Long> getBaseDao() {
+        return this.roleDao;
+    }
+
+    /**
+     * find page by query.
+     *
+     * @param roleQueryBean query
+     * @param pageRequest   pageRequest
+     * @return page
+     */
+    @Override
+    public Page<Role> findPage(RoleQueryBean roleQueryBean, PageRequest pageRequest) {
+        Specification<Role> specification = Specifications.<Role>and()
+                .eq(StringUtils.isNotEmpty(roleQueryBean.getTenant()), "tenant", roleQueryBean.getTenant())
+                .like(StringUtils.isNotEmpty(roleQueryBean.getName()), "name",
+                        roleQueryBean.getName())
+                .like(StringUtils.isNotEmpty(roleQueryBean.getDescription()), "description",
+                        roleQueryBean.getDescription())
+                .build();
+        return this.roleDao.findAll(specification, pageRequest);
+    }
+
+}
+```
+
+### 47.2.5 Controller
+
+user controller：
+
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.tenant.db.controller;
+
+import java.time.LocalDateTime;
+
+import io.swagger.annotations.ApiOperation;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity.User;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity.query.UserQueryBean;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.entity.response.ResponseResult;
+import tech.pdai.springboot.shardingjdbc.jpa.tenant.db.service.IUserService;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @Autowired
+    private IUserService userService;
+
+    /**
+     * @param user user param
+     * @return user
+     */
+    @ApiOperation("Add/Edit User")
+    @PostMapping("add")
+    public ResponseResult<User> add(User user) {
+        if (user.getId()==null || !userService.exists(user.getId())) {
+            user.setCreateTime(LocalDateTime.now());
+            user.setUpdateTime(LocalDateTime.now());
+            userService.save(user);
+        } else {
+            user.setUpdateTime(LocalDateTime.now());
+            userService.update(user);
+        }
+        return ResponseResult.success(userService.find(user.getId()));
+    }
+
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User One")
+    @GetMapping("edit/{userId}")
+    public ResponseResult<User> edit(@PathVariable("userId") Long userId) {
+        return ResponseResult.success(userService.find(userId));
+    }
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Query User Page")
+    @GetMapping("list")
+    public ResponseResult<Page<User>> list(@RequestParam int pageSize, @RequestParam int pageNumber, String tenant) {
+        return ResponseResult.success(userService.findPage(UserQueryBean.builder().tenant(tenant).build(), PageRequest.of(pageNumber, pageSize)));
+    }
+}
+```
+
+### 47.2.6 简单测试
+
+访问页面：http://localhost:8080/doc.html
+
+- 插入数据
+![187.springboot-sharding-x1.png](../../assets/images/04-主流框架/spring/187.springboot-sharding-x1.png)
+- DB 中对应schema中的数据
+![188.springboot-sharding-x2.png](../../assets/images/04-主流框架/spring/188.springboot-sharding-x2.png)
+- 查询数据
+![189.springboot-sharding-x3.png](../../assets/images/04-主流框架/spring/189.springboot-sharding-x3.png)
+- 相关查询console打印出的日志：
+```sh
+2022-04-08 20:58:35.755  INFO 8256 --- [nio-8080-exec-1] ShardingSphere-SQL                       : Logic SQL: insert into tb_user (create_time, description, email, password, phone_number, tenant, update_time, user_name) values (?, ?, ?, ?, ?, ?, ?, ?)
+2022-04-08 20:58:35.755  INFO 8256 --- [nio-8080-exec-1] ShardingSphere-SQL                       : SQLStatement: InsertStatementContext(super=CommonSQLStatementContext(sqlStatement=org.apache.shardingsphere.sql.parser.sql.statement.dml.InsertStatement@67776a98, tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@1d5f5394), tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@1d5f5394, columnNames=[create_time, description, email, password, phone_number, tenant, update_time, user_name], insertValueContexts=[InsertValueContext(parametersCount=8, valueExpressions=[ParameterMarkerExpressionSegment(startIndex=118, stopIndex=118, parameterMarkerIndex=0), ParameterMarkerExpressionSegment(startIndex=121, stopIndex=121, parameterMarkerIndex=1), ParameterMarkerExpressionSegment(startIndex=124, stopIndex=124, parameterMarkerIndex=2), ParameterMarkerExpressionSegment(startIndex=127, stopIndex=127, parameterMarkerIndex=3), ParameterMarkerExpressionSegment(startIndex=130, stopIndex=130, parameterMarkerIndex=4), ParameterMarkerExpressionSegment(startIndex=133, stopIndex=133, parameterMarkerIndex=5), ParameterMarkerExpressionSegment(startIndex=136, stopIndex=136, parameterMarkerIndex=6), ParameterMarkerExpressionSegment(startIndex=139, stopIndex=139, parameterMarkerIndex=7), DerivedParameterMarkerExpressionSegment(super=ParameterMarkerExpressionSegment(startIndex=0, stopIndex=0, parameterMarkerIndex=8))], parameters=[2022-04-08 20:58:35.323, pdai-b, pdai2@pdai.tech, dad23b, 1212121212, b, 2022-04-08 20:58:35.323, pdai23b])], generatedKeyContext=Optional[GeneratedKeyContext(columnName=id, generated=true, generatedValues=[719173465277968384])])
+2022-04-08 20:58:35.755  INFO 8256 --- [nio-8080-exec-1] ShardingSphere-SQL                       : Actual SQL: tenant-b ::: insert into tb_user (create_time, description, email, password, phone_number, tenant, update_time, user_name, id) values (?, ?, ?, ?, ?, ?, ?, ?, ?) ::: [2022-04-08 20:58:35.323, pdai-b, pdai2@pdai.tech, dad23b, 1212121212, b, 2022-04-08 20:58:35.323, pdai23b, 719173465277968384]
+2022-04-08 20:58:35.849  INFO 8256 --- [nio-8080-exec-1] ShardingSphere-SQL                       : Logic SQL: select user0_.id as id1_1_0_, user0_.create_time as create_t2_1_0_, user0_.description as descript3_1_0_, user0_.email as email4_1_0_, user0_.password as password5_1_0_, user0_.phone_number as phone_nu6_1_0_, user0_.tenant as tenant7_1_0_, user0_.update_time as update_t8_1_0_, user0_.user_name as user_nam9_1_0_, roles1_.user_id as user_id1_2_1_, role2_.id as role_id2_2_1_, role2_.id as id1_0_2_, role2_.create_time as create_t2_0_2_, role2_.description as descript3_0_2_, role2_.name as name4_0_2_, role2_.role_key as role_key5_0_2_, role2_.tenant as tenant6_0_2_, role2_.update_time as update_t7_0_2_ from tb_user user0_ left outer join tb_user_role roles1_ on user0_.id=roles1_.user_id left outer join tb_role role2_ on roles1_.role_id=role2_.id where user0_.id=?
+2022-04-08 20:58:35.849  INFO 8256 --- [nio-8080-exec-1] ShardingSphere-SQL                       : SQLStatement: SelectStatementContext(super=CommonSQLStatementContext(sqlStatement=org.apache.shardingsphere.sql.parser.sql.statement.dml.SelectStatement@8ca5ff1, tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@120db4fa), tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@120db4fa, projectionsContext=ProjectionsContext(startIndex=7, stopIndex=603, distinctRow=false, projections=[ColumnProjection(owner=user0_, name=id, alias=Optional[id1_1_0_]), ColumnProjection(owner=user0_, name=create_time, alias=Optional[create_t2_1_0_]), ColumnProjection(owner=user0_, name=description, alias=Optional[descript3_1_0_]), ColumnProjection(owner=user0_, name=email, alias=Optional[email4_1_0_]), ColumnProjection(owner=user0_, name=password, alias=Optional[password5_1_0_]), ColumnProjection(owner=user0_, name=phone_number, alias=Optional[phone_nu6_1_0_]), ColumnProjection(owner=user0_, name=tenant, alias=Optional[tenant7_1_0_]), ColumnProjection(owner=user0_, name=update_time, alias=Optional[update_t8_1_0_]), ColumnProjection(owner=user0_, name=user_name, alias=Optional[user_nam9_1_0_]), ColumnProjection(owner=roles1_, name=user_id, alias=Optional[user_id1_2_1_]), ColumnProjection(owner=role2_, name=id, alias=Optional[role_id2_2_1_]), ColumnProjection(owner=role2_, name=id, alias=Optional[id1_0_2_]), ColumnProjection(owner=role2_, name=create_time, alias=Optional[create_t2_0_2_]), ColumnProjection(owner=role2_, name=description, alias=Optional[descript3_0_2_]), ColumnProjection(owner=role2_, name=name, alias=Optional[name4_0_2_]), ColumnProjection(owner=role2_, name=role_key, alias=Optional[role_key5_0_2_]), ColumnProjection(owner=role2_, name=tenant, alias=Optional[tenant6_0_2_]), ColumnProjection(owner=role2_, name=update_time, alias=Optional[update_t7_0_2_])]), groupByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.groupby.GroupByContext@419cdd89, orderByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.orderby.OrderByContext@5c35abd5, paginationContext=org.apache.shardingsphere.sql.parser.binder.segment.select.pagination.PaginationContext@6da5275, containsSubquery=false)
+2022-04-08 20:58:35.849  INFO 8256 --- [nio-8080-exec-1] ShardingSphere-SQL                       : Actual SQL: tenant-b ::: select user0_.id as id1_1_0_, user0_.create_time as create_t2_1_0_, user0_.description as descript3_1_0_, user0_.email as email4_1_0_, user0_.password as password5_1_0_, user0_.phone_number as phone_nu6_1_0_, user0_.tenant as tenant7_1_0_, user0_.update_time as update_t8_1_0_, user0_.user_name as user_nam9_1_0_, roles1_.user_id as user_id1_2_1_, role2_.id as role_id2_2_1_, role2_.id as id1_0_2_, role2_.create_time as create_t2_0_2_, role2_.description as descript3_0_2_, role2_.name as name4_0_2_, role2_.role_key as role_key5_0_2_, role2_.tenant as tenant6_0_2_, role2_.update_time as update_t7_0_2_ from tb_user user0_ left outer join tb_user_role roles1_ on user0_.id=roles1_.user_id left outer join tb_role role2_ on roles1_.role_id=role2_.id where user0_.id=? ::: [719173465277968384]
+2022-04-08 20:58:35.849  INFO 8256 --- [nio-8080-exec-1] ShardingSphere-SQL                       : Actual SQL: tenant-a ::: select user0_.id as id1_1_0_, user0_.create_time as create_t2_1_0_, user0_.description as descript3_1_0_, user0_.email as email4_1_0_, user0_.password as password5_1_0_, user0_.phone_number as phone_nu6_1_0_, user0_.tenant as tenant7_1_0_, user0_.update_time as update_t8_1_0_, user0_.user_name as user_nam9_1_0_, roles1_.user_id as user_id1_2_1_, role2_.id as role_id2_2_1_, role2_.id as id1_0_2_, role2_.create_time as create_t2_0_2_, role2_.description as descript3_0_2_, role2_.name as name4_0_2_, role2_.role_key as role_key5_0_2_, role2_.tenant as tenant6_0_2_, role2_.update_time as update_t7_0_2_ from tb_user user0_ left outer join tb_user_role roles1_ on user0_.id=roles1_.user_id left outer join tb_role role2_ on roles1_.role_id=role2_.id where user0_.id=? ::: [719173465277968384]
+2022-04-08 21:03:33.876  INFO 8256 --- [nio-8080-exec-2] ShardingSphere-SQL                       : Logic SQL: select user0_.id as id1_1_, user0_.create_time as create_t2_1_, user0_.description as descript3_1_, user0_.email as email4_1_, user0_.password as password5_1_, user0_.phone_number as phone_nu6_1_, user0_.tenant as tenant7_1_, user0_.update_time as update_t8_1_, user0_.user_name as user_nam9_1_ from tb_user user0_ where user0_.tenant=? limit ?
+2022-04-08 21:03:33.877  INFO 8256 --- [nio-8080-exec-2] ShardingSphere-SQL                       : SQLStatement: SelectStatementContext(super=CommonSQLStatementContext(sqlStatement=org.apache.shardingsphere.sql.parser.sql.statement.dml.SelectStatement@15243518, tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@23f84ca7), tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@23f84ca7, projectionsContext=ProjectionsContext(startIndex=7, stopIndex=293, distinctRow=false, projections=[ColumnProjection(owner=user0_, name=id, alias=Optional[id1_1_]), ColumnProjection(owner=user0_, name=create_time, alias=Optional[create_t2_1_]), ColumnProjection(owner=user0_, name=description, alias=Optional[descript3_1_]), ColumnProjection(owner=user0_, name=email, alias=Optional[email4_1_]), ColumnProjection(owner=user0_, name=password, alias=Optional[password5_1_]), ColumnProjection(owner=user0_, name=phone_number, alias=Optional[phone_nu6_1_]), ColumnProjection(owner=user0_, name=tenant, alias=Optional[tenant7_1_]), ColumnProjection(owner=user0_, name=update_time, alias=Optional[update_t8_1_]), ColumnProjection(owner=user0_, name=user_name, alias=Optional[user_nam9_1_])]), groupByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.groupby.GroupByContext@18e2796e, orderByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.orderby.OrderByContext@6a16cbdf, paginationContext=org.apache.shardingsphere.sql.parser.binder.segment.select.pagination.PaginationContext@5eaeaf70, containsSubquery=false)
+2022-04-08 21:03:33.877  INFO 8256 --- [nio-8080-exec-2] ShardingSphere-SQL                       : Actual SQL: tenant-b ::: select user0_.id as id1_1_, user0_.create_time as create_t2_1_, user0_.description as descript3_1_, user0_.email as email4_1_, user0_.password as password5_1_, user0_.phone_number as phone_nu6_1_, user0_.tenant as tenant7_1_, user0_.update_time as update_t8_1_, user0_.user_name as user_nam9_1_ from tb_user user0_ where user0_.tenant=? limit ? ::: [b, 10]
+2022-04-08 21:03:33.890  INFO 8256 --- [nio-8080-exec-2] ShardingSphere-SQL                       : Logic SQL: select roles0_.user_id as user_id1_2_0_, roles0_.role_id as role_id2_2_0_, role1_.id as id1_0_1_, role1_.create_time as create_t2_0_1_, role1_.description as descript3_0_1_, role1_.name as name4_0_1_, role1_.role_key as role_key5_0_1_, role1_.tenant as tenant6_0_1_, role1_.update_time as update_t7_0_1_ from tb_user_role roles0_ inner join tb_role role1_ on roles0_.role_id=role1_.id where roles0_.user_id=?
+2022-04-08 21:03:33.890  INFO 8256 --- [nio-8080-exec-2] ShardingSphere-SQL                       : SQLStatement: SelectStatementContext(super=CommonSQLStatementContext(sqlStatement=org.apache.shardingsphere.sql.parser.sql.statement.dml.SelectStatement@5e7c4e50, tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@6f2681ce), tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@6f2681ce, projectionsContext=ProjectionsContext(startIndex=7, stopIndex=302, distinctRow=false, projections=[ColumnProjection(owner=roles0_, name=user_id, alias=Optional[user_id1_2_0_]), ColumnProjection(owner=roles0_, name=role_id, alias=Optional[role_id2_2_0_]), ColumnProjection(owner=role1_, name=id, alias=Optional[id1_0_1_]), ColumnProjection(owner=role1_, name=create_time, alias=Optional[create_t2_0_1_]), ColumnProjection(owner=role1_, name=description, alias=Optional[descript3_0_1_]), ColumnProjection(owner=role1_, name=name, alias=Optional[name4_0_1_]), ColumnProjection(owner=role1_, name=role_key, alias=Optional[role_key5_0_1_]), ColumnProjection(owner=role1_, name=tenant, alias=Optional[tenant6_0_1_]), ColumnProjection(owner=role1_, name=update_time, alias=Optional[update_t7_0_1_])]), groupByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.groupby.GroupByContext@3212b90b, orderByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.orderby.OrderByContext@516424e5, paginationContext=org.apache.shardingsphere.sql.parser.binder.segment.select.pagination.PaginationContext@6d56fe57, containsSubquery=false)
+2022-04-08 21:03:33.890  INFO 8256 --- [nio-8080-exec-2] ShardingSphere-SQL                       : Actual SQL: tenant-b ::: select roles0_.user_id as user_id1_2_0_, roles0_.role_id as role_id2_2_0_, role1_.id as id1_0_1_, role1_.create_time as create_t2_0_1_, role1_.description as descript3_0_1_, role1_.name as name4_0_1_, role1_.role_key as role_key5_0_1_, role1_.tenant as tenant6_0_1_, role1_.update_time as update_t7_0_1_ from tb_user_role roles0_ inner join tb_role role1_ on roles0_.role_id=role1_.id where roles0_.user_id=? ::: [719173465277968384]
+2022-04-08 21:03:33.890  INFO 8256 --- [nio-8080-exec-2] ShardingSphere-SQL                       : Actual SQL: tenant-a ::: select roles0_.user_id as user_id1_2_0_, roles0_.role_id as role_id2_2_0_, role1_.id as id1_0_1_, role1_.create_time as create_t2_0_1_, role1_.description as descript3_0_1_, role1_.name as name4_0_1_, role1_.role_key as role_key5_0_1_, role1_.tenant as tenant6_0_1_, role1_.update_time as update_t7_0_1_ from tb_user_role roles0_ inner join tb_role role1_ on roles0_.role_id=role1_.id where roles0_.user_id=? ::: [719173465277968384]
+```
+## 47.3 进一步理解
+### 47.3.1 如果使用standard策略如何？
+> 上述inline策略也可以改成standard策略，效果一样。
+
+首先自定义PreciseShardingAlgorithm算法：
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.tenant.db.config;
+
+import java.util.Collection;
+
+import org.apache.shardingsphere.api.sharding.standard.PreciseShardingAlgorithm;
+import org.apache.shardingsphere.api.sharding.standard.PreciseShardingValue;
+
+/**
+ * This class is for MyPreciseShardingDBAlgorithm.
+ *
+ * @author pdai
+ */
+public class MyPreciseShardingDBAlgorithm implements PreciseShardingAlgorithm<String> {
+
+    private static final String DATABASE_TENANT_PREFIX = "tenant-";
+
+    /**
+     * @param availableTargetNames tenant-a, tenant-b
+     * @param shardingValue        sharding value
+     * @return targetDb
+     */
+    @Override
+    public String doSharding(final Collection<String> availableTargetNames, final PreciseShardingValue<String> shardingValue) {
+        String targetDb = DATABASE_TENANT_PREFIX + shardingValue.getValue();
+        if (availableTargetNames.contains(targetDb)) {
+            return targetDb;
+        }
+
+        throw new UnsupportedOperationException("UnsupportedOperationException: " + shardingValue.getValue());
+    }
+}
+```
+然后配置sharding.default-database-strategy为standard，具体如下
+```yml
+spring:
+  shardingsphere:
+    datasource:
+      names: tenant-a,tenant-b
+      tenant-a:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://localhost:3306/test_db_tenant_a?allowPublicKeyRetrieval=true&useSSL=false&autoReconnect=true&characterEncoding=utf8
+        username: root
+        password: bfXa4Pt2lUUScy8jakXf
+      tenant-b:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://localhost:3306/test_db_tenant_b?allowPublicKeyRetrieval=true&useSSL=false&autoReconnect=true&characterEncoding=utf8
+        username: root
+        password: bfXa4Pt2lUUScy8jakXf
+    sharding:
+      default-database-strategy:
+        # way 1: standard strategy
+        standard:
+          precise-algorithm-class-name: tech.pdai.springboot.shardingjdbc.jpa.tenant.db.config.MyPreciseShardingDBAlgorithm
+          sharding-column: tenant
+        # way 2: inline strategy
+#        inline:
+#          sharding-column: tenant
+#          algorithm-expression: tenant-$->{tenant}
+      tables:
+        tb_user:
+          actual-data-nodes: tenant-${['a','b']}.tb_user
+          key-generator:
+            column: id
+            type: SNOWFLAKE
+            props:
+              worker:
+                id: 123
+        tb_role:
+          actual-data-nodes: tenant-${['a','b']}.tb_role
+          key-generator:
+            column: id
+            type: SNOWFLAKE
+            props:
+              worker:
+                id: 123
+        tb_user_role:
+          actual-data-nodes: tenant-${['a','b']}.tb_user_role
+          key-generator:
+            column: id
+            type: SNOWFLAKE
+            props:
+              worker:
+                id: 123
+      binding-tables: tb_user,tb_role,tb_user_role
+    props:
+      sql:
+        show: true
+  jpa:
+    open-in-view: false
+    generate-ddl: false
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+        use-new-id-generator-mappings: false
+
+```
+### 47.3.2 上述两种策略存在什么问题？
+- 侵入性： DB层和代码层
+
+上述两种模式需要增加一个新的字段tenant, 并且根据这个字段来对不同租户进行sharding（db级别或者table级别）； 这时候你会发现所有的查询必须要有tenant这个字段，这意味着所有的方法都支持tenant查询。一旦没有全部支持，你会看到Actual SQL会执行多次（每个DB一次）：
+```sh
+2022-04-08 21:03:33.890  INFO 8256 --- [nio-8080-exec-2] ShardingSphere-SQL                       : Actual SQL: tenant-b ::: select roles0_.user_id as user_id1_2_0_, roles0_.role_id as role_id2_2_0_, role1_.id as id1_0_1_, role1_.create_time as create_t2_0_1_, role1_.description as descript3_0_1_, role1_.name as name4_0_1_, role1_.role_key as role_key5_0_1_, role1_.tenant as tenant6_0_1_, role1_.update_time as update_t7_0_1_ from tb_user_role roles0_ inner join tb_role role1_ on roles0_.role_id=role1_.id where roles0_.user_id=? ::: [719173465277968384]
+2022-04-08 21:03:33.890  INFO 8256 --- [nio-8080-exec-2] ShardingSphere-SQL                       : Actual SQL: tenant-a ::: select roles0_.user_id as user_id1_2_0_, roles0_.role_id as role_id2_2_0_, role1_.id as id1_0_1_, role1_.create_time as create_t2_0_1_, role1_.description as descript3_0_1_, role1_.name as name4_0_1_, role1_.role_key as role_key5_0_1_, role1_.tenant as tenant6_0_1_, role1_.update_time as update_t7_0_1_ from tb_user_role roles0_ inner join tb_role role1_ on roles0_.role_id=role1_.id where roles0_.user_id=? ::: [719173465277968384]
+```
+- 租户之外的数据
+
+比如系统级别的管理人员数据，元数据等，需要独立一个DB； 虽然可以通过一些配置来解决一些场景，但是上述两种方式的动态性不够（场景变动意味着推翻这两种模式）。
+### 47.3.3 如何使用Hint强制路由方式？
+> 针对侵入性的问题，就多租户的场景下而言，可以通过Hint强制路由策略解决。
+
+首先我们需要定义个拦截的APO切面, 对数据操作层进行拦截。通过hintManager设置ShardingValue, 实际环境将client信息放在xxxContext中（由ThreadLocal承接），并通过client-id来获取tenant。
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.tenant.dbhint.config;
+
+import org.apache.shardingsphere.api.hint.HintManager;
+import org.aspectj.lang.annotation.After;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Before;
+import org.aspectj.lang.annotation.Pointcut;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+
+/**
+ * @author pdai
+ */
+@Aspect
+@Order(1)
+@Component
+public class TenantDatasourceAspect {
+
+    /**
+     * point cut.
+     */
+    @Pointcut("execution(* tech.pdai.springboot.shardingjdbc.jpa.tenant.dbhint.dao.*.*(..))")
+    public void useTenantDSPointCut() {
+        // no impl
+    }
+
+    @Before("useTenantDSPointCut()")
+    public void doDs0Before() {
+        HintManager.clear();
+        HintManager hintManager = HintManager.getInstance();
+        // pdai: 实际环境将client信息放在xxxContext中（由ThreadLocal承接），并通过client-id来获取tenant.
+        // 这里为了方便演示，只是使用了tenant-a
+        hintManager.setDatabaseShardingValue("tenant-a");
+    }
+
+    @After("useTenantDSPointCut()")
+    public void doDs0after() {
+        HintManager.clear();
+    }
+
+}
+```
+然后自定义HintShardingAlgorithm实现类
+```java
+package tech.pdai.springboot.shardingjdbc.jpa.tenant.dbhint.config;
+
+import java.util.Collection;
+import java.util.stream.Collectors;
+
+import org.apache.shardingsphere.api.sharding.hint.HintShardingAlgorithm;
+import org.apache.shardingsphere.api.sharding.hint.HintShardingValue;
+
+/**
+ * @author pdai
+ */
+public class MyHintShardingDBAlgorithm implements HintShardingAlgorithm<String> {
+
+    /**
+     * Sharding.
+     *
+     * <p>sharding value injected by hint, not in SQL.</p>
+     *
+     * @param availableTargetNames available data sources or tables's names
+     * @param shardingValue        sharding value
+     * @return sharding result for data sources or tables's names
+     */
+    @Override
+    public Collection<String> doSharding(Collection<String> availableTargetNames, HintShardingValue<String> shardingValue) {
+        return shardingValue.getValues().stream().filter(availableTargetNames::contains).collect(Collectors.toList());
+    }
+}
+```
+在配置中配置sharding.default-database-strategy为inline
+```yml
+spring:
+  shardingsphere:
+    datasource:
+      names: tenant-a,tenant-b
+      tenant-a:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://localhost:3306/test_db_tenant_a?allowPublicKeyRetrieval=true&useSSL=false&autoReconnect=true&characterEncoding=utf8
+        username: root
+        password: bfXa4Pt2lUUScy8jakXf
+      tenant-b:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://localhost:3306/test_db_tenant_b?allowPublicKeyRetrieval=true&useSSL=false&autoReconnect=true&characterEncoding=utf8
+        username: root
+        password: bfXa4Pt2lUUScy8jakXf
+    sharding:
+      default-database-strategy:
+        hint:
+          algorithm-class-name: tech.pdai.springboot.shardingjdbc.jpa.tenant.dbhint.config.MyHintShardingDBAlgorithm
+      tables:
+        tb_user:
+          actual-data-nodes: tenant-${['a','b']}.tb_user
+          key-generator:
+            column: id
+            type: SNOWFLAKE
+            props:
+              worker:
+                id: 123
+        tb_role:
+          actual-data-nodes: tenant-${['a','b']}.tb_role
+          key-generator:
+            column: id
+            type: SNOWFLAKE
+            props:
+              worker:
+                id: 123
+        tb_user_role:
+          actual-data-nodes: tenant-${['a','b']}.tb_user_role
+          key-generator:
+            column: id
+            type: SNOWFLAKE
+            props:
+              worker:
+                id: 123
+      binding-tables: tb_user,tb_role,tb_user_role
+    props:
+      sql:
+        show: true
+  jpa:
+    open-in-view: false
+    generate-ddl: false
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+        use-new-id-generator-mappings: false
+```
+访问页面：
+
+http://localhost:8080/doc.html
+
+插入数据，会进入hint策略对应的算法
+![183.springboot-sharding-x4.png](../../assets/images/04-主流框架/spring/183.springboot-sharding-x4.png)
+
+成功插入数据(因为我们上面hintManager中是tenant-a)
+![184.springboot-sharding-x5.png](../../assets/images/04-主流框架/spring/184.springboot-sharding-x5.png)
+
+DB 中对应schema中的数据
+![185.springboot-sharding-x6.png](../../assets/images/04-主流框架/spring/185.springboot-sharding-x6.png)
+
+查询数据
+![186.springboot-sharding-x7.png](../../assets/images/04-主流框架/spring/186.springboot-sharding-x7.png)
+
+执行console log
+```sh
+2022-04-08 21:38:49.473  INFO 13136 --- [nio-8080-exec-1] ShardingSphere-SQL                       : Logic SQL: insert into tb_user (create_time, description, email, password, phone_number, update_time, user_name) values (?, ?, ?, ?, ?, ?, ?)
+2022-04-08 21:38:49.473  INFO 13136 --- [nio-8080-exec-1] ShardingSphere-SQL                       : SQLStatement: InsertStatementContext(super=CommonSQLStatementContext(sqlStatement=org.apache.shardingsphere.sql.parser.sql.statement.dml.InsertStatement@3f8ce2d6, tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@7845fc58), tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@7845fc58, columnNames=[create_time, description, email, password, phone_number, update_time, user_name], insertValueContexts=[InsertValueContext(parametersCount=7, valueExpressions=[ParameterMarkerExpressionSegment(startIndex=110, stopIndex=110, parameterMarkerIndex=0), ParameterMarkerExpressionSegment(startIndex=113, stopIndex=113, parameterMarkerIndex=1), ParameterMarkerExpressionSegment(startIndex=116, stopIndex=116, parameterMarkerIndex=2), ParameterMarkerExpressionSegment(startIndex=119, stopIndex=119, parameterMarkerIndex=3), ParameterMarkerExpressionSegment(startIndex=122, stopIndex=122, parameterMarkerIndex=4), ParameterMarkerExpressionSegment(startIndex=125, stopIndex=125, parameterMarkerIndex=5), ParameterMarkerExpressionSegment(startIndex=128, stopIndex=128, parameterMarkerIndex=6), DerivedParameterMarkerExpressionSegment(super=ParameterMarkerExpressionSegment(startIndex=0, stopIndex=0, parameterMarkerIndex=7))], parameters=[2022-04-08 21:37:45.061, pdai-hint-a, pdai2@pdai.tech, dad23i-hint-a, 0, 2022-04-08 21:37:45.061, pdai23i-hint-a])], generatedKeyContext=Optional[GeneratedKeyContext(columnName=id, generated=true, generatedValues=[719183321087062016])])
+2022-04-08 21:38:49.473  INFO 13136 --- [nio-8080-exec-1] ShardingSphere-SQL                       : Actual SQL: tenant-a ::: insert into tb_user (create_time, description, email, password, phone_number, update_time, user_name, id) values (?, ?, ?, ?, ?, ?, ?, ?) ::: [2022-04-08 21:37:45.061, pdai-hint-a, pdai2@pdai.tech, dad23i-hint-a, 0, 2022-04-08 21:37:45.061, pdai23i-hint-a, 719183321087062016]
+2022-04-08 21:38:53.287  INFO 13136 --- [nio-8080-exec-1] ShardingSphere-SQL                       : Logic SQL: select user0_.id as id1_1_0_, user0_.create_time as create_t2_1_0_, user0_.description as descript3_1_0_, user0_.email as email4_1_0_, user0_.password as password5_1_0_, user0_.phone_number as phone_nu6_1_0_, user0_.update_time as update_t7_1_0_, user0_.user_name as user_nam8_1_0_, roles1_.user_id as user_id1_2_1_, role2_.id as role_id2_2_1_, role2_.id as id1_0_2_, role2_.create_time as create_t2_0_2_, role2_.description as descript3_0_2_, role2_.name as name4_0_2_, role2_.role_key as role_key5_0_2_, role2_.update_time as update_t6_0_2_ from tb_user user0_ left outer join tb_user_role roles1_ on user0_.id=roles1_.user_id left outer join tb_role role2_ on roles1_.role_id=role2_.id where user0_.id=?
+2022-04-08 21:38:53.287  INFO 13136 --- [nio-8080-exec-1] ShardingSphere-SQL                       : SQLStatement: SelectStatementContext(super=CommonSQLStatementContext(sqlStatement=org.apache.shardingsphere.sql.parser.sql.statement.dml.SelectStatement@602d359e, tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@3bf8fb09), tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@3bf8fb09, projectionsContext=ProjectionsContext(startIndex=7, stopIndex=541, distinctRow=false, projections=[ColumnProjection(owner=user0_, name=id, alias=Optional[id1_1_0_]), ColumnProjection(owner=user0_, name=create_time, alias=Optional[create_t2_1_0_]), ColumnProjection(owner=user0_, name=description, alias=Optional[descript3_1_0_]), ColumnProjection(owner=user0_, name=email, alias=Optional[email4_1_0_]), ColumnProjection(owner=user0_, name=password, alias=Optional[password5_1_0_]), ColumnProjection(owner=user0_, name=phone_number, alias=Optional[phone_nu6_1_0_]), ColumnProjection(owner=user0_, name=update_time, alias=Optional[update_t7_1_0_]), ColumnProjection(owner=user0_, name=user_name, alias=Optional[user_nam8_1_0_]), ColumnProjection(owner=roles1_, name=user_id, alias=Optional[user_id1_2_1_]), ColumnProjection(owner=role2_, name=id, alias=Optional[role_id2_2_1_]), ColumnProjection(owner=role2_, name=id, alias=Optional[id1_0_2_]), ColumnProjection(owner=role2_, name=create_time, alias=Optional[create_t2_0_2_]), ColumnProjection(owner=role2_, name=description, alias=Optional[descript3_0_2_]), ColumnProjection(owner=role2_, name=name, alias=Optional[name4_0_2_]), ColumnProjection(owner=role2_, name=role_key, alias=Optional[role_key5_0_2_]), ColumnProjection(owner=role2_, name=update_time, alias=Optional[update_t6_0_2_])]), groupByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.groupby.GroupByContext@17cddd9a, orderByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.orderby.OrderByContext@43769c72, paginationContext=org.apache.shardingsphere.sql.parser.binder.segment.select.pagination.PaginationContext@4afed047, containsSubquery=false)
+2022-04-08 21:38:53.287  INFO 13136 --- [nio-8080-exec-1] ShardingSphere-SQL                       : Actual SQL: tenant-a ::: select user0_.id as id1_1_0_, user0_.create_time as create_t2_1_0_, user0_.description as descript3_1_0_, user0_.email as email4_1_0_, user0_.password as password5_1_0_, user0_.phone_number as phone_nu6_1_0_, user0_.update_time as update_t7_1_0_, user0_.user_name as user_nam8_1_0_, roles1_.user_id as user_id1_2_1_, role2_.id as role_id2_2_1_, role2_.id as id1_0_2_, role2_.create_time as create_t2_0_2_, role2_.description as descript3_0_2_, role2_.name as name4_0_2_, role2_.role_key as role_key5_0_2_, role2_.update_time as update_t6_0_2_ from tb_user user0_ left outer join tb_user_role roles1_ on user0_.id=roles1_.user_id left outer join tb_role role2_ on roles1_.role_id=role2_.id where user0_.id=? ::: [719183321087062016]
+2022-04-08 21:39:26.996  INFO 13136 --- [nio-8080-exec-2] ShardingSphere-SQL                       : Logic SQL: select user0_.id as id1_1_, user0_.create_time as create_t2_1_, user0_.description as descript3_1_, user0_.email as email4_1_, user0_.password as password5_1_, user0_.phone_number as phone_nu6_1_, user0_.update_time as update_t7_1_, user0_.user_name as user_nam8_1_ from tb_user user0_ where 1=1 limit ?
+2022-04-08 21:39:26.997  INFO 13136 --- [nio-8080-exec-2] ShardingSphere-SQL                       : SQLStatement: SelectStatementContext(super=CommonSQLStatementContext(sqlStatement=org.apache.shardingsphere.sql.parser.sql.statement.dml.SelectStatement@2dbe7c04, tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@7ce6951d), tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@7ce6951d, projectionsContext=ProjectionsContext(startIndex=7, stopIndex=264, distinctRow=false, projections=[ColumnProjection(owner=user0_, name=id, alias=Optional[id1_1_]), ColumnProjection(owner=user0_, name=create_time, alias=Optional[create_t2_1_]), ColumnProjection(owner=user0_, name=description, alias=Optional[descript3_1_]), ColumnProjection(owner=user0_, name=email, alias=Optional[email4_1_]), ColumnProjection(owner=user0_, name=password, alias=Optional[password5_1_]), ColumnProjection(owner=user0_, name=phone_number, alias=Optional[phone_nu6_1_]), ColumnProjection(owner=user0_, name=update_time, alias=Optional[update_t7_1_]), ColumnProjection(owner=user0_, name=user_name, alias=Optional[user_nam8_1_])]), groupByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.groupby.GroupByContext@77b55ac4, orderByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.orderby.OrderByContext@765e7ff9, paginationContext=org.apache.shardingsphere.sql.parser.binder.segment.select.pagination.PaginationContext@28de736a, containsSubquery=false)
+2022-04-08 21:39:26.997  INFO 13136 --- [nio-8080-exec-2] ShardingSphere-SQL                       : Actual SQL: tenant-a ::: select user0_.id as id1_1_, user0_.create_time as create_t2_1_, user0_.description as descript3_1_, user0_.email as email4_1_, user0_.password as password5_1_, user0_.phone_number as phone_nu6_1_, user0_.update_time as update_t7_1_, user0_.user_name as user_nam8_1_ from tb_user user0_ where 1=1 limit ? ::: [10]
+2022-04-08 21:39:27.004  INFO 13136 --- [nio-8080-exec-2] ShardingSphere-SQL                       : Logic SQL: select roles0_.user_id as user_id1_2_0_, roles0_.role_id as role_id2_2_0_, role1_.id as id1_0_1_, role1_.create_time as create_t2_0_1_, role1_.description as descript3_0_1_, role1_.name as name4_0_1_, role1_.role_key as role_key5_0_1_, role1_.update_time as update_t6_0_1_ from tb_user_role roles0_ inner join tb_role role1_ on roles0_.role_id=role1_.id where roles0_.user_id=?
+2022-04-08 21:39:27.005  INFO 13136 --- [nio-8080-exec-2] ShardingSphere-SQL                       : SQLStatement: SelectStatementContext(super=CommonSQLStatementContext(sqlStatement=org.apache.shardingsphere.sql.parser.sql.statement.dml.SelectStatement@17b5967d, tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@7ac1dcb9), tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@7ac1dcb9, projectionsContext=ProjectionsContext(startIndex=7, stopIndex=271, distinctRow=false, projections=[ColumnProjection(owner=roles0_, name=user_id, alias=Optional[user_id1_2_0_]), ColumnProjection(owner=roles0_, name=role_id, alias=Optional[role_id2_2_0_]), ColumnProjection(owner=role1_, name=id, alias=Optional[id1_0_1_]), ColumnProjection(owner=role1_, name=create_time, alias=Optional[create_t2_0_1_]), ColumnProjection(owner=role1_, name=description, alias=Optional[descript3_0_1_]), ColumnProjection(owner=role1_, name=name, alias=Optional[name4_0_1_]), ColumnProjection(owner=role1_, name=role_key, alias=Optional[role_key5_0_1_]), ColumnProjection(owner=role1_, name=update_time, alias=Optional[update_t6_0_1_])]), groupByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.groupby.GroupByContext@68d9e73a, orderByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.orderby.OrderByContext@6331421f, paginationContext=org.apache.shardingsphere.sql.parser.binder.segment.select.pagination.PaginationContext@580c367a, containsSubquery=false)
+2022-04-08 21:39:27.005  INFO 13136 --- [nio-8080-exec-2] ShardingSphere-SQL                       : Actual SQL: tenant-a ::: select roles0_.user_id as user_id1_2_0_, roles0_.role_id as role_id2_2_0_, role1_.id as id1_0_1_, role1_.create_time as create_t2_0_1_, role1_.description as descript3_0_1_, role1_.name as name4_0_1_, role1_.role_key as role_key5_0_1_, role1_.update_time as update_t6_0_1_ from tb_user_role roles0_ inner join tb_role role1_ on roles0_.role_id=role1_.id where roles0_.user_id=? ::: [719183321087062016]
+2022-04-08 21:40:28.220  INFO 13136 --- [nio-8080-exec-4] ShardingSphere-SQL                       : Logic SQL: select user0_.id as id1_1_, user0_.create_time as create_t2_1_, user0_.description as descript3_1_, user0_.email as email4_1_, user0_.password as password5_1_, user0_.phone_number as phone_nu6_1_, user0_.update_time as update_t7_1_, user0_.user_name as user_nam8_1_ from tb_user user0_ where 1=1 limit ?
+2022-04-08 21:40:28.220  INFO 13136 --- [nio-8080-exec-4] ShardingSphere-SQL                       : SQLStatement: SelectStatementContext(super=CommonSQLStatementContext(sqlStatement=org.apache.shardingsphere.sql.parser.sql.statement.dml.SelectStatement@2dbe7c04, tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@5c74176f), tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@5c74176f, projectionsContext=ProjectionsContext(startIndex=7, stopIndex=264, distinctRow=false, projections=[ColumnProjection(owner=user0_, name=id, alias=Optional[id1_1_]), ColumnProjection(owner=user0_, name=create_time, alias=Optional[create_t2_1_]), ColumnProjection(owner=user0_, name=description, alias=Optional[descript3_1_]), ColumnProjection(owner=user0_, name=email, alias=Optional[email4_1_]), ColumnProjection(owner=user0_, name=password, alias=Optional[password5_1_]), ColumnProjection(owner=user0_, name=phone_number, alias=Optional[phone_nu6_1_]), ColumnProjection(owner=user0_, name=update_time, alias=Optional[update_t7_1_]), ColumnProjection(owner=user0_, name=user_name, alias=Optional[user_nam8_1_])]), groupByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.groupby.GroupByContext@19769285, orderByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.orderby.OrderByContext@2caf7930, paginationContext=org.apache.shardingsphere.sql.parser.binder.segment.select.pagination.PaginationContext@28258a73, containsSubquery=false)
+2022-04-08 21:40:28.220  INFO 13136 --- [nio-8080-exec-4] ShardingSphere-SQL                       : Actual SQL: tenant-a ::: select user0_.id as id1_1_, user0_.create_time as create_t2_1_, user0_.description as descript3_1_, user0_.email as email4_1_, user0_.password as password5_1_, user0_.phone_number as phone_nu6_1_, user0_.update_time as update_t7_1_, user0_.user_name as user_nam8_1_ from tb_user user0_ where 1=1 limit ? ::: [10]
+2022-04-08 21:40:28.221  INFO 13136 --- [nio-8080-exec-4] ShardingSphere-SQL                       : Logic SQL: select roles0_.user_id as user_id1_2_0_, roles0_.role_id as role_id2_2_0_, role1_.id as id1_0_1_, role1_.create_time as create_t2_0_1_, role1_.description as descript3_0_1_, role1_.name as name4_0_1_, role1_.role_key as role_key5_0_1_, role1_.update_time as update_t6_0_1_ from tb_user_role roles0_ inner join tb_role role1_ on roles0_.role_id=role1_.id where roles0_.user_id=?
+2022-04-08 21:40:28.221  INFO 13136 --- [nio-8080-exec-4] ShardingSphere-SQL                       : SQLStatement: SelectStatementContext(super=CommonSQLStatementContext(sqlStatement=org.apache.shardingsphere.sql.parser.sql.statement.dml.SelectStatement@17b5967d, tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@14ffd315), tablesContext=org.apache.shardingsphere.sql.parser.binder.segment.table.TablesContext@14ffd315, projectionsContext=ProjectionsContext(startIndex=7, stopIndex=271, distinctRow=false, projections=[ColumnProjection(owner=roles0_, name=user_id, alias=Optional[user_id1_2_0_]), ColumnProjection(owner=roles0_, name=role_id, alias=Optional[role_id2_2_0_]), ColumnProjection(owner=role1_, name=id, alias=Optional[id1_0_1_]), ColumnProjection(owner=role1_, name=create_time, alias=Optional[create_t2_0_1_]), ColumnProjection(owner=role1_, name=description, alias=Optional[descript3_0_1_]), ColumnProjection(owner=role1_, name=name, alias=Optional[name4_0_1_]), ColumnProjection(owner=role1_, name=role_key, alias=Optional[role_key5_0_1_]), ColumnProjection(owner=role1_, name=update_time, alias=Optional[update_t6_0_1_])]), groupByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.groupby.GroupByContext@6aff8332, orderByContext=org.apache.shardingsphere.sql.parser.binder.segment.select.orderby.OrderByContext@32acce81, paginationContext=org.apache.shardingsphere.sql.parser.binder.segment.select.pagination.PaginationContext@70f82e86, containsSubquery=false)
+2022-04-08 21:40:28.221  INFO 13136 --- [nio-8080-exec-4] ShardingSphere-SQL                       : Actual SQL: tenant-a ::: select roles0_.user_id as user_id1_2_0_, roles0_.role_id as role_id2_2_0_, role1_.id as id1_0_1_, role1_.create_time as create_t2_0_1_, role1_.description as descript3_0_1_, role1_.name as name4_0_1_, role1_.role_key as role_key5_0_1_, role1_.update_time as update_t6_0_1_ from tb_user_role roles0_ inner join tb_role role1_ on roles0_.role_id=role1_.id where roles0_.user_id=? ::: [719183321087062016]
+```
+# 四十八、▶SpringBoot集成连接池 - 数据库连接池和默认连接池HikariCP
+> 本文主要介绍数据库连接池，以及SpringBoot集成默认的HikariCP的实践。
+## 48.1 知识准备
+### 48.1.1 什么是数据库连接池？
+> 什么是连接池，它要解决什么样的问题呢？
+
+数据库连接池负责分配、管理和释放数据库连接，它允许应用程序重复使用一个现有的数据库连接，而不是再重新建立一个；释放空闲时间超过最大空闲时间的数据库连接来避免因为没有释放数据库连接而引起的数据库连接遗漏。这项技术能明显提高对数据库操作的性能。
+### 48.1.2 数据库连接池基本原理？
+连接池基本的思想是在系统初始化的时候，将数据库连接作为对象存储在内存中，当用户需要访问数据库时，并非建立一个新的连接，而是从连接池中取出一个已建立的空闲连接对象。使用完毕后，用户也并非将连接关闭，而是将连接放回连接池中，以供下一个请求访问使用。而连接的建立、断开都由连接池自身来管理。同时，还可以通过设置连接池的参数来控制连接池中的初始连接数、连接的上下限数以及每个连接的最大使用次数、最大空闲时间等等。也可以通过其自身的管理机制来监视数据库连接的数量、使用情况等。
+
+数据库连接池的最小连接数和最大连接数的设置要考虑到下列几个因素：
+- 最小连接数
+
+是连接池一直保持的数据库连接，所以如果应用程序对数据库连接的使用量不大，将会有大量的数据库连接资源被浪费。
+- 最大连接数
+
+是连接池能申请的最大连接数，如果数据库连接请求超过此数，后面的数据库连接请求将被加入到等待队列中，这会影响之后的数据库操作。
+- 最小连接数与最大连接数差距
+
+最小连接数与最大连接数相差太大，那么最先的连接请求将会获利，之后超过最小连接数量的连接请求等价于建立一个新的数据库连接。不过，这些大于最小连接数的数据库连接在使用完不会马上被释放，它将被放到连接池中等待重复使用或是空闲超时后被释放。
+### 48.1.3 有哪些常见的数据库连接池？
+> 开源的数据库连接池众多，这里我们需要了解曾经常用的开源数据库连接池及其被淘汰原因，并了解目前最常用的数据库连接池。
+- C3P0(被淘汰：历史悠久，过于复杂，性能差)
+
+是一个开放源代码的JDBC连接池，它在lib目录中与Hibernate一起发布，包括了实现jdbc3和jdbc2扩展规范说明的Connection 和Statement 池的DataSources 对象。由于一度是Hibernate内置的数据库连接池而被开发者熟知，但是由于性能和复杂度，官方已经放弃维护。
+- DBCP（被淘汰：依赖Commons-Pool，性能差） 
+
+DBCP（DataBase Connection Pool）属于Apache顶级项目Commons中的核心子项目。但DBCP并不是独立实现连接池功能的，它内部依赖于Commons-Pool项目，连接池最核心的“池”，就是由Commons-Pool组件提供的，因此，DBCP的性能实际上就是Pool的性能。终于在tomcat 7.0版本中，tomcat重新设计开发出了一套连接池（Tomcat JDBC Pool）并且于13年9月发布了Commons-Pool 2.0。命脉已经更新的DBCP终于在14年2月份发布了DBCP2.0。但是，毕竟由于长时间没有更新突破的DBCP，已经被人放弃了。
+- BoneCP（被淘汰：为解决C3P0/DBCP性能而生，后续出现了更高性能的hikariCP，BoneCP也不再更新）
+
+是一个快速、开源的数据库连接池。帮用户管理数据连接，让应用程序能更快速地访问数据库。BoneCP的出现主要是为了解决C3P0/DBCP连接池性能问题，有一些测试表明其性能提升了25倍。后来出现了更高性能的hikariCP，BoneCP也不再更新，所以BoneCP目前也很少被使用。
+- Druid
+
+Druid功能最为全面，sql拦截等功能，统计数据较为全面，具有良好的扩展性
+## 48.2 简单示例
+> 主要展示HikariCP的使用配置等。
+
+如下是常用的HikariCP的使用配置
+```yml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/test_db?useSSL=false&autoReconnect=true&characterEncoding=utf8
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: bfXa4Pt2lUUScy8jakXf
+    # 指定为HikariDataSource
+    type: com.zaxxer.hikari.HikariDataSource
+    # hikari连接池配置
+    hikari:
+      #连接池名
+      pool-name: HikariCP
+      #最小空闲连接数
+      minimum-idle: 5
+      # 空闲连接存活最大时间，默认10分钟
+      idle-timeout: 600000
+      # 连接池最大连接数，默认是10
+      maximum-pool-size: 10
+      # 此属性控制从池返回的连接的默认自动提交行为,默认值：true
+      auto-commit: true
+      # 此属性控制池中连接的最长生命周期，值0表示无限生命周期，默认30分钟
+      max-lifetime: 1800000
+      # 数据库连接超时时间,默认30秒
+      connection-timeout: 30000
+      # 连接测试query
+      connection-test-query: SELECT 1
+```
+## 48.3 进一步理解
+> 通过如下几个问题，进一步理解HikariCP。
+### 48.3.1 SpringBoot2默认连接池HikariCP是如何起作用的？
+> 从SpringBoot自动初始化配置 和 默认的数据源 两个角度理解。
+- SpringBoot自动初始化配置
+
+关键代码如下
+![190.springboot-hikari-1.png](../../assets/images/04-主流框架/spring/190.springboot-hikari-1.png)
+
+然后可以找到HikariCP数据源的配置
+![191.springboot-hikari-2.png](../../assets/images/04-主流框架/spring/191.springboot-hikari-2.png)
+
+你可以发现，为了支持动态更新配置（基于MXBean)，这里还设计了一层HikariConfigMXBean接口
+- 为什么说是默认的数据源呢？
+
+首先，springboot-starter-jdbc中默认加载了Hikari
+![192.springboot-hikari-3.png](../../assets/images/04-主流框架/spring/192.springboot-hikari-3.png
+)
+
+其次，在配置初始化或者加载时都是第一个被加载的
+```java
+private static <T extends DataSource> MappedDataSourceProperties<T> lookupPooled(ClassLoader classLoader,
+    Class<T> type) {
+  MappedDataSourceProperties<T> result = null;
+  result = lookup(classLoader, type, result, "com.zaxxer.hikari.HikariDataSource",
+      HikariDataSourceProperties::new);
+  result = lookup(classLoader, type, result, "org.apache.tomcat.jdbc.pool.DataSource",
+      TomcatPoolDataSourceProperties::new);
+  result = lookup(classLoader, type, result, "org.apache.commons.dbcp2.BasicDataSource",
+      MappedDbcp2DataSource::new);
+  result = lookup(classLoader, type, result, "oracle.ucp.jdbc.PoolDataSourceImpl",
+      OraclePoolDataSourceProperties::new, "oracle.jdbc.OracleConnection");
+  return result;
+}
+```
+### 48.3.2 更多HikariCP配置参数？
+从代码的角度，你已经可以看到，可以配置如下：
+![191.springboot-hikari-2.png](../../assets/images/04-主流框架/spring/191.springboot-hikari-2.png)
+| 属性 | 描述 | 构造器默认值 | 默认配置 | validate之后的值 | validate重置 |
+|------|------|--------------|----------|-----------------|-------------|
+| autoCommit | 自动提交从池中返回的连接 | TRUE | TRUE | – | – |
+| connectionTimeout | 等待来自池的连接的最大毫秒数 | SECONDS.toMillis(30) = 30000 | 30000 | – | 如果小于250毫秒，则被重置回30秒 |
+| idleTimeout | 连接允许在池中闲置的最长时间 | MINUTES.toMillis(10) = 600000 | 600000 | – | 如果idleTimeout+1秒>maxLifetime 且 maxLifetime>0，则会被重置为0（代表永远不会退出）；如果idleTimeout!=0且小于10秒，则会被重置为10秒 |
+| maxLifetime | 池中连接最长生命周期 | MINUTES.toMillis(30) = 1800000 | 1800000 | – | 如果不等于0且小于30秒则会被重置回30分钟 |
+| connectionTestQuery | 如果您的驱动程序支持JDBC4，我们强烈建议您不要设置此属性 | null | null | – | – |
+| minimumIdle | 池中维护的最小空闲连接数 | -1 | 10 | – | minIdle<0或者minIdle>maxPoolSize,则被重置为maxPoolSize |
+| maximumPoolSize | 池中最大连接数，包括闲置和使用中的连接 | -1 | 10 | – | 如果maxPoolSize小于1，则会被重置。当minIdle<=0被重置为DEFAULT_POOL_SIZE则为10;如果minIdle>0则重置为minIdle的值 |
+| metricRegistry | 该属性允许您指定一个 Codahale / Dropwizard MetricRegistry 的实例，供池使用以记录各种指标 | null | null | – | – |
+| healthCheckRegistry | 该属性允许您指定池使用的Codahale / Dropwizard HealthCheckRegistry的实例来报告当前健康信息 | null | null | – | – |
+| poolName | 连接池的用户定义名称，主要出现在日志记录和JMX管理控制台中以识别池和池配置 | null | HikariPool-1 | – | – |
+| initializationFailTimeout | 如果池无法成功初始化连接，则此属性控制池是否将 fail fast | 1 | 1 | – | – |
+| isolateInternalQueries | 是否在其自己的事务中隔离内部池查询，例如连接活动测试 | FALSE | FALSE | – | – |
+| allowPoolSuspension | 控制池是否可以通过JMX暂停和恢复 | FALSE | FALSE | – | – |
+| readOnly | 从池中获取的连接是否默认处于只读模式 | FALSE | FALSE | – | – |
+| registerMbeans | 是否注册JMX管理Bean（MBeans） | FALSE | FALSE | – | – |
+| catalog | 为支持 catalog 概念的数据库设置默认 catalog | driverdefault | null | – | – |
+| connectionInitSql | 该属性设置一个SQL语句，在将每个新连接创建后，将其添加到池中之前执行该语句。 | null | null | – | – |
+| driverClassName | HikariCP将尝试通过仅基于jdbcUrl的DriverManager解析驱动程序，但对于一些较旧的驱动程序，还必须指定driverClassName | null | null | – | – |
+| transactionIsolation | 控制从池返回的连接的默认事务隔离级别 | null | null | – | – |
+| validationTimeout | 连接将被测试活动的最大时间量 | SECONDS.toMillis(5) = 5000 | 5000 | – | 如果小于250毫秒，则会被重置回5秒 |
+| leakDetectionThreshold | 记录消息之前连接可能离开池的时间量，表示可能的连接泄漏 | 0 | 0 | – | 如果大于0且不是单元测试，则进一步判断：(leakDetectionThreshold < SECONDS.toMillis(2) or (leakDetectionThreshold > maxLifetime && maxLifetime > 0)，会被重置为0 . 即如果要生效则必须>0，而且不能小于2秒，而且当maxLifetime > 0时不能大于maxLifetime |
+| dataSource | 这个属性允许你直接设置数据源的实例被池包装，而不是让HikariCP通过反射来构造它 | null | null | – | – |
+| schema | 该属性为支持模式概念的数据库设置默认模式 | driverdefault | null | – | – |
+| threadFactory | 此属性允许您设置将用于创建池使用的所有线程的java.util.concurrent.ThreadFactory的实例。 | null | null | – | – |
+| scheduledExecutor | 此属性允许您设置将用于各种内部计划任务的java.util.concurrent.ScheduledExecutorService实例 | null | null | – | – |
+
+更具体的可以看<a href='https://github.com/brettwooldridge/HikariCP'>官方配置</a>或者如下<a href='http://www.lanxinbase.com/?p=2482'>深蓝Blog总结翻译的配置</a>
+### 48.3.3 为什么HikariCP会成为默认连接池？
+> 官网详细地说明了HikariCP所做的一些优化，总结如下：
+- `字节码精简` ：优化代码，直到编译后的字节码最少，这样，CPU缓存可以加载更多的程序代码；
+- `优化代理和拦截器`：减少代码，例如HikariCP的Statement proxy只有100行代码，只有BoneCP的十分之一；
+- `自定义数组类型（FastStatementList）代替ArrayList`：避免每次get()调用都要进行range check，避免调用remove()时的从头到尾的扫描；
+- `自定义集合类型(ConcurrentBag)`：提高并发读写的效率；
+- `其它`：针对BoneCP缺陷的优化，比如对于耗时超过一个CPU时间片的方法调用的研究等。
+
+更多可以参考：<a href='https://github.com/brettwooldridge/HikariCP/wiki/Down-the-Rabbit-Hole'>Down the Rabbit Hole</a>
+
+更多常见的使用问题
+请参考 <a href='https://github.com/brettwooldridge/HikariCP/wiki/FAQ'>官方WIKI - FAQ</a>
+# 四十九、SpringBoot集成连接池 - 集成数据库Druid连接池
+> 上文介绍默认数据库连接池HikariCP，本文主要介绍SpringBoot集成阿里的Druid连接池的实践; 客观的来说，阿里Druid只能说是中文开源中功能全且广泛的连接池为基础的监控组件，但是（仅从连接池的角度）在生态，维护性，开源规范性，综合性能等方面和HikariCP比还是有很大差距。
+## 49.1 知识准备
+### 49.1.1 Druid连接池的定位？
+> Druid连接池是阿里巴巴开源的数据库连接池项目。Druid连接池为监控而生，内置强大的监控功能，监控特性不影响性能。功能强大，能防SQL注入，内置Loging能诊断Hack应用行为。
+- Github项目地址 https://github.com/alibaba/druid
+- 文档 https://github.com/alibaba/druid/wiki/%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98
+- 下载 http://repo1.maven.org/maven2/com/alibaba/druid/
+
+## 49.2 简单示例
+### 49.2.1 POM配置
+增加依赖
+```xml
+<!-- https://mvnrepository.com/artifact/com.alibaba/druid-spring-boot-starter -->
+<dependency>
+    <groupId>com.alibaba</groupId>
+    <artifactId>druid-spring-boot-starter</artifactId>
+    <version>1.2.9</version>
+</dependency>
+```
+### 49.2.2 yml配置
+详细的yml配置如下：
+```yml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/test_db?useSSL=false&autoReconnect=true&characterEncoding=utf8
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: bfXa4Pt2lUUScy8jakXf
+    # Druid datasource
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      # 初始化大小
+      initial-size: 5
+      # 最小连接数
+      min-idle: 10
+      # 最大连接数
+      max-active: 20
+      # 获取连接时的最大等待时间
+      max-wait: 60000
+      # 一个连接在池中最小生存的时间，单位是毫秒
+      min-evictable-idle-time-millis: 300000
+      # 多久才进行一次检测需要关闭的空闲连接，单位是毫秒
+      time-between-eviction-runs-millis: 60000
+      # 配置扩展插件：stat-监控统计，log4j-日志，wall-防火墙（防止SQL注入），去掉后，监控界面的sql无法统计
+      filters: stat,wall
+      # 检测连接是否有效的 SQL语句，为空时以下三个配置均无效
+      validation-query: SELECT 1
+      # 申请连接时执行validationQuery检测连接是否有效，默认true，开启后会降低性能
+      test-on-borrow: true
+      # 归还连接时执行validationQuery检测连接是否有效，默认false，开启后会降低性能
+      test-on-return: true
+      # 申请连接时如果空闲时间大于timeBetweenEvictionRunsMillis，执行validationQuery检测连接是否有效，默认false，建议开启，不影响性能
+      test-while-idle: true
+      # 是否开启 StatViewServlet
+      stat-view-servlet:
+        enabled: true
+        # 访问监控页面 白名单，默认127.0.0.1
+        allow: 127.0.0.1
+        login-username: admin
+        login-password: admin
+      # FilterStat
+      filter:
+        stat:
+          # 是否开启 FilterStat，默认true
+          enabled: true
+          # 是否开启 慢SQL 记录，默认false
+          log-slow-sql: true
+          # 慢 SQL 的标准，默认 3000，单位：毫秒
+          slow-sql-millis: 5000
+          # 合并多个连接池的监控数据，默认false
+          merge-sql: false
+  jpa:
+    open-in-view: false
+    generate-ddl: false
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+        use-new-id-generator-mappings: false
+```
+更多的配置，请参考<a href='https://github.com/alibaba/druid/wiki/DruidDataSource%E9%85%8D%E7%BD%AE%E5%B1%9E%E6%80%A7%E5%88%97%E8%A1%A8'>官方配置</a>
+
+### 49.2.3 测试
+访问http://localhost:8080/druid/datasource.html
+
+admin/admin登录
+![193.springboot-druid-11.png](../../assets/images/04-主流框架/spring/193.springboot-druid-11.png)
+
+访问接口，进行SQL查询
+![194.springboot-druid-12.png](../../assets/images/04-主流框架/spring/194.springboot-druid-12.png)
+
+SQL和慢查询监控
+![195.springboot-druid-13.png](../../assets/images/04-主流框架/spring/195.springboot-druid-13.png)
+
+## 49.3 进一步理解
+> Druid连接池最初就是为监控系统采集jdbc运行信息而生的，它内置了StatFilter 功能，能采集非常完备的连接池执行信息Druid连接池内置了能和Spring/Servlet关联监控的实现，使得监控Web应用特别方便Druid连接池内置了一个监控页面，提供了非常完备的监控信息，可以快速诊断系统的瓶颈。更多请参考：Druid 的GitHub仓库<a href='https://github.com/alibaba/druid/wiki/%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98'>wiki</a>
+### 49.3.1 监控信息采集的StatFilter
+Druid连接池的监控信息主要是通过StatFilter 采集的，采集的信息非常全面，包括SQL执行、并发、慢查、执行时间区间分布等。具体配置可以看这个 https://github.com/alibaba/druid/wiki/%E9%85%8D%E7%BD%AE_StatFilter
+- 监控不影响性能
+
+Druid增加StatFilter之后，能采集大量统计信息，同时对性能基本没有影响。StatFilter对CPU和内存的消耗都极小，对系统的影响可以忽略不计。监控不影响性能是Druid连接池的重要特性。
+- SQL参数化合并监控
+
+实际业务中，如果SQL不是走PreparedStatement，SQL没有参数化，这时SQL需要参数化合并监控才能真实反映业务情况。如下SQL：
+```sql
+select * from t where id = 1
+select * from t where id = 2
+select * from t where id = 3
+```
+参数化后：
+```sql
+select * from t where id = ?
+```
+参数化合并监控是基于SQL Parser语法解析实现的，是Druid连接池独一无二的功能。
+
+- 执行次数、返回行数、更新行数和并发监控
+
+StatFilter能采集到每个SQL的执行次数、返回行数总和、更新行数总和、执行中次数和和最大并发。并发监控的统计是在SQL执行开始对计数器加一，结束后对计数器减一实现的。可以采集到每个SQL的当前并发和采集期间的最大并发。
+
+- 慢查监控
+
+缺省执行耗时超过3秒的被认为是慢查，统计项中有包括每个SQL的最后发生的慢查的耗时和发生时的参数。
+- Exception监控
+
+如果SQL执行时抛出了Exception，SQL统计项上会Exception有最后的发生时间、堆栈和Message，根据这些信息可以很容易定位错误原因。
+
+### 49.3.2 诊断支持
+Druid连接池内置了LogFilter，将Connection/Statement/ResultSet相关操作的日志输出，可以用于诊断系统问题，也可以用于Hack一个不熟悉的系统。
+
+LogFilter可以输出连接申请/释放，事务提交回滚，Statement的Create/Prepare/Execute/Close，ResultSet的Open/Next/Close，通过LogFilter可以详细诊断一个系统的Jdbc行为。
+
+LogFilter有Log4j、Log4j2、Slf4j、CommsLog等实现，具体配置看这里 https://github.com/alibaba/druid/wiki/%E9%85%8D%E7%BD%AE_LogFilter
+### 49.3.3 防SQL注入
+SQL注入攻击是黑客对数据库进行攻击的常用手段，Druid连接池内置了WallFilter 提供防SQL注入功能，在不影响性能的同时防御SQL注入攻击。
+- 基于语意的防SQL注入
+
+Druid连接池内置了一个功能完备的SQL Parser，能够完整解析mysql、sql server、oracle、postgresql的语法，通过语意分析能够精确识别SQL注入攻击。
+- 极低的漏报率和误报率
+
+基于SQL语意分析，大量应用和反馈，使得Druid的防SQL注入拥有极低的漏报率和误报率
+- 防注入对性能影响极小
+
+内置参数化后的Cache、高性能手写的Parser，使得打开防SQL注入对应用的性能基本不受影响。
+
+### 49.3.4 如何评价阿里的Druid连接池
+首先，仅从<a href='https://github.com/alibaba/druid/wiki/Druid%E8%BF%9E%E6%8E%A5%E6%B1%A0%E4%BB%8B%E7%BB%8D'>功能</a>上看，Druid并不是一个存粹的连接池，它还承载了监控，诊断，安全的功能。从产品的角度看，all in one 也是有代价的，如果我只期望使用连接池的功能，其它的功能对于使用者来说就是鸡肋；而我们没有看到其长期架构设计（比如插拔式架构，分包设计等）， 大概率是当时Druid这种开源的驱动方式并不是一个完善规范的开源软件开发方式（比如KPI driven和个人主义色彩)
+
+（如果你仅仅从功能上比较，你就已经输了，因为这种比较根本不在一个维度上；看到druid主要作者wenshao和hikari作者的<a href='https://github.com/brettwooldridge/HikariCP/issues/232'>讨论</a>，读者自行辨别~）
+![196.springboot-druid-1.png](../../assets/images/04-主流框架/spring/196.springboot-druid-1.png)
+# 五十、 ▶SpringBoot数据库管理 - 用Liquibase对数据库管理和迁移
+## 50.1 知识准备
+### 50.1.1 什么是Liquibase？这类工具要解决什么问题？
+> Liquibase是一个**用于跟踪、管理和应用数据库变化的开源工具**，通过日志文件(changelog)的形式记录数据库的变更(changeset)，然后执行日志文件中的修改，将数据库更新或回滚(rollback)到一致的状态。它的目标是提供一种数据库类型无关的解决方案，通过执行schema类型的文件来达到迁移。
+
+其优点主要有以下：
+- 支持几乎所有主流的数据库，目前支持包括 Oracle/Sql Server/DB2/MySql/Sybase/PostgreSQL等<a href='https://docs.liquibase.com/install/tutorials/home.html'>各种数据库</a>，这样在数据库的部署和升级环节可帮助应用系统支持多数据库；
+- 支持版本控制，这样就能支持多开发者的协作维护；
+- 日志文件支持多种格式，如XML, YAML, JSON, SQL等；
+- 提供变化应用的回滚功能，可按时间、数量或标签（tag）回滚已应用的变化。通过这种方式，开发人员可轻易的还原数据库在任何时间点的状态
+- 支持多种运行方式，如命令行、Spring集成、Maven插件、Gradle插件等。
+
+为何会出现Liquibase这类工具呢？
+
+在实际上线的应用中，随着版本的迭代，经常会遇到需要变更数据库表和字段，必然会遇到需要对这些变更进行记录和管理，以及回滚等等；同时只有脚本化且版本可管理，才能在让数据库实现真正的DevOps（自动化执行 + 回滚等）。在这样的场景下Liquibase等工具的出现也就成为了必然。
+### 50.1.2 Liquibase有哪些概念？是如何工作的？
+> 工作流程：将SQL变更记录到changeset，多个changeset变更组成了日志文件(changelog)，liquibase将changelog更新日志文件同步到指定的RDBMS中。
+![197.springboot-liquibase-1.png](../../assets/images/04-主流框架/spring/197.springboot-liquibase-1.png)
+
+日志文件(databaseChangeLog)支持多种格式，如XML, YAML, JSON, SQL; 我们以xml为例，看下相关配置
+```xml
+<?xml version="1.0" encoding="UTF-8"?> 
+<databaseChangeLog
+	xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:ext="http://www.liquibase.org/xml/ns/dbchangelog-ext"
+	xmlns:pro="http://www.liquibase.org/xml/ns/pro"
+	xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+		http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.9.0.xsd
+		http://www.liquibase.org/xml/ns/dbchangelog-ext http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-ext.xsd
+		http://www.liquibase.org/xml/ns/pro http://www.liquibase.org/xml/ns/pro/liquibase-pro-4.9.0.xsd">
+    <changeSet id="1" author="bob">  
+        <comment>A sample change log</comment>  
+        <createTable/> 
+    </changeSet>  
+    <changeSet id="2" author="bob" runAlways="true">  
+        <alterTable/>  
+    </changeSet>  
+    <changeSet id="3" author="alice" failOnError="false" dbms="oracle">
+        <alterTable/>  
+    </changeSet>  
+    <changeSet id="4" author="alice" failOnError="false" dbms="!oracle">
+        <alterTable/>  
+    </changeSet>  
+</databaseChangeLog>
+```
+## 50.2 简单示例
+> 这里主要介绍基于SpringBoot集成liquibase来管理数据库的变更。
+### 50.2.1 POM依赖
+Maven 包的依赖，主要包含mysql驱动, JDBC(这里spring-boot-starter-data-jpa包含了jdbc包，当然直接引入jdbc包也行)，以及liquibase包。
+```xml
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>8.0.28</version>
+</dependency>
+<dependency>
+    <groupId>com.github.wenhao</groupId>
+    <artifactId>jpa-spec</artifactId>
+    <version>3.1.0</version>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+
+<dependency>
+    <groupId>org.liquibase</groupId>
+    <artifactId>liquibase-core</artifactId>
+    <version>4.9.1</version>
+</dependency>
+```
+### 50.2.2 yml配置
+> SpringBoot AutoConfig默认已经包含了对liquibase的配置，在spring.liquibase配置下。
+
+基础的配置，可以直接使用如下（主要是指定change-log的位置，默认的位置是classpath:/db/changelog/db.changelog-master.yaml）：
+```yml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/test_db_liquibase?useSSL=false&autoReconnect=true&characterEncoding=utf8
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: bfXa4Pt2lUUScy8jakXf
+  liquibase:
+    enabled: true
+    # 如下配置是被spring.datasource赋值的，所以可以不配置
+#    url: jdbc:mysql://localhost:3306/test_db_liquibase?useSSL=false&autoReconnect=true&characterEncoding=utf8
+#    user: root
+#    password: bfXa4Pt2lUUScy8jakXf
+    change-log: classpath:/db/changelog/db.changelog-master.yaml
+```
+在开发时，更多的配置可以从如下SpringBoot AutoConfig中找到。
+![198.springboot-liquibase-2.png](../../assets/images/04-主流框架/spring/198.springboot-liquibase-2.png)
+### 50.2.3 新增changelog
+XML方式固然OK，不过依然推荐使用yml格式。
+```yml
+databaseChangeLog:
+  - changeSet:
+      id: 20220412-01
+      author: pdai
+      changes:
+        - createTable:
+            tableName: person
+            columns:
+              - column:
+                  name: id
+                  type: int
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: firstname
+                  type: varchar(50)
+              - column:
+                  name: lastname
+                  type: varchar(50)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: state
+                  type: char(2)
+
+  - changeSet:
+      id: 20220412-02
+      author: pdai
+      changes:
+        - addColumn:
+            tableName: person
+            columns:
+              - column:
+                  name: username
+                  type: varchar(8)
+
+  - changeSet:
+      id: 20220412-03
+      author: pdai
+      changes:
+        - addLookupTable:
+            existingTableName: person
+            existingColumnName: state
+            newTableName: state
+            newColumnName: id
+            newColumnDataType: char(2)
+```
+### 50.2.4 测试
+启动springBootApplication, 我们可以看到如下的几个changeSet被依次执行`
+```sh
+2022-04-12 20:41:20.591  INFO 8476 --- [           main] liquibase.lockservice                    : Successfully acquired change log lock
+2022-04-12 20:41:20.737  INFO 8476 --- [           main] liquibase.changelog                      : Creating database history table with name: test_db_liquibase.DATABASECHANGELOG
+2022-04-12 20:41:20.783  INFO 8476 --- [           main] liquibase.changelog                      : Reading from test_db_liquibase.DATABASECHANGELOG
+Running Changeset: classpath:/db/changelog/db.changelog-master.yaml::20220412-01::pdai
+2022-04-12 20:41:20.914  INFO 8476 --- [           main] liquibase.changelog                      : Table person created
+2022-04-12 20:41:20.914  INFO 8476 --- [           main] liquibase.changelog                      : ChangeSet classpath:/db/changelog/db.changelog-master.yaml::20220412-01::pdai ran successfully in 53ms
+Running Changeset: classpath:/db/changelog/db.changelog-master.yaml::20220412-02::pdai
+2022-04-12 20:41:20.952  INFO 8476 --- [           main] liquibase.changelog                      : Columns username(varchar(8)) added to person
+2022-04-12 20:41:20.952  INFO 8476 --- [           main] liquibase.changelog                      : ChangeSet classpath:/db/changelog/db.changelog-master.yaml::20220412-02::pdai ran successfully in 31ms
+Running Changeset: classpath:/db/changelog/db.changelog-master.yaml::20220412-03::pdai
+2022-04-12 20:41:21.351  INFO 8476 --- [           main] liquibase.changelog                      : Lookup table added for person.state
+2022-04-12 20:41:21.351  INFO 8476 --- [           main] liquibase.changelog                      : ChangeSet classpath:/db/changelog/db.changelog-master.yaml::20220412-03::pdai ran successfully in 389ms
+2022-04-12 20:41:21.382  INFO 8476 --- [           main] liquibase.lockservice                    : Successfully released change log lock
+```
+查看数据库，你会发现数据已经变更
+![199.springboot-liquibase-3.png](../../assets/images/04-主流框架/spring/199.springboot-liquibase-3.png)
+
+那我们如果重新启动这个SpringBootApplication，会怎么呢？
+
+很显然，因为databasechangelog表中已经有相关执行记录了，所以将不再执行变更
+```sh
+2022-04-12 20:49:01.566  INFO 9144 --- [           main] liquibase.lockservice                    : Successfully acquired change log lock
+2022-04-12 20:49:01.761  INFO 9144 --- [           main] liquibase.changelog                      : Reading from test_db_liquibase.DATABASECHANGELOG
+2022-04-12 20:49:01.812  INFO 9144 --- [           main] liquibase.lockservice                    : Successfully released change log lock
+```
+### 50.2.5 进一步解释 
+
+#### 1. 什么是 Liquibase？
+
+Liquibase 是一个开源的、与数据库无关的**数据库版本控制和管理工具**。它的核心思想是像用 Git 管理代码一样来管理你的数据库结构（Schema）。
+
+**它解决了什么问题？**
+在项目开发中，尤其是在团队协作环境下，数据库结构会频繁变更（例如：添加新表、修改字段、创建索引等）。传统方式会遇到以下问题：
+*   **手动执行 SQL 脚本**：容易出错，且难以记录谁、在什么时候、执行了什么操作。
+*   **环境不一致**：开发、测试、生产环境的数据库结构可能不一致，导致程序运行结果不同。
+*   **回滚困难**：当新版本出现问题时，很难快速、安全地将数据库回退到上一个版本。
+
+**Liquibase 的核心概念：**
+*   **变更日志（Changelog）**：一个文件（通常是 XML、YAML、JSON 或 SQL 格式），它是所有数据库变更的“总清单”。
+*   **变更集（ChangeSet）**：代表一个具体的、原子性的数据库变更操作（比如创建一个表）。每个变更集都有一个唯一的标识符（由 `id`、`author` 和 `changelog 的文件路径` 共同组成）。Liquibase 通过跟踪哪些变更集已被执行来确保每个变更只运行一次。
+*   **DATABASECHANGELOG 表**：Liquibase 会在你配置的数据库中自动创建这个表，用于记录所有已经执行过的变更集，从而实现版本控制。
+
+---
+
+#### 2. Spring Boot 项目如何使用 Liquibase？
+
+Spring Boot 对 Liquibase 提供了**开箱即用**的自动配置支持，集成起来非常简单。
+
+**步骤如下：**
+
+**1. 添加依赖**
+在你的 `pom.xml` (Maven) 或 `build.gradle` (Gradle) 中添加 Liquibase 依赖。
+
+**Maven:**
+```xml
+<dependency>
+    <groupId>org.liquibase</groupId>
+    <artifactId>liquibase-core</artifactId>
+</dependency>
+```
+Spring Boot 的父 POM 已经管理了版本号，所以你不需要指定版本。
+
+**2. 配置数据源**
+在 `application.yml` 或 `application.properties` 中配置你的数据库连接。Liquibase 会自动使用应用的数据源。
+
+**application.yml 示例：**
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/my_database
+    username: my_username
+    password: my_password
+    driver-class-name: com.mysql.cj.jdbc.Driver
+```
+
+**3. 创建主变更日志文件（Master Changelog）**
+默认情况下，Spring Boot 会在 `src/main/resources/db/changelog/` 目录下寻找名为 `db.changelog-master.yaml` (或 .xml, .json) 的文件。你可以通过 `spring.liquibase.change-log` 属性来修改这个路径。
+
+创建文件：`src/main/resources/db/changelog/db.changelog-master.yaml`
+
+**4. 编写变更集（ChangeSet）**
+最佳实践是将不同版本或功能的变更集分到不同的文件中，然后在主变更日志文件中引入（include）它们。这使得管理大量变更更加清晰。
+
+---
+
+#### 3. 使用它能做什么？给出一个示例
+
+**它能做什么：**
+*   **自动化数据库部署**：应用启动时，Liquibase 自动检查并执行未应用的变更集。
+*   **版本控制**：清晰地记录数据库结构的每一次变更历史。
+*   **支持回滚**：可以生成或执行回滚脚本，撤销变更。
+*   **多数据库支持**：同一套变更日志（如 YAML）可以用于 MySQL、PostgreSQL、Oracle 等不同数据库，Liquibase 会自动生成对应的 SQL 方言。
+*   **协同工作**：团队成员只需将变更日志文件提交到代码仓库，其他人的环境在启动应用时会自动同步数据库结构。
+
+#### 完整示例：为一个“用户管理系统”添加用户表
+
+**项目结构：**
+```
+src/main/resources/
+└── db/
+    └── changelog/
+        ├── db.changelog-master.yaml
+        └── v1.0/
+            └── create-user-table.yaml
+```
+
+**1. 主变更日志文件：`db.changelog-master.yaml`**
+```yaml
+databaseChangeLog:
+  - includeAll:
+      path: db/changelog/v1.0/
+```
+这个文件表示包含 `v1.0` 目录下的所有变更日志文件。
+
+**2. 具体的变更集文件：`create-user-table.yaml`**
+```yaml
+databaseChangeLog:
+  - changeSet:
+      id: 1
+      author: your_name
+      changes:
+        - createTable:
+            tableName: user
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+                    autoIncrement: true
+              - column:
+                  name: username
+                  type: varchar(255)
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  name: email
+                  type: varchar(255)
+              - column:
+                  name: created_at
+                  type: timestamp
+```
+这个变更集定义了一个创建 `user` 表的操作。
+
+**3. 运行项目**
+当你启动 Spring Boot 应用时，Liquibase 会自动：
+1.  检查数据库中的 `DATABASECHANGELOG` 表（如果不存在则创建）。
+2.  读取 `db.changelog-master.yaml` 文件。
+3.  发现有一个来自 `v1.0/create-user-table.yaml` 的变更集（ID=1, author=your_name）还未执行。
+4.  执行该变更集，在数据库中创建 `user` 表。
+5.  在 `DATABASECHANGELOG` 表中插入一条记录，标记这个变更集已执行。
+
+**4. 后续更新（例如，添加手机号字段）**
+你不需要修改原来的文件。只需创建一个新的变更集文件，例如 `v1.1/add-user-phone.yaml`，并在主日志文件中引入它。
+
+**新的变更集文件：`add-user-phone.yaml`**
+```yaml
+databaseChangeLog:
+  - changeSet:
+      id: 1
+      author: your_name
+      changes:
+        - addColumn:
+            tableName: user
+            columns:
+              - column:
+                  name: phone
+                  type: varchar(20)
+```
+
+**更新主日志文件：`db.changelog-master.yaml`**
+```yaml
+databaseChangeLog:
+  - includeAll:
+      path: db/changelog/v1.0/
+  - includeAll:
+      path: db/changelog/v1.1/
+```
+再次启动应用，Liquibase 就会自动为 `user` 表添加 `phone` 字段。
+
+通过这种方式，你的数据库结构变更就和代码变更一样，被清晰、可追溯地管理起来了。
+### 50.2.6 日志文件都是手动写的吗？
+这正是 Liquibase 的核心工作模式，您的理解是完全正确的。
+
+**是的，Liquibase 的变更日志文件（changelog）是需要我们开发者手动去编写和维护的。它本身并不会像“监控摄像头”一样自动记录数据库发生的任何变更。**
+
+它的核心价值在于 **“将数据库的变更脚本化、版本化，并确保其可重复、可追溯地执行”**，而不是自动发现变更。
+
+#### 为什么这种方式更好？
+
+您可能会想：“这听起来还是很手动啊，有什么优势呢？” 优势恰恰在于这种“手动”的明确性和可控性：
+
+1.  **意图明确（Declarative）：** 您写的变更日志文件（YAML/XML）描述的是 **“你想要数据库变成什么样子”**（例如：创建一个叫 `user` 的表），而不是具体生成的一连串 SQL 命令。Liquibase 会负责将这些声明转换成对应数据库（MySQL, PostgreSQL等）的方言SQL。这保证了变更的准确性。
+
+2.  **可重复性（Repeatable）：** 这个编写好的变更日志文件可以被无数次地、安全地执行在任何一个环境（开发、测试、生产）的数据库上。因为 Liquibase 通过 `DATABASECHANGELOG` 表记住了哪些变更已经执行过，绝不会重复执行同一个变更集。
+
+3.  **可回滚（Rollback）：** 您可以（也应该）在变更集中定义回滚操作。这样当需要撤销某个变更时（比如新功能上线失败），Liquibase 可以自动执行回滚，将数据库恢复。
+    *   *示例：在 `create-table` 的变更集中，可以定义回滚操作为 `drop-table`。*
+
+4.  **协同工作的基石：** 在团队开发中，数据库变更是由多个开发者共同完成的。如果靠自动记录，会变得混乱不堪。而通过要求开发者主动编写变更集文件，并纳入版本控制（如 Git），可以实现：
+    *   **代码审查：** 团队成员可以像审查业务代码一样审查数据库变更脚本。
+    *   **明确责任：** 每个变更集都有 `author`，谁做的变更一清二楚。
+    *   **解决冲突：** 如果两个开发者同时修改了数据库，可以在 Git 层面合并他们的变更日志文件，而不是直接在数据库上冲突。
+
+#### 工作流程（理想情况）
+
+所以，一个理想的最佳实践流程是：
+
+1.  **开发前：** 当您需要新增一个功能（比如“为产品添加分类功能”）时，您首先构思数据库需要如何变更（例如：创建 `category` 表，并在 `product` 表中添加 `category_id` 外键）。
+2.  **编写变更集：** 在编写业务代码之前，先编写对应的 Liquibase 变更集文件（例如 `v2.1/add-product-category.yaml`）。
+3.  **提交代码：** 将变更集文件和业务代码一起提交到 Git 分支，发起合并请求（Pull Request）。
+4.  **代码审查：** 同事会审查您的业务代码 **和** 数据库变更脚本。
+5.  **部署：** 功能分支合并到主干后，部署到测试或生产环境。应用启动时，Liquibase **自动** 执行新的变更集，数据库结构就和新的代码版本完美匹配了。
+
+#### 有没有“自动”的方式？
+
+有，但通常仅用于**生成初始变更集**，而不是用于日常开发。
+
+Liquibase 提供了一个 `diff` 命令/功能，可以比较两个数据库（例如，一个空的数据库和一个您已经手动修改好的开发数据库）之间的差异，然后**生成**一个代表这些差异的变更日志文件。
+
+*   **适用场景：** 接手一个遗留项目，该项目没有使用任何数据库版本控制工具，但有一个现成的数据库。您可以用 `diff` 工具生成一个初始的变更日志，作为后续版本控制的起点。
+*   **不适用于日常开发：** 因为自动生成的变更集可能不是最优的，也可能无法包含您期望的回滚逻辑。在团队协作中，直接使用 `diff` 结果会失去意图明确和可审查的优点。
+# 五十一、SpringBoot数据库管理 - 用flyway对数据库管理和迁移
+> 上文介绍了Liquibase，以及和SpringBoot的集成。除了Liquibase之外，还有一个组件Flyway也是经常被使用到的类似的数据库版本管理中间件。本文主要介绍Flyway, 以及SpringBoot集成Flyway。
+## 51.1 知识准备
+> 需要了解Flyway和要解决的问题，以及一些基础概念，比如变迁(migrations)，常用命令(commands)等。
+### 51.1.1 什么是Flyway? 要解决什么问题？
+> Flyway是一款数据库迁移（migration）工具。简单点说，就是在你部署应用的时候，帮你执行数据库脚本的工具。Flyway支持SQL和Java两种类型的脚本，你可以将脚本打包到应用程序中，在应用程序启动时，由Flyway来管理这些脚本的执行，这些脚本被Flyway称之为migration。
+
+*PS: 本质上和liquibase机制一致。*
+
+按照verion的顺序（和数据库中的更新记录对比，找到未更新的），更新如下
+![200.springboot-flyway-11.png](../../assets/images/04-主流框架/spring/200.springboot-flyway-11.png)
+
+更新记录如下
+![201.springboot-flyway-12.png](../../assets/images/04-主流框架/spring/201.springboot-flyway-12.png)
+### 51.1.2 Flyway中的变迁(migrations)
+> 对于Flyway，对数据库的所有更改都称为变迁(migrations)，等同于liquibase中的changeset。
+
+在Flyway中变迁(migrations)定义的更细，包含如下三种：
+1. 版本变迁(Versioned Migrations): 每个版本执行一次，包含有版本、描述和校验和；常用于创建，修改，删除表；插入，修改数据等
+2. 撤销变迁(Undo Migrations): 版本变迁(Versioned Migrations)的反操作。
+3. 可重复变迁(Repeatable Migrations): 可以执行多次，包含描述和校验和（没有版本）；主要用于视图，存储过程，函数等
+
+这三种类型对应的格式如下：
+![202.springboot-flyway-1.png](../../assets/images/04-主流框架/spring/202.springboot-flyway-1.png)
+
+1. 前缀: V 代表版本变迁(Versioned Migrations), U 代表撤销变迁(Undo Migrations)， R 代表可重复变迁(Repeatable Migrations)
+2. 版本号: 唯一的版本号，比如V1.0.1
+3. 分隔符: __ (两个下划线)
+4. 描述信息: 描述信息
+5. 后缀: .sql
+
+（PS：撤销变迁(Undo Migrations)在收费版本中）
+### 51.1.3 Flyway中常用命令
+> Flyway中的常用commands有哪些？什么含义？
+
+Migrate: 是Flyway工作流的核心。它将扫描文件系统或类路径以查找可用的Migrate。它将把它们与已应用于数据库的Migrate进行比较。如果发现任何差异则迁移数据。
+![203.springboot-flyway-2.png](../../assets/images/04-主流框架/spring/203.springboot-flyway-2.png)
+
+Clean: 清除掉对应数据库Schema中所有的对象，包括表结构，视图，存储过程等，clean操作在dev 和 test阶段很好用；(PS：不能用在product环境)
+![204.springboot-flyway-3.png](../../assets/images/04-主流框架/spring/204.springboot-flyway-3.png)
+
+Info: 用于打印所有的Migrations的详细和状态信息，也是通过MetaData和Migrations完成的，可以快速定位当前的数据库版本；
+![205.springboot-flyway-4.png](../../assets/images/04-主流框架/spring/205.springboot-flyway-4.png)
+
+Validate: 验证以及apply的Migrations是否有变更，默认开启的；原理是对比MetaData表与本地Migrations的checkNum值，如果值相同则验证通过，否则失败。
+![206.springboot-flyway-5.png](../../assets/images/04-主流框架/spring/206.springboot-flyway-5.png)
+
+Undo: Migrate的反操作, 即回滚操作，这是收费功能
+![207.springboot-flyway-6.png](../../assets/images/04-主流框架/spring/207.springboot-flyway-6.png)
+
+BaseLine：对已经存在数据库Schema结构的数据库一种解决方案。实现在非空数据库新建MetaData表，并把Migrations应用到该数据库；也可以应用到已有表结构的数据库中也可以实现添加Metadata表。
+![208.springboot-flyway-7.png](../../assets/images/04-主流框架/spring/208.springboot-flyway-7.png)
+
+Repair：repair操作能够修复metaData表，该操作在metadata出现错误时很有用
+![209.springboot-flyway-9.png](../../assets/images/04-主流框架/spring/209.springboot-flyway-9.png)
+## 51.2 简单示例
+### 51.2.1 POM依赖
+Maven 包的依赖，主要包含mysql驱动, JDBC(这里spring-boot-starter-data-jpa包含了jdbc包，当然直接引入jdbc包也行)，以及flyway包。
+```xml
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>8.0.28</version>
+</dependency>
+<dependency>
+    <groupId>com.github.wenhao</groupId>
+    <artifactId>jpa-spec</artifactId>
+    <version>3.1.0</version>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+
+<dependency>
+    <groupId>org.flywaydb</groupId>
+    <artifactId>flyway-mysql</artifactId>
+    <version>8.5.7</version>
+</dependency>
+```
+### 51.2.2 yml配置
+> SpringBoot AutoConfig默认已经包含了对flyway的配置，在spring.flyway配置下
+```yml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/test_db_flyway?useSSL=false&autoReconnect=true&characterEncoding=utf8
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: bfXa4Pt2lUUScy8jakXf
+  flyway:
+    enabled: true
+    encoding: UTF-8
+    # 可以支持多个location, 用','隔开
+    locations: classpath:db/migration
+    # migrate是否校验
+    validate-on-migrate: true
+```
+在开发时，更多的配置可以从如下SpringBoot AutoConfig中找到。
+![210.springboot-flyway-21.png](../../assets/images/04-主流框架/spring/210.springboot-flyway-21.png)
+### 51.2.3 Migrate配置
+这里我们准备两个Versioned Migration
+![211.springboot-flyway-25.png](../../assets/images/04-主流框架/spring/211.springboot-flyway-25.png)
+
+- V1.0__Init_DB.sql
+```sql
+DROP TABLE IF EXISTS `tb_user`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_user` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_name` varchar(45) NOT NULL,
+  `password` varchar(45) NOT NULL,
+  `email` varchar(45) DEFAULT NULL,
+  `phone_number` int(11) DEFAULT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+```
+- V1.1__Init_Data.sql
+```sql
+LOCK TABLES `tb_user` WRITE;
+/*!40000 ALTER TABLE `tb_user` DISABLE KEYS */;
+INSERT INTO `tb_user` VALUES (1,'pdai','dfasdf','suzhou.daipeng@gmail.com',1212121213,'afsdfsaf','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_user` ENABLE KEYS */;
+UNLOCK TABLES;
+```
+### 51.2.4 测试
+启动springBootApplication, 我们可以看到如下log
+```sh
+2022-04-13 07:56:56.122  INFO 86030 --- [           main] o.f.c.i.database.base.DatabaseType       : Database: jdbc:mysql://localhost:3306/test_db_flyway (MySQL 8.0)
+2022-04-13 07:56:56.220  INFO 86030 --- [           main] o.f.core.internal.command.DbValidate     : Successfully validated 2 migrations (execution time 00:00.074s)
+2022-04-13 07:56:56.245  INFO 86030 --- [           main] o.f.c.i.s.JdbcTableSchemaHistory         : Creating Schema History table `test_db_flyway`.`flyway_schema_history` ...
+2022-04-13 07:56:56.270  INFO 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : 0 rows affected
+2022-04-13 07:56:56.282  INFO 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : 0 rows affected
+2022-04-13 07:56:56.292  INFO 86030 --- [           main] o.f.core.internal.command.DbMigrate      : Current version of schema `test_db_flyway`: << Empty Schema >>
+2022-04-13 07:56:56.297  INFO 86030 --- [           main] o.f.core.internal.command.DbMigrate      : Migrating schema `test_db_flyway` to version "1.0 - Init DB"
+2022-04-13 07:56:56.309  WARN 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : DB: Unknown table 'test_db_flyway.tb_user' (SQL State: 42S02 - Error Code: 1051)
+2022-04-13 07:56:56.309  INFO 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : 0 rows affected
+2022-04-13 07:56:56.309  INFO 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : 0 rows affected
+2022-04-13 07:56:56.310  WARN 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : DB: 'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous. (SQL State: HY000 - Error Code: 3719)
+2022-04-13 07:56:56.310  INFO 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : 0 rows affected
+2022-04-13 07:56:56.317  WARN 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : DB: Integer display width is deprecated and will be removed in a future release. (SQL State: HY000 - Error Code: 1681)
+2022-04-13 07:56:56.317  WARN 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : DB: Integer display width is deprecated and will be removed in a future release. (SQL State: HY000 - Error Code: 1681)
+2022-04-13 07:56:56.317  WARN 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : DB: 'utf8' is currently an alias for the character set UTF8MB3, but will be an alias for UTF8MB4 in a future release. Please consider using UTF8MB4 in order to be unambiguous. (SQL State: HY000 - Error Code: 3719)
+2022-04-13 07:56:56.317  INFO 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : 0 rows affected
+2022-04-13 07:56:56.318  INFO 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : 0 rows affected
+2022-04-13 07:56:56.333  INFO 86030 --- [           main] o.f.core.internal.command.DbMigrate      : Migrating schema `test_db_flyway` to version "1.1 - Init Data"
+2022-04-13 07:56:56.334  INFO 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : 0 rows affected
+2022-04-13 07:56:56.335  WARN 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : DB: Table storage engine for 'tb_user' doesn't have this option (SQL State: HY000 - Error Code: 1031)
+2022-04-13 07:56:56.335  INFO 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : 0 rows affected
+2022-04-13 07:56:56.335  INFO 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : 1 rows affected
+2022-04-13 07:56:56.336  WARN 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : DB: Table storage engine for 'tb_user' doesn't have this option (SQL State: HY000 - Error Code: 1031)
+2022-04-13 07:56:56.337  INFO 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : 0 rows affected
+2022-04-13 07:56:56.337  INFO 86030 --- [           main] o.f.c.i.s.DefaultSqlScriptExecutor       : 0 rows affected
+2022-04-13 07:56:56.346  INFO 86030 --- [           main] o.f.core.internal.command.DbMigrate      : Successfully applied 2 migrations to schema `test_db_flyway`, now at version v1.1 (execution time 00:00.058s)
+```
+生成的flyway更新的记录，`test_db_flyway.flyway_schema_history`
+![212.springboot-flyway-26.png](../../assets/images/04-主流框架/spring/212.springboot-flyway-26.png)
+
+已经user表结构和数据
+![213.springboot-flyway-27.png](../../assets/images/04-主流框架/spring/213.springboot-flyway-27.png)
+### 51.2.5 进一步解释
+我们来详细介绍一下 Flyway，并把它和 Liquibase 进行对比，这样您就能更清晰地理解它们的设计哲学和区别。
+
+#### 1. 什么是 Flyway？
+
+Flyway 和 Liquibase 一样，是一个开源的**数据库版本控制工具**。它的核心目标完全相同：像管理代码一样管理数据库结构。
+
+**Flyway 的核心哲学：简单和约定优于配置。**
+
+它与 Liquibase 最根本的区别在于：
+*   **Liquibase**：使用与数据库无关的**声明式**格式（如 XML, YAML）来描述变更。你告诉 Liquibase *“我想要什么”*（例如，创建一张表），它来生成具体的 SQL。
+*   **Flyway**：直接使用 **SQL 脚本** 作为变更的基本单位。你直接编写*“如何变更”* 的 SQL 命令。Flyway 的核心工作就是确保这些 SQL 脚本按照正确的顺序被执行一次且仅一次。
+
+**Flyway 的核心概念：**
+*   **迁移脚本（Migration Script）**：一个普通的 SQL 文件，包含了需要执行的 DDL（如 `CREATE TABLE`）或 DML（如 `INSERT`）语句。
+*   **版本控制（Versioning）**：通过**文件命名**来严格控制执行顺序。文件名有固定的格式。
+*   **Schema History 表**：Flyway 会在你的数据库中创建一个名为 `flyway_schema_history` 的表，用于记录所有已经执行过的迁移脚本的版本、校验和等信息，从而保证幂等性。
+
+---
+
+#### 2. Spring Boot 项目如何使用 Flyway？
+
+Spring Boot 对 Flyway 同样提供了**开箱即用**的自动配置，集成非常简单。
+
+**步骤如下：**
+
+**1. 添加依赖**
+在 `pom.xml` (Maven) 中添加 Flyway 依赖。
+
+**Maven:**
+```xml
+<dependency>
+    <groupId>org.flywaydb</groupId>
+    <artifactId>flyway-core</artifactId>
+</dependency>
+```
+
+**2. 配置数据源**
+和 Liquibase 一样，Flyway 会自动使用应用配置的数据源。
+
+**application.yml 示例：**
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/my_database
+    username: my_username
+    password: my_password
+    driver-class-name: com.mysql.cj.jdbc.Driver
+```
+
+**3. 创建迁移脚本（SQL文件）**
+默认情况下，Flyway 会在 `src/main/resources/db/migration/` 目录下寻找 SQL 文件。
+
+**迁移脚本的命名规则至关重要：**
+*   **前缀**: `V` 用于版本化迁移（最常见），`U` 用于撤销迁移，`R` 用于可重复迁移。
+*   **版本号**: 例如 `1`, `1.1`, `2.0.3`。版本号之间用点或下划线分隔，它们将按字母顺序**和**版本号顺序被应用。
+*   **分隔符**: 两个下划线 `__`（注意是双下划线）。
+*   **描述信息**: 对本次迁移的简单描述，使用下划线连接单词。
+*   **后缀**: `.sql`
+
+**示例：**
+*   `V1__Create_user_table.sql`
+*   `V1.1__Add_phone_to_user_table.sql`
+*   `V2.0.0__Insert_default_categories.sql`
+
+---
+
+#### 3. 使用它能做什么？给出一个示例
+
+**它能做什么：**
+Flyway 的能力与 Liquibase 非常相似：
+*   **自动化数据库部署**：应用启动时，自动按顺序执行未应用的迁移脚本。
+*   **版本控制**：通过 `flyway_schema_history` 表记录所有迁移历史。
+*   **简单直接**：对于熟悉 SQL 的开发者来说几乎没有学习成本。
+*   **可靠性**：通过校验和（Checksum）保证脚本内容在首次执行后不会被更改，否则会报错，防止意外情况。
+
+#### 完整示例：同样为“用户管理系统”添加用户表
+
+**项目结构：**
+```
+src/main/resources/
+└── db/
+    └── migration/
+        ├── V1__Create_user_table.sql
+        └── V1.1__Add_phone_to_user_table.sql
+```
+
+**1. 首次迁移脚本：`V1__Create_user_table.sql`**
+```sql
+CREATE TABLE user (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(255) NOT NULL UNIQUE,
+    email VARCHAR(255),
+    created_at TIMESTAMP
+);
+```
+这个文件包含了创建表的原生 SQL。
+
+**2. 运行项目**
+启动 Spring Boot 应用，Flyway 会自动：
+1.  检查数据库中的 `flyway_schema_history` 表（如果不存在则创建）。
+2.  扫描 `db/migration/` 目录下的所有文件。
+3.  发现版本号为 `1` 的脚本还未执行。
+4.  执行该 SQL 文件中的命令，创建 `user` 表。
+5.  在 `flyway_schema_history` 表中插入一条记录，包含版本号、描述、校验和以及执行状态。
+
+**3. 后续更新：添加手机号字段**
+创建新的迁移脚本：`V1.1__Add_phone_to_user_table.sql`
+
+```sql
+ALTER TABLE user ADD phone VARCHAR(20);
+```
+再次启动应用，Flyway 会识别到新版本 `V1.1` 的脚本，并自动执行 `ALTER TABLE` 语句。
+
+---
+
+#### Liquibase vs. Flyway：核心区别与如何选择
+
+| 特性 | Flyway | Liquibase |
+| :--- | :--- | :--- |
+| **核心哲学** | **简单、直接**，基于 SQL | **灵活、强大**，基于抽象变更描述 |
+| **变更定义** | 纯 SQL 文件 | XML, YAML, JSON 或 SQL 格式 |
+| **学习成本** | **低**（只需懂SQL和命名规则） | **中**（需要学习其DSL语法和概念） |
+| **数据库无关性** | **弱**。SQL 脚本是针对特定数据库编写的。如果要换数据库，需要准备多套脚本。 | **强**。声明式的变更描述由 Liquibase 转换为特定数据库的 SQL，一套配置通用。 |
+| **回滚（Rollback）** | **社区版不支持自动回滚**。需要自己编写撤销迁移脚本（如 `U2__Undo_V2.sql`），但这并非核心功能。**付费版支持。** | **支持良好**。可以在变更集中直接定义回滚语句（如 `rollback: dropTable tableName: user`），是核心功能之一。 |
+| **可读性/可维护性** | SQL 对开发者非常直观。但大量变更时，文件会很多。 | 声明式格式更紧凑，一个文件可包含多个变更。但需要熟悉其语法。 |
+| **团队协作** | 如果多人同时修改数据库，在 Git 中合并 SQL 文件可能产生冲突。 | 变更日志文件是结构化的，合并冲突相对容易解决。 |
+
+#### 如何选择？
+
+*   **选择 Flyway 如果：**
+    *   你的团队非常熟悉 SQL，希望工具简单透明、学习成本低。
+    *   你的项目主要只使用一种数据库（如一直用 MySQL），并且近期没有更换数据库的计划。
+    *   你对回滚的需求不强烈，或者可以接受通过编写逆向 SQL 脚本的方式手动处理。
+
+*   **选择 Liquibase 如果：**
+    *   你的项目需要支持多种不同的数据库（例如，产品要同时支持 MySQL 和 PostgreSQL）。
+    *   你需要强大的、自动化的回滚功能。
+    *   你希望数据库变更脚本是结构化的、易于代码审查的（非纯文本 SQL）。
+    *   你愿意花一点时间学习其 DSL 以换取长期的灵活性。
+
+**总而言之，两者都是极其优秀的工具。Flyway 胜在简单粗暴，Liquibase 胜在功能强大灵活。** 对于大多数单一数据库项目，Flyway 的简洁性使其成为一个非常有吸引力的选择。
+## 51.3 补充：Spring Boot 内置的数据库初始化机制
+Spring Boot 提供了一套自己的数据库初始化机制。我们来详细分析一下这个机制，并与 Liquibase/Flyway 进行比较。
+
+### Spring Boot 内置的数据库初始化机制
+
+#### 1. 它是什么技术？
+
+Spring Boot 的这套机制是基于其 **`DataSourceInitializer`** 组件实现的。它**不依赖于任何第三方数据库版本控制工具**，是 Spring Framework 和 Spring Boot 自带的核心功能。
+
+**工作原理：**
+- 当应用启动时，Spring Boot 会检查 `spring.sql.init.mode` 属性。
+- 如果设置为 `always`（或在不安全的嵌入式数据库中默认为此行为），它会自动查找指定的 SQL 文件。
+- 它会创建一个 `DataSourceInitializer` Bean，该 Bean 会使用 Spring 的 `ResourceDatabasePopulator` 来**按顺序解析和执行**你指定的 SQL 脚本。
+- 它**不会**在数据库中创建任何表来跟踪执行状态。
+
+---
+
+### 2. 与 Liquibase/Flyway 的核心区别
+
+这三者虽然目标相似（初始化/更新数据库），但设计哲学、能力和适用场景有根本性不同。我们可以从以下几个维度来对比：
+
+| 特性 | Spring Boot 内置初始化 | Flyway | Liquibase |
+| :--- | :--- | :--- | :--- |
+| **核心技术** | Spring Framework 的 `DataSourceInitializer` | 自研的版本控制引擎 | 自研的版本控制引擎 |
+| **版本控制** | **无**。每次启动都会尝试执行脚本（取决于 `mode`）。 | **有**。通过 `flyway_schema_history` 表记录版本。 | **有**。通过 `DATABASECHANGELOG` 表记录版本。 |
+| **执行策略** | **简单的“如果存在就执行”**。无法感知脚本是否已执行过。 | **幂等性执行**。只执行未应用的新迁移脚本。 | **幂等性执行**。只执行未应用的新变更集。 |
+| **回滚 (Rollback)** | **不支持**。 | 社区版不支持自动回滚，需手动写回退SQL。企业版支持。 | **支持良好**。可在变更集中定义回滚操作。 |
+| **适用场景** | 1. 简单的演示项目、测试。<br>2. 始终需要全量重置数据的场景（如测试环境）。<br>3. **初始化固定不变的基础数据**（如国家列表、货币类型）。 | 1. 需要严格版本控制的真实项目。<br>2. 团队协作开发。<br>3. 生产环境的数据库部署。 | 1. 需要严格版本控制且追求数据库无关性的项目。<br>2. 需要强大回滚功能的项目。<br>3. 团队协作开发。 |
+| **脚本管理** | 简单的文件路径配置。通常只有一两个文件（`schema.sql`, `data.sql`）。 | 严格的命名规则（`V1__Description.sql`），支持多个版本脚本。 | 结构化的主变更日志文件，可包含多个子文件，支持多种格式（YAML/XML/JSON/SQL）。 |
+| **安全性** | **低**。容易因重复执行导致错误（如重复创建表）。 | **高**。通过版本记录确保安全。 | **高**。通过版本记录确保安全。 |
+
+---
+
+### 3. 详细对比与示例
+
+让我们用一个例子来说明三者的不同行为。
+
+**场景：** 你需要为 `user` 表添加一个 `age` 字段。
+
+#### Spring Boot 内置初始化 的“问题”方式
+
+1.  **你可能会修改已有的 `schema.sql` 文件：**
+    ```sql
+    -- schema.sql (修改后的版本)
+    DROP TABLE IF EXISTS user;
+    CREATE TABLE user (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(255),
+        age INT -- 新增的字段
+    );
+    ```
+2.  **结果：**
+    - **第一次启动：** 成功创建带有 `age` 字段的 `user` 表。
+    - **第二次及以后启动：** **每次启动都会先执行 `DROP TABLE`，再 `CREATE TABLE`**。这会导致：
+        - 所有现有数据**被清空**！
+        - 如果 `data.sql` 中有初始化数据，会被重新插入。
+        - 这显然不适用于生产环境或任何已有真实数据的场景。
+
+#### Flyway/Liquibase 的“正确”方式
+
+1.  **Flyway:** 创建一个新的迁移脚本 `V2__Add_age_to_user.sql`，里面只包含 `ALTER TABLE user ADD age INT;`。
+2.  **Liquibase:** 创建一个新的变更集，描述 `addColumn` 操作。
+3.  **结果：**
+    - **第一次启动（V2 脚本未执行时）：** 执行 `ALTER TABLE` 语句，安全地添加字段。**现有数据完好无损。**
+    - **第二次及以后启动：** Flyway/Liquibase 检查到 `V2` 已经执行过，**直接跳过**。绝对安全。
+
+---
+
+### 4. 如何正确使用 Spring Boot 的内置初始化？
+
+虽然它不能用于版本控制，但在特定场景下非常有用：
+
+1.  **与版本控制工具配合使用：**
+    - 用 **Liquibase/Flyway** 来管理**数据库结构（DDL）的变更**（建表、改表）。
+    - 用 Spring Boot 的 `data.sql` 来插入**应用运行所必需的、固定的基础数据（DML）**。
+    - **配置示例：**
+      ```yaml
+      # 使用 Liquibase 进行 DDL 版本控制
+      spring.liquibase.enabled: true
+      spring.liquibase.change-log: classpath:db/changelog/db.changelog-master.yaml
+
+      # 使用内置机制初始化基础数据（但只在没有表的时候才插入，避免重复）
+      spring.sql.init.mode: always
+      # 注意：只配置 data-locations，不配置 schema-locations！
+      spring.sql.init.data-locations: classpath:db/data.sql
+      ```
+    这样，Liquibase 会负责创建和更新表结构，然后 Spring Boot 会插入基础数据。`data.sql` 中的 `INSERT` 语句应该使用 `INSERT IGNORE` 或 `ON CONFLICT DO NOTHING` 等语法来避免重复插入。
+
+2.  **用于测试环境：**
+    在集成测试中，你可能希望每次测试都从一个干净的数据库开始。这时可以配置为 `always`，并在 `schema.sql` 中编写完整的建表语句，在 `data.sql` 中准备测试数据。
+
+### 总结
+
+- **Spring Boot 内置初始化**：是一个**简单、一次性**的数据库填充工具。它**没有版本控制概念**，适用于数据重置、插入基础数据或极其简单的项目。**绝对不能用于管理生产环境的数据库结构变更**。
+
+- **Liquibase / Flyway**：是**专业的数据库版本控制（Schema Migration）工具**。它们通过跟踪已执行的版本来实现**幂等性**和**安全性**，是管理数据库结构演进的事实标准，适用于任何严肃的、尤其是团队协作的项目。
+
+简单来说，Spring Boot 内置的机制是 **“初始化”**，而 Liquibase/Flyway 是 **“版本迁移”**。前者像是一张白纸，每次都可以重画；后者则像一本历史书，记录着每一次修改，并确保能安全地翻到最新一页。
+# 五十二、▶SpringBoot集成Redis - 基于RedisTemplate+Jedis的数据操作
+> Redis是最常用的KV数据库，Spring 通过模板方式（RedisTemplate）提供了对Redis的数据查询和操作功能。本文主要介绍基于RedisTemplate + Jedis方式对Redis进行查询和操作的案例。
+## 52.1 知识准备
+### 52.1.1 Redis基础和5种基础数据类型
+首先对redis来说，所有的key（键）都是字符串。我们在谈基础数据结构时，讨论的是存储值的数据类型，主要包括常见的5种数据类型，分别是：String、List、Set、Zset、Hash。
+![214.db-redis-ds-1.jpeg](../../assets/images/04-主流框架/spring/214.db-redis-ds-1.jpeg)
+
+
+| 结构类型 | 结构说明 | 存储的值 | 读写能力 |
+| :--- | :--- | :--- | :--- |
+| **String（字符串）** | 最简单的键值对类型 | 可以是字符串、整数或浮点数 | - 对整个字符串或部分字符串进行操作<br>- 对整数或浮点数进行自增（INCR）或自减（DECR）操作 |
+| **List（列表）** | 一个有序的字符串链表 | 链表上的每个节点都包含一个字符串 | - 对链表两端进行推入（LPUSH/RPUSH）和弹出（LPOP/RPOP）操作<br>- 读取单个或多个元素<br>- 根据值查找或删除元素 |
+| **Set（集合）** | 一个无序的、不重复的字符串集合 | 包含字符串的无序集合 | - 检查元素是否存在、添加、获取、删除元素<br>- 计算多个集合的交集（SINTER）、并集（SUNION）、差集（SDIFF） |
+| **Hash（散列）** | 适合存储对象的键值对集合 | 包含字段（Field）和值（Value）的无序散列表 | - 添加（HSET）、获取（HGET）、删除（HDEL）单个字段<br>- 一次性获取或设置所有字段 |
+| **Zset / Sorted Set（有序集合）** | 带排序功能的 Set | 字符串成员（Member）与浮点数分数（Score）之间的有序映射 | - 添加、获取、删除单个元素<br>- 根据分值范围或成员来获取元素<br>- **元素的排列顺序由分数的大小决定** |
+### 52.1.2 什么是Jedis
+Jedis是Redis的Java客户端，在SpringBoot 1.x版本中也是默认的客户端。在SpringBoot 2.x版本中默认客户端是Luttuce。
+### 52.1.3 Spring中的Template和RedisTemplate
+> Spring 通过模板方式（RedisTemplate）提供了对Redis的数据查询和操作功能。
+- 什么是模板模式？
+
+模板方法模式(Template pattern): 在一个方法中定义一个算法的骨架, 而将一些步骤延迟到子类中. 模板方法使得子类可以在不改变算法结构的情况下, 重新定义算法中的某些步骤。
+![215.c3c1c0e8-3a78-4426-961f-b46dd0879dd8.png](../../assets/images/04-主流框架/spring/215.c3c1c0e8-3a78-4426-961f-b46dd0879dd8.png)
+- Spring中有哪些模板模式的设计？
+
+比如：jdbcTemplate, mongodbTemplate, elasticsearchTemplate...等等
+- RedisTemplate对于Redis5种基础类型的操作？
+```java
+redisTemplate.opsForValue(); // 操作字符串
+redisTemplate.opsForHash(); // 操作hash
+redisTemplate.opsForList(); // 操作list
+redisTemplate.opsForSet(); // 操作set
+redisTemplate.opsForZSet(); // 操作zset
+```
+- 对HyperLogLogs（基数统计）类型的操作?
+```java
+redisTemplate.opsForHyperLogLog();
+```
+- 对geospatial (地理位置)类型的操作?
+```java
+redisTemplate.opsForGeo();
+```
+- 对于BitMap的操作？也是在opsForValue()方法返回类型ValueOperations中
+```java
+Boolean setBit(K key, long offset, boolean value);
+Boolean getBit(K key, long offset);
+```
+- 对于Stream的操作？
+```java
+redisTemplate.opsForStream();
+```
+## 52.2 实现案例
+> 本例子主要基于SpringBoot2+ 使用Jedis客户端，通过RedisTemplate模板方式访问Redis数据。
+### 52.2.1 包依赖
+引入spring-boot-starter-data-redis包，SpringBoot2中默认的客户端是Lettuce, 所以需要exclude掉lettuce-core包，并引入jedis的包。
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-redis</artifactId>
+    <exclusions>
+        <exclusion>
+            <artifactId>lettuce-core</artifactId>
+            <groupId>io.lettuce</groupId>
+        </exclusion>
+    </exclusions>
+</dependency>
+<dependency>
+    <groupId>redis.clients</groupId>
+    <artifactId>jedis</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.apache.commons</groupId>
+    <artifactId>commons-pool2</artifactId>
+    <version>2.9.0</version>
+</dependency>
+```
+### 52.2.2 yml配置
+如下是常用的Jedis的使用配置
+```yml
+spring:
+  redis:
+    database: 0
+    host: 127.0.0.1
+    port: 6379
+    password: test
+    jedis:
+      pool:
+        min-idle: 0
+        max-active: 8
+        max-idle: 8
+        max-wait: -1ms
+    connect-timeout: 30000ms
+```
+### 52.2.3 RedisConfig配置
+
+通过@Bean的方式配置RedisTemplate，主要是设置RedisConnectionFactory以及各种类型数据的Serializer。
+```java
+package tech.pdai.springboot.redis.jedis.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+/**
+ * Redis configuration.
+ *
+ * @author pdai
+ */
+@Configuration
+public class RedisConfig {
+
+    /**
+     * redis template.
+     *
+     * @param factory factory
+     * @return RedisTemplate
+     */
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory factory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(factory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setHashKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.afterPropertiesSet();
+        return template;
+    }
+}
+```
+### 52.2.4 RedisTemplate的使用
+我们以整个系列文章一致的UserController简单示例下
+```java
+package tech.pdai.springboot.redis.jedis.controller;
+
+
+import io.swagger.annotations.ApiOperation;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.web.bind.annotation.*;
+import tech.pdai.springboot.redis.jedis.entity.User;
+import tech.pdai.springboot.redis.jedis.entity.response.ResponseResult;
+
+import javax.annotation.Resource;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    // 注意：这里@Autowired是报错的，因为@Autowired按照类名注入的
+    @Resource
+    private RedisTemplate<String, User> redisTemplate;
+
+    /**
+     * @param user user param
+     * @return user
+     */
+    @ApiOperation("Add")
+    @PostMapping("add")
+    public ResponseResult<User> add(User user) {
+        redisTemplate.opsForValue().set(String.valueOf(user.getId()), user);
+        return ResponseResult.success(redisTemplate.opsForValue().get(String.valueOf(user.getId())));
+    }
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Find")
+    @GetMapping("find/{userId}")
+    public ResponseResult<User> edit(@PathVariable("userId") String userId) {
+        return ResponseResult.success(redisTemplate.opsForValue().get(userId));
+    }
+
+}
+```
+### 52.2.5 简单测试
+插入数据：redisTemplate.opsForValue().set();
+![216.springboot-redis-jedis-2.png](../../assets/images/04-主流框架/spring/216.springboot-redis-jedis-2.png)
+
+获取数据：redisTemplate.opsForValue().get();
+
+![217.springboot-redis-jedis-1.png](../../assets/images/04-主流框架/spring/217.springboot-redis-jedis-1.png)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
