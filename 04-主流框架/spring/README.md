@@ -29986,155 +29986,3459 @@ public class UserController {
 获取数据：redisTemplate.opsForValue().get();
 
 ![217.springboot-redis-jedis-1.png](../../assets/images/04-主流框架/spring/217.springboot-redis-jedis-1.png)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# 五十三、SpringBoot集成Redis - 基于RedisTemplate+Lettuce数据操作
+> 在SpringBoot 2.x版本中Redis默认客户端是Lettuce，本文主要介绍SpringBoot 和默认的Lettuce的整合案例。
+## 53.1 知识准备
+### 53.1.1 什么是Lettuce?
+> Lettuce 是一个可伸缩线程安全的 Redis 客户端。多个线程可以共享同一个 RedisConnection。它利用优秀 netty NIO 框架来高效地管理多个连接。<a href='https://github.com/redis/lettuce'>Github</a>
+
+Lettuce的特性：
+- 支持 同步、异步、响应式 的方式
+- 支持 Redis Sentinel
+- 支持 Redis Cluster
+- 支持 SSL 和 Unix Domain Socket 连接
+- 支持 Streaming API
+- 支持 CDI 和 Spring 的集成
+- 支持 Command Interfaces
+- 兼容 Java 8+ 以上版本
+### 53.1.2 为何SpringBoot2.x中Lettuce会成为默认的客户端？
+> 除了上述特性的支持性之外，最为重要的是Lettuce中使用了Netty框架，使其具备线程共享和异步的支持性。
+- 线程共享
+
+Jedis 是直连模式，在多个线程间共享一个 Jedis 实例时是线程不安全的，如果想要在多线程环境下使用 Jedis，需要使用连接池，每个线程都去拿自己的 Jedis 实例，当连接数量增多时，物理连接成本就较高了。
+
+Lettuce 是基于 netty 的，连接实例可以在多个线程间共享，所以，一个多线程的应用可以使用一个连接实例，而不用担心并发线程的数量。
+- 异步和反应式
+
+Lettuce 从一开始就按照非阻塞式 IO 进行设计，是一个纯异步客户端，对异步和反应式 API 的支持都很全面。
+
+即使是同步命令，底层的通信过程仍然是异步模型，只是通过阻塞调用线程来模拟出同步效果而已。
+
+PS: Jedis和Lettuce的对比如下，参考<a href='https://docs.spring.io/spring-data/redis/reference/#redis:connectors:connection'>官方文档</a>
+![218.springboot-redis-lettuce-1.png](../../assets/images/04-主流框架/spring/218.springboot-redis-lettuce-1.png)
+### 53.1.3 Lettuce的基本的API方式
+- 依赖POM包
+```xml
+<dependency>
+  <groupId>io.lettuce</groupId>
+  <artifactId>lettuce-core</artifactId>
+  <version>x.y.z.BUILD-SNAPSHOT</version>
+</dependency>
+```
+- 基础用法
+```java
+RedisClient client = RedisClient.create("redis://localhost");
+StatefulRedisConnection<String, String> connection = client.connect();
+RedisStringCommands sync = connection.sync();
+String value = sync.get("key");
+```
+- 异步方式
+```java
+StatefulRedisConnection<String, String> connection = client.connect();
+RedisStringAsyncCommands<String, String> async = connection.async();
+RedisFuture<String> set = async.set("key", "value")
+RedisFuture<String> get = async.get("key")
+
+async.awaitAll(set, get) == true
+
+set.get() == "OK"
+get.get() == "value"
+```
+- 响应式
+```java
+StatefulRedisConnection<String, String> connection = client.connect();
+RedisStringReactiveCommands<String, String> reactive = connection.reactive();
+Mono<String> set = reactive.set("key", "value");
+Mono<String> get = reactive.get("key");
+
+set.subscribe();
+
+get.block() == "value"
+```
+## 53.2 实现案例
+> 本例子主要基于SpringBoot2+ 使用Lettuce客户端，通过RedisTemplate模板方式访问Redis数据。
+### 53.2.1 包依赖
+引入spring-boot-starter-data-redis包，SpringBoot2中默认的客户端是Lettuce。
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-redis</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.apache.commons</groupId>
+    <artifactId>commons-pool2</artifactId>
+    <version>2.9.0</version>
+</dependency>
+```
+### 53.2.2 yml配置
+如下是常用的Lettuce的使用配置
+```yml
+spring:
+  redis:
+    database: 0
+    host: 127.0.0.1
+    port: 6379
+    password: test
+    lettuce:
+      pool:
+        min-idle: 0
+        max-active: 8
+        max-idle: 8
+        max-wait: -1ms
+    connect-timeout: 30000ms
+```
+### 53.2.3 RedisConfig配置
+通过@Bean的方式配置RedisTemplate，主要是设置RedisConnectionFactory以及各种类型数据的Serializer。
+```java
+package tech.pdai.springboot.redis.lettuce.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+/**
+ * Redis configuration.
+ *
+ * @author pdai
+ */
+@Configuration
+public class RedisConfig {
+
+    /**
+     * redis template.
+     *
+     * @param factory factory
+     * @return RedisTemplate
+     */
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory factory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(factory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setHashKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.afterPropertiesSet();
+        return template;
+    }
+}
+```
+### 53.2.4 RedisTemplate的使用
+我们以整个系列文章一致的UserController简单示例下
+```java
+package tech.pdai.springboot.redis.lettuce.controller;
+
+
+import io.swagger.annotations.ApiOperation;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.web.bind.annotation.*;
+import tech.pdai.springboot.redis.lettuce.entity.User;
+import tech.pdai.springboot.redis.lettuce.entity.response.ResponseResult;
+
+import javax.annotation.Resource;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    // 注意：这里@Autowired是报错的，因为@Autowired按照类名注入的
+    @Resource
+    private RedisTemplate<String, User> redisTemplate;
+
+    /**
+     * @param user user param
+     * @return user
+     */
+    @ApiOperation("Add")
+    @PostMapping("add")
+    public ResponseResult<User> add(User user) {
+        redisTemplate.opsForValue().set(String.valueOf(user.getId()), user);
+        return ResponseResult.success(redisTemplate.opsForValue().get(String.valueOf(user.getId())));
+    }
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Find")
+    @GetMapping("find/{userId}")
+    public ResponseResult<User> find(@PathVariable("userId") String userId) {
+        return ResponseResult.success(redisTemplate.opsForValue().get(userId));
+    }
+
+}
+```
+### 53.2.5 简单测试
+插入数据：redisTemplate.opsForValue().set();
+![219.springboot-redis-lettuce-1.png](../../assets/images/04-主流框架/spring/219.springboot-redis-lettuce-1.png)
+
+获取数据：redisTemplate.opsForValue().get();
+![220.springboot-redis-lettuce-2.png](../../assets/images/04-主流框架/spring/220.springboot-redis-lettuce-2.png)
+
+查看Redis中的数据(通过Redis Desktop Manager)
+![221.springboot-redis-lettuce-3.png](../../assets/images/04-主流框架/spring/221.springboot-redis-lettuce-3.png)
+## 53.3 为什么需要引入common-pool2
+引入 `commons-pool2` 的原因是 Spring Boot 的 Redis 客户端（通常是 Lettuce 或 Jedis）**依赖连接池来管理 Redis 连接**。具体说明如下：
+
+---
+
+### 53.3.1. **连接池的作用**
+- **复用连接**：避免每次操作 Redis 都创建和销毁连接（TCP 连接开销大）。
+- **控制资源**：限制最大连接数，防止服务因过多连接而崩溃。
+- **提高性能**：复用已建立的连接，减少网络延迟和系统资源消耗。
+
+---
+
+### 53.3.2. **为什么需要显式引入 `commons-pool2`？**
+- Spring Boot 2.x 版本后，默认的 Redis 客户端是 **Lettuce**，而 Lettuce 本身基于 Netty 实现，**不需要**外部连接池（它内置连接管理）。
+- 但如果你使用 **Jedis** 客户端（通过配置 `spring.redis.client-type=jedis`），或者某些旧版本依赖，**Jedis 依赖 `commons-pool2` 实现连接池**。
+- 即使使用 Lettuce，如果配置了 `spring.redis.lettuce.pool` 相关参数，Spring Boot 也会自动引入 `commons-pool2` 来支持连接池功能。
+
+---
+
+### 53.3.3. **不引入 `commons-pool2` 可以吗？**
+- **可以**，但需满足以下条件：
+  - 使用 Lettuce 客户端且不配置连接池（用默认的单连接模式）。
+  - 应用并发量低，无需连接池优化（例如测试环境）。
+- **不建议省略**的原因：
+  - 生产环境通常需要连接池来保证性能和稳定性。
+  - 如果未来切换为 Jedis 或启用连接池配置，缺少 `commons-pool2` 会导致启动报错。
+
+---
+
+### 53.3.4. **Spring Boot 的自动依赖管理**
+- 如果使用 Spring Boot 的父 POM（或 BOM），通常无需指定 `commons-pool2` 版本，Spring Boot 会自动管理兼容版本。例如：
+  ```xml
+  <!-- 版本由 Spring Boot 管理 -->
+  <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-pool2</artifactId>
+  </dependency>
+  ```
+
+---
+
+### 53.3..5 总结
+- **推荐引入** `commons-pool2`，以适应生产环境的连接池需求，避免潜在兼容性问题。
+- 如果只是本地测试且使用 Lettuce 单连接模式，可以暂时不引入，但需注意未来扩展性。
+# 五十四、SpringBoot集成Redis - 基于RedisTemplate+Lettuce数据类封装
+> 前两篇文章介绍了SpringBoot基于RedisTemplate的数据操作，那么如何对这些操作进行封装呢？本文主要介绍基于RedisTemplate的封装。
+## 54.1 知识准备
+### 54.1.1 有了RedisTemplate为什么还要进一步封装？
+RedisTemplate中的操作和方法众多，为了程序保持方法使用的一致性，屏蔽一些无关的方法以及对使用的方法进一步封装。
+
+PS：同样的类似思路也体现在很多场景中，比如Tomcat Request利用外观模式改造。
+## 54.2 实现案例
+### 54.2.1 RedisService封装
+- RedisService接口类
+```java
+package tech.pdai.springboot.redis.lettuce.enclosure.service;
+
+import org.springframework.data.redis.core.RedisCallback;
+
+import java.util.Collection;
+import java.util.Set;
+
+/**
+ * Redis Service.
+ *
+ * @author pdai
+ */
+public interface IRedisService<T> {
+
+    void set(String key, T value);
+
+    void set(String key, T value, long time);
+
+    T get(String key);
+
+    void delete(String key);
+
+    void delete(Collection<String> keys);
+
+    boolean expire(String key, long time);
+
+    Long getExpire(String key);
+
+    boolean hasKey(String key);
+
+    Long increment(String key, long delta);
+
+    Long decrement(String key, long delta);
+
+    void addSet(String key, T value);
+
+    Set<T> getSet(String key);
+
+    void deleteSet(String key, T value);
+
+    T execute(RedisCallback<T> redisCallback);
+}
+```
+- RedisService的实现类
+```java
+package tech.pdai.springboot.redis.lettuce.enclosure.service.impl;
+
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.redis.lettuce.enclosure.service.IRedisService;
+
+import javax.annotation.Resource;
+import java.util.Collection;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * @author pdai
+ */
+@Service
+public class RedisServiceImpl<T> implements IRedisService<T> {
+
+    @Resource
+    private RedisTemplate<String, T> redisTemplate;
+
+    @Override
+    public void set(String key, T value, long time) {
+        redisTemplate.opsForValue().set(key, value, time, TimeUnit.SECONDS);
+    }
+
+    @Override
+    public void set(String key, T value) {
+        redisTemplate.opsForValue().set(key, value);
+    }
+
+    @Override
+    public T get(String key) {
+        return redisTemplate.opsForValue().get(key);
+    }
+
+    @Override
+    public void delete(String key) {
+        redisTemplate.delete(key);
+    }
+
+    @Override
+    public void delete(Collection<String> keys) {
+        redisTemplate.delete(keys);
+    }
+
+    @Override
+    public boolean expire(String key, long time) {
+        return redisTemplate.expire(key, time, TimeUnit.SECONDS);
+    }
+
+    @Override
+    public Long getExpire(String key) {
+        return redisTemplate.getExpire(key, TimeUnit.SECONDS);
+    }
+
+    @Override
+    public boolean hasKey(String key) {
+        return redisTemplate.hasKey(key);
+    }
+
+    @Override
+    public Long increment(String key, long delta) {
+        return redisTemplate.opsForValue().increment(key, delta);
+    }
+
+    @Override
+    public Long decrement(String key, long delta) {
+        return redisTemplate.opsForValue().increment(key, -delta);
+    }
+
+    @Override
+    public void addSet(String key, T value) {
+        redisTemplate.opsForSet().add(key, value);
+    }
+
+    @Override
+    public Set<T> getSet(String key) {
+        return redisTemplate.opsForSet().members(key);
+    }
+
+    @Override
+    public void deleteSet(String key, T value) {
+        redisTemplate.opsForSet().remove(key, value);
+    }
+
+    @Override
+    public T execute(RedisCallback<T> redisCallback) {
+        return redisTemplate.execute(redisCallback);
+    }
+
+}
+```
+### 54.2.2 RedisService的调用
+UserController类中调用RedisService
+```java
+package tech.pdai.springboot.redis.lettuce.enclosure.controller;
+
+
+import io.swagger.annotations.ApiOperation;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.redis.lettuce.enclosure.entity.User;
+import tech.pdai.springboot.redis.lettuce.enclosure.entity.response.ResponseResult;
+import tech.pdai.springboot.redis.lettuce.enclosure.service.IRedisService;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @Autowired
+    private IRedisService<User> redisService;
+
+    /**
+     * @param user user param
+     * @return user
+     */
+    @ApiOperation("Add")
+    @PostMapping("add")
+    public ResponseResult<User> add(User user) {
+        redisService.set(String.valueOf(user.getId()), user);
+        return ResponseResult.success(redisService.get(String.valueOf(user.getId())));
+    }
+
+    /**
+     * @return user list
+     */
+    @ApiOperation("Find")
+    @GetMapping("find/{userId}")
+    public ResponseResult<User> edit(@PathVariable("userId") String userId) {
+        return ResponseResult.success(redisService.get(userId));
+    }
+
+}
+```
+## 54.3 补充
+### 54.3.1 另一种封装方式(全部以字符串为主)
+```java
+public class BaseCacheService {
+
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+
+    protected <T> void put(String key, T value) {
+        if (null == value) {
+            return;
+        }
+        redisTemplate.opsForValue().set(key, JacksonTool.json2Str(value), 5L, TimeUnit.MINUTES);
+    }
+
+    protected <T> void put(String key, T value, long timeout, TimeUnit unit) {
+        if (null == value) {
+            return;
+        }
+        if (-1L == timeout) {
+            redisTemplate.opsForValue().set(key, JacksonTool.json2Str(value));
+        } else {
+            redisTemplate.opsForValue().set(key, JacksonTool.json2Str(value), timeout, unit);
+        }
+
+    }
+
+    protected <T> T get(String key, Class<T> clazz) {
+        String result = redisTemplate.opsForValue().get(key);
+        return null == result ? null : JacksonTool.json2Bean(result, clazz);
+    }
+
+    protected <T> List<T> multiGet(Collection<String> keys, Class<T> clazz) {
+        List<T> result = new ArrayList<>();
+        List<String> list = redisTemplate.opsForValue().multiGet(keys);
+        if (CollectionUtils.isNotEmpty(list)) {
+            for (String res : list) {
+                T t = JacksonTool.json2Bean(res, clazz);
+                result.add(t);
+            }
+        }
+        return result;
+    }
+
+    protected boolean delete(String key) {
+        Boolean deleteBoolean = redisTemplate.delete(key);
+        return null == deleteBoolean ? false : deleteBoolean;
+    }
+
+    protected boolean delete(List<String> keys) {
+        Long deleteSize = redisTemplate.delete(keys);
+        return deleteSize > 0;
+    }
+
+    protected boolean exist(String key) {
+        Boolean result = redisTemplate.hasKey(key);
+        return result == null ? false : result;
+    }
+
+    protected Set<String> keys(String pattern) {
+        return redisTemplate.keys(pattern);
+    }
+}
+```
+### 54.3.2 Redis 中对象的存储状态
+
+当 `value` 是一个对象时，Redis 中存储的是**序列化后的字节数据**，而不是对象的原始形式。
+
+#### 54.3.2.1. **存储过程（序列化）**
+```java
+// 当调用 set(key, value) 时
+redisTemplate.opsForValue().set(key, value);
+```
+- RedisTemplate 会使用配置的 **ValueSerializer** 将对象序列化成字节数组
+- 默认情况下，Spring Boot 使用 **JDK 序列化**（`JdkSerializationRedisSerializer`）
+- 序列化后的数据以二进制形式存储在 Redis 中
+
+#### 54.3.2.2. **查看 Redis 中的实际存储**
+如果你连接到 Redis 查看，会看到类似这样的内容：
+```
+127.0.0.1:6379> get user:1
+"\xac\xed\x00\x05sr\x00 com.example.User\xb2..."
+```
+这就是 JDK 序列化后的二进制数据。
+
+#### 54.3.2.3. **为什么 get() 能获取到对象（反序列化）**
+```java
+// 当调用 get(key) 时
+T value = redisTemplate.opsForValue().get(key);
+```
+- RedisTemplate 使用相同的 **ValueSerializer** 将字节数据反序列化成 Java 对象
+- 序列化和反序列化必须使用相同的序列化器
+- **JDK 序列化 必须实现 Serializable 接口**
+### 54.3.3 序列化方式的配置
+```java
+package tech.pdai.springboot.redis.lettuce.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+/**
+ * Redis configuration.
+ *
+ * @author pdai
+ */
+@Configuration
+public class RedisConfig {
+
+    /**
+     * redis template.
+     *
+     * @param factory factory
+     * @return RedisTemplate
+     */
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory factory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(factory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setHashKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.afterPropertiesSet();
+        return template;
+    }
+}
+```
+这里的配置中
+```java
+template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
+```
+
+#### 54.3.3.1. **GenericJackson2JsonRedisSerializer 的特点**
+- **JSON 序列化**：将对象序列化为 JSON 字符串
+- **类型信息保留**：会在 JSON 中添加 `@class` 字段来记录原始类型信息
+- **可读性强**：Redis 中存储的是可读的 JSON 格式
+
+#### 54.3.3.2. **存储示例**
+假设存储一个 User 对象：
+```java
+User user = new User(1L, "张三", 25);
+redisTemplate.opsForValue().set("user:1", user);
+```
+
+**Redis 中实际存储的内容：**
+```json
+{
+  "@class": "com.example.User",
+  "id": 1,
+  "name": "张三",
+  "age": 25
+}
+```
+
+#### 54.3.3.3. **反序列化过程**
+当调用 `get("user:1")` 时：
+- GenericJackson2JsonRedisSerializer 读取 JSON 数据
+- 通过 `@class` 字段识别出原始类型 `com.example.User`
+- 自动将 JSON 反序列化为 User 对象
+
+#### 54.3.3.4 验证配置是否生效
+
+你可以通过以下方式验证：
+
+```java
+@Autowired
+private RedisTemplate<String, Object> redisTemplate;
+
+@Test
+public void testSerialization() {
+    User user = new User(1L, "测试用户", 25);
+    redisTemplate.opsForValue().set("test:user", user);
+    
+    // 直接使用 redis-cli 查看存储内容
+    // 应该能看到 JSON 格式的数据，而不是二进制
+}
+```
+
+#### 54.3.3.5 配置的优点
+
+1. **数据可读**：可以在 Redis 中直接查看 JSON 内容
+2. **跨语言兼容**：其他语言也可以读取这些数据
+3. **类型安全**：自动处理类型转换
+4. **调试方便**：便于排查问题
+
+##### 54.3.3.6 注意事项
+
+1. **类路径一致性**：`@class` 字段记录的类必须在反序列化时存在于 classpath 中
+2. **无参构造函数**：反序列化的类需要有无参构造函数
+3. **版本兼容**：类结构变化可能导致反序列化失败
+### 54.3.4 Jackson2JsonRedisSerializer和GenericJackson2JsonRedisSerializer有什么区别
+在设置redis的序列化类型时，存在两种json序列化的形式
+1. Jackson2JsonRedisSerializer
+```java
+@Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisSerializer<Object> redisSerializer) {
+        RedisTemplate<String, Object> template = new RedisTemplate();
+        template.setConnectionFactory(this.connectionFactory);
+        template.setDefaultSerializer(this.redisSerializer());
+        RedisSerializer<String> stringSerializer = new StringRedisSerializer();
+        template.setKeySerializer(stringSerializer);
+        template.setValueSerializer(redisSerializer);
+        template.setHashKeySerializer(stringSerializer);
+        template.setHashValueSerializer(redisSerializer);
+        template.afterPropertiesSet();
+        return template;
+    }
+
+    @Bean
+    public RedisSerializer<Object> redisSerializer() {
+        Jackson2JsonRedisSerializer<Object> jackson2JsonRedisSerializer = new Jackson2JsonRedisSerializer(Object.class);
+        jackson2JsonRedisSerializer.setObjectMapper(this.objectMapper());
+        return jackson2JsonRedisSerializer;
+    }
+```
+2. GenericJackson2JsonRedisSerializer
+```java
+  @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory factory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(factory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setHashKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.afterPropertiesSet();
+        return template;
+    }
+```
+这两个序列化器的主要区别在于**是否在JSON中存储类型信息**。
+
+#### 54.3.4.1 核心区别对比
+
+| 特性 | Jackson2JsonRedisSerializer | GenericJackson2JsonRedisSerializer |
+|------|----------------------------|-----------------------------------|
+| **类型信息** | 不存储类型信息 | 存储类型信息（@class字段） |
+| **反序列化** | 需要明确指定类型 | 自动识别原始类型 |
+| **数据体积** | 较小 | 稍大（包含类型信息） |
+| **灵活性** | 较低 | 较高 |
+
+#### 54.3.4.2 详细分析
+
+##### 54.3.4.2.1. **Jackson2JsonRedisSerializer**
+```java
+// 需要指定具体类型
+Jackson2JsonRedisSerializer<User> serializer = 
+    new Jackson2JsonRedisSerializer<>(User.class);
+
+// 存储示例
+User user = new User(1L, "张三");
+redisTemplate.opsForValue().set("user:1", user);
+
+// Redis中存储的内容：
+{"id":1,"name":"张三"}  // 没有类型信息
+```
+
+**特点：**
+- 必须指定具体的Class类型
+- JSON中不包含类型元数据
+- 反序列化时必须知道原始类型
+
+##### 54.3.4.2.2. **GenericJackson2JsonRedisSerializer**（你正在使用的）
+```java
+// 不需要指定具体类型
+GenericJackson2JsonRedisSerializer serializer = 
+    new GenericJackson2JsonRedisSerializer();
+
+// 存储示例
+User user = new User(1L, "张三");
+redisTemplate.opsForValue().set("user:1", user);
+
+// Redis中存储的内容：
+{
+  "@class": "com.example.User",  // 包含类型信息
+  "id": 1,
+  "name": "张三"
+}
+```
+
+**特点：**
+- 自动在JSON中添加`@class`字段记录类型
+- 反序列化时能自动识别并转换回原始类型
+- 支持多态类型处理
+
+#### 54.3.4.3 实际使用场景对比
+
+##### 54.3.4.3.1 场景1：明确类型的简单使用
+```java
+// 使用 Jackson2JsonRedisSerializer（需要类型转换）
+Jackson2JsonRedisSerializer<User> serializer = new Jackson2JsonRedisSerializer<>(User.class);
+template.setValueSerializer(serializer);
+
+User user = new User(1L, "张三");
+redisTemplate.opsForValue().set("user:1", user);
+
+// 读取时必须进行类型转换
+User result = (User) redisTemplate.opsForValue().get("user:1");
+```
+
+##### 54.3.4.3.2 场景2：混合类型存储（你当前的配置更合适）
+```java
+// 使用 GenericJackson2JsonRedisSerializer
+template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+
+// 可以存储不同类型的对象
+redisTemplate.opsForValue().set("user:1", new User(1L, "张三"));
+redisTemplate.opsForValue().set("product:1", new Product(100L, "手机"));
+redisTemplate.opsForValue().set("config:timeout", 300);  // 甚至基本类型
+
+// 读取时自动识别类型
+Object userObj = redisTemplate.opsForValue().get("user:1");      // 自动转为User
+Object productObj = redisTemplate.opsForValue().get("product:1"); // 自动转为Product
+Object timeoutObj = redisTemplate.opsForValue().get("config:timeout"); // 自动转为Integer
+```
+
+#### 54.3.4.4 性能和安全考虑
+
+##### 54.3.4.4.1 数据大小对比
+```java
+User user = new User(1L, "张三");
+
+// Jackson2JsonRedisSerializer存储大小：约 30 bytes
+{"id":1,"name":"张三"}
+
+// GenericJackson2JsonRedisSerializer存储大小：约 60 bytes  
+{
+  "@class": "com.example.User",
+  "id": 1,
+  "name": "张三"
+}
+```
+
+##### 54.3.4.4.2 安全考虑
+**GenericJackson2JsonRedisSerializer** 可能存在反序列化安全问题，因为它会尝试实例化`@class`指定的任何类。
+
+#### 54.3.4.5 推荐使用场景
+
+##### 54.3.4.5.1 使用 Jackson2JsonRedisSerializer 当：
+- 存储的数据类型单一明确
+- 对存储空间有严格要求
+- 需要与其他系统（非Java）共享数据
+
+##### 54.3.4.5.2 使用 GenericJackson2JsonRedisSerializer 当：
+- 需要存储多种类型的对象（你的场景）
+- 方便开发和调试
+- 类型安全更重要
+### 54.3.5 关于54.3.1节的封装和54.2.1节封装的不同之处
+上面的过程中我们提供了两种封装的案例，54.3.1节的封装和54.2.1节封装
+
+但是这两种方式有着本质的不同就是对于RestTmplate的装配
+
+- 54.3.1:
+```java
+ @Autowired 
+ private RedisTemplate<String, String> redisTemplate; 
+```
+- 54.2.1:
+```java
+ @Autowired 
+ private RedisTemplate<String, T> redisTemplate; 
+```
+这两者有着本质的不同就在于他们装配的不是同一个Bean实例。**因为 @Autowired 根据byType是考虑泛型的**。
+具体可参考： https://blog.csdn.net/qq_41615959/article/details/130167035
+
+这里涉及到 **Spring 依赖注入的类型匹配机制**，让我详细解释一下：
+
+#### 54.3.5.1 核心原因：Spring 的泛型类型匹配
+
+Spring 在依赖注入时**会考虑泛型信息**，而不仅仅是原始类型。这是通过 `ResolvableType` 机制实现的。
+
+##### 54.3.5.1.1. **Spring 的类型匹配规则**
+
+```java
+// 你配置的 Bean
+@Bean
+public RedisTemplate<String, Object> redisTemplate(...) {
+    // 这个 Bean 的类型是：RedisTemplate<String, Object>
+}
+
+// 注入时 Spring 会严格匹配泛型
+@Autowired
+private RedisTemplate<String, String> redisTemplate;  // ❌ 不匹配！泛型不同
+
+@Autowired  
+private RedisTemplate<String, Object> redisTemplate;  // ✅ 匹配！类型完全一致
+```
+
+##### 54.3.5.1.2. **为什么泛型信息被保留？**
+
+虽然 Java 有泛型擦除，但 Spring 通过特殊机制保留了泛型信息：
+
+```java
+// Spring 内部使用 ResolvableType 来保留泛型信息
+ResolvableType beanType = ResolvableType.forClassWithGenerics(
+    RedisTemplate.class, String.class, Object.class
+);
+
+ResolvableType injectionType = ResolvableType.forClassWithGenerics(
+    RedisTemplate.class, String.class, String.class
+);
+
+// beanType != injectionType，所以不匹配
+```
+
+#### 54.3.5.2 实际验证示例
+
+你可以通过以下代码验证：
+
+```java
+@SpringBootTest
+class RedisTemplateTest {
+    
+    @Autowired
+    private ApplicationContext context;
+    
+    @Test
+    void testTypeMatching() {
+        // 查看所有 RedisTemplate Bean
+        Map<String, RedisTemplate> beans = context.getBeansOfType(RedisTemplate.class);
+        
+        for (Map.Entry<String, RedisTemplate> entry : beans.entrySet()) {
+            System.out.println("Bean name: " + entry.getKey());
+            
+            // 获取 Bean 的泛型信息
+            ResolvableType type = ResolvableType.forClass(RedisTemplate.class, entry.getValue().getClass());
+            System.out.println("Generic types: " + type.getGenerics());
+        }
+    }
+}
+```
+
+#### 54.3.5.3 解决方案
+
+##### 54.3.5.3.1 方案1：使用相同的泛型类型（推荐）
+```java
+// 配置
+@Bean
+public RedisTemplate<String, Object> redisTemplate(...) {
+    // 配置 Object 类型的模板
+}
+
+// 使用
+@Service
+public class MyService {
+    
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;  // ✅ 匹配
+    
+    public void storeString(String key, String value) {
+        // 虽然配置的是 Object，但可以存储 String（String 也是 Object）
+        redisTemplate.opsForValue().set(key, value);
+    }
+    
+    public void storeObject(String key, MyObject value) {
+        redisTemplate.opsForValue().set(key, value);
+    }
+}
+```
+
+##### 54.3.5.3.2 方案2：配置多个 RedisTemplate Bean
+```java
+@Configuration
+public class RedisConfig {
+    
+    // 用于存储 Object 类型（自动序列化）
+    @Bean
+    public RedisTemplate<String, Object> objectRedisTemplate(RedisConnectionFactory factory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(factory);
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        // ... 其他配置
+        return template;
+    }
+    
+    // 专门用于存储 String 类型
+    @Bean  
+    public RedisTemplate<String, String> stringRedisTemplate(RedisConnectionFactory factory) {
+        RedisTemplate<String, String> template = new RedisTemplate<>();
+        template.setConnectionFactory(factory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new StringRedisSerializer());  // 直接存储字符串
+        template.afterPropertiesSet();
+        return template;
+    }
+}
+```
+
+然后按需注入：
+```java
+@Service
+public class MyService {
+    
+    @Autowired
+    private RedisTemplate<String, Object> objectRedisTemplate;  // 用于对象
+    
+    @Autowired
+    private RedisTemplate<String, String> stringRedisTemplate;  // 用于字符串
+    
+    public void demo() {
+        // 存储对象
+        objectRedisTemplate.opsForValue().set("user:1", new User("张三"));
+        
+        // 存储纯字符串
+        stringRedisTemplate.opsForValue().set("config:timeout", "300");
+    }
+}
+```
+
+##### 54.3.5.3.3 方案3：使用 StringRedisTemplate（Spring Boot 内置）
+```java
+@Service
+public class MyService {
+    
+    // Spring Boot 自动配置的 StringRedisTemplate
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;  // RedisTemplate<String, String>
+    
+    public void storeString(String key, String value) {
+        stringRedisTemplate.opsForValue().set(key, value);
+    }
+}
+```
+
+#### 54.3.5.4 为什么你的 RedisServiceImpl 能工作？
+
+回顾你的代码：
+```java
+@Service
+public class RedisServiceImpl<T> implements IRedisService<T> {
+    
+    @Resource
+    private RedisTemplate<String, T> redisTemplate;  // 运行时：RedisTemplate<String, Object>
+    
+    // 由于泛型擦除，T 被擦除为 Object
+    // 所以实际上注入的是 RedisTemplate<String, Object>
+    // 正好匹配你配置的 Bean！
+}
+```
+
+**编译时泛型检查** + **运行时泛型擦除** + **Spring 的类型匹配** = 完美工作！
+
+#### 54.3.6 最佳实践建议
+
+##### 54.3.5.6.1. **统一使用 RedisTemplate<String, Object>**
+```java
+// 配置一个通用的模板
+@Bean
+public RedisTemplate<String, Object> redisTemplate(...) {
+    // 使用 GenericJackson2JsonRedisSerializer
+}
+
+// 所有服务都使用这个模板
+@Autowired
+private RedisTemplate<String, Object> redisTemplate;
+```
+
+##### 54.3.5.6.2. **按场景区分使用**
+```java
+// 存储对象（自动序列化）
+redisTemplate.opsForValue().set("user:1", userObject);
+
+// 存储字符串（同样可以工作，因为 String 也是 Object）
+redisTemplate.opsForValue().set("config:name", "myapp");
+```
+
+#### 54.3.5.7 总结
+
+**你的 Bean 配置是正确的！** 无法注入 `RedisTemplate<String, String>` 的原因是：
+
+1. ✅ **Spring 严格匹配泛型类型**
+2. ✅ **你配置的是 `RedisTemplate<String, Object>`**
+3. ✅ **注入 `RedisTemplate<String, String>` 时类型不匹配**
+4. ✅ **你的 RedisServiceImpl 能工作是因为泛型擦除后匹配**
+
+建议统一使用 `RedisTemplate<String, Object>`，它可以处理所有类型（包括 String），更加灵活通用！
+#### 54.3.6 项目中遇到的关于@Resource的问题
+我的一个项目中常使用@Resource注解装配Bean，然后我的ORM框架使用的是mybatis。这就会造成一个问题是，如果mybatis配置的扫描路径太多，可能会把我的service层也创建mybatis的代理对象，而mybatis代理对象刚好名字是和接口一致。导致最终所有的service层接口的代理对象都装配成了mybatis的代理对象，出现问题。
+![222.Image20251126142752996.png](../../assets/images/04-主流框架/spring/222.Image20251126142752996.png)
+
+![223.Image20251126143120909.png](../../assets/images/04-主流框架/spring/223.Image20251126143120909.png)
+
+![224.Image20251126143213868.png](../../assets/images/04-主流框架/spring/224.Image20251126143213868.png)
+# 五十五、SpringBoot集成Redis - Redis分布式锁的实现
+## 55.1 知识准备
+> 要了解为何要用分布式锁，以及分布式锁常见的实现方式；以及如何通过Redis实现分布式锁的几种方式。
+
+### 55.1.1 什么是分布式锁，分布式锁有哪些实现方式？
+#### 55.1.1.1 什么是分布式锁
+> 要介绍分布式锁，首先要提到与分布式锁相对应的是线程锁、进程锁。
+- `线程锁`：主要用来给方法、代码块加锁。当某个方法或代码使用锁，在同一时刻仅有一个线程执行该方法或该代码段。线程锁只在同一JVM中有效果，因为线程锁的实现在根本上是依靠线程之间共享内存实现的，比如synchronized是共享对象头，显示锁Lock是共享某个变量（state）。
+- `进程锁`：为了控制同一操作系统中多个进程访问某个共享资源，因为进程具有独立性，各个进程无法访问其他进程的资源，因此无法通过synchronized等线程锁实现进程锁。
+- `分布式锁`：当多个进程不在同一个系统中(比如分布式系统中控制共享资源访问)，用分布式锁控制多个进程对资源的访问。
+#### 55.1.1.2 分布式锁的设计原则
+> 分布式锁的最小设计原则：安全性和有效性
+Redis的官网上对使用分布式锁提出至少需要满足如下三个要求：
+- 互斥（属于安全性）：在任何给定时刻，只有一个客户端可以持有锁。
+- 无死锁（属于有效性）：即使锁定资源的客户端崩溃或被分区，也总是可以获得锁；通常通过超时机制实现。
+- 容错性（属于有效性）：只要大多数 Redis 节点都启动，客户端就可以获取和释放锁。
+
+除此之外，分布式锁的设计中还可以/需要考虑：加
+- 锁解锁的同源性：A加的锁，不能被B解锁
+- 获取锁是非阻塞的：如果获取不到锁，不能无限期等待；
+- 高性能：加锁解锁是高性能的
+## 55.2 实现方案
+目前主流更倾向于**Redisson + Lua**方案，以下是详细对比和原因分析：
+
+### 55.2.1. **Jedis + Lua 方案**
+- **实现方式**：手动编写Lua脚本保证原子性（如SETNX+EXPIRE组合操作）。
+- **优点**：
+  - 轻量级，依赖少，适合简单场景。
+  - 直接控制底层Redis命令，灵活性高。
+- **缺点**：
+  - **复杂度高**：需自行处理锁续期（看门狗）、重试、可重入等逻辑，易出错。
+  - **可靠性挑战**：如未妥善处理过期时间或网络问题，可能导致死锁或锁失效。
+  - **功能缺失**：缺乏现成的公平锁、联锁（MultiLock）等高级特性。
+
+### 55.2.2. **Redisson + Lua 方案**
+- **实现方式**：基于Netty的异步框架，内置Lua脚本封装分布式锁。
+- **优点**：
+  - **开箱即用**：直接提供`RLock`接口，支持自动续期、可重入、公平锁等。
+  - **高可靠性**：默认集成看门狗机制（默认30秒续期），避免业务未完成时锁过期。
+  - **扩展功能**：支持红锁（RedLock）、读写锁、联锁等分布式场景。
+  - **社区活跃**：持续更新，兼容Redis集群和哨兵模式。
+- **缺点**：
+  - 依赖较重（引入Netty等）。
+  - 需学习Redisson的API设计。
+
+### 55.2.3. **主流选择趋势**
+- **企业级应用**：多数选择**Redisson**，因其降低了复杂度，提供了生产级可靠性。
+- **简单场景**：若仅需基础锁功能且希望轻量，可选用Jedis+Lua，但需自行处理边缘情况。
+- **性能考量**：Redisson的异步特性在高并发下表现更优，Jedis在简单命令下可能更轻快。
+
+### 55.2.4. 示例对比
+#### 55.2.4.1 Jedis + Lua 实现：
+```lua
+if redis.call('setnx', KEYS[1], ARGV[1]) == 1 then
+    redis.call('pexpire', KEYS[1], ARGV[2])
+    return 1
+else
+    return 0
+end
+```
+需自行管理参数和错误处理。
+
+#### 55.2.4.2 Redisson 实现：
+```java
+RLock lock = redissonClient.getLock("myLock");
+lock.lock(); // 自动续期、可重入
+try {
+    // 业务逻辑
+} finally {
+    lock.unlock();
+}
+```
+
+### 55.2.5 总结
+**Redisson + Lua 是当前主流推荐方案**，尤其适合需要高可靠性的生产环境。若项目仅需临时锁且不愿引入额外依赖，可考虑Jedis，但需充分测试边缘情况。
+## 55.3 实现案例 - Jedis(setNXPX+Lua)
+> 本案例主要介绍 基于Jedis客户端下通过： setnx(key,当前时间+过期时间) + Lua 实现分布式锁
+
+### 55.3.1 定义Redis的分布式锁类
+- `加锁`： set NX PX + 重试 + 重试间隔
+
+向Redis发起如下命令:` SET productId:lock 0xx9p03001 NX PX 30000` 其中，"productId"由自己定义，可以是与本次业务有关的id，"0xx9p03001"是一串随机值，必须保证全局唯一(原因在后文中会提到)，“NX"指的是当且仅当key(也就是案例中的"productId:lock”)在Redis中不存在时，返回执行成功，否则执行失败。"PX 30000"指的是在30秒后，key将被自动删除。执行命令后返回成功，表明服务成功的获得了锁。
+- `解锁`：采用lua脚本
+
+在删除key之前，一定要判断服务A持有的value与Redis内存储的value是否一致。如果贸然使用服务A持有的key来删除锁，则会误将服务B的锁释放掉。
+```lua
+if redis.call("get", KEYS[1])==ARGV[1] then
+	return redis.call("del", KEYS[1])
+else
+	return 0
+end
+```
+具体的封装类RedisDistributedLock如下：
+```java
+package tech.pdai.springboot.redis.jedis.lock.lock;
+
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisCluster;
+import redis.clients.jedis.commands.JedisCommands;
+import redis.clients.jedis.params.SetParams;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * @author pdai
+ */
+@Slf4j
+public class RedisDistributedLock {
+
+    /**
+     * lua script for unlock.
+     */
+    private static final String UNLOCK_LUA;
+
+    static {
+        StringBuilder sb = new StringBuilder();
+        sb.append("if redis.call(\"get\",KEYS[1]) == ARGV[1] ");
+        sb.append("then ");
+        sb.append("    return redis.call(\"del\",KEYS[1]) ");
+        sb.append("else ");
+        sb.append("    return 0 ");
+        sb.append("end ");
+        UNLOCK_LUA = sb.toString();
+    }
+
+    /**
+     * unique lock flag based on thread local.
+     */
+    private final ThreadLocal<String> lockFlag = new ThreadLocal<>();
+
+    private final StringRedisTemplate redisTemplate;
+
+    public RedisDistributedLock(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
+
+    public boolean lock(String key, long expire, int retryTimes, long retryDuration) {
+        // use JedisCommands instead of setIfAbsense
+        boolean result = setRedis(key, expire);
+
+        // retry if needed
+        while ((!result) && retryTimes-- > 0) {
+            try {
+                log.debug("lock failed, retrying..." + retryTimes);
+                Thread.sleep(retryDuration);
+            } catch (Exception e) {
+                return false;
+            }
+
+            // use JedisCommands instead of setIfAbsense
+            result = setRedis(key, expire);
+        }
+        return result;
+    }
+
+    private boolean setRedis(String key, long expire) {
+        try {
+            RedisCallback<String> redisCallback = connection -> {
+                JedisCommands commands = (JedisCommands) connection.getNativeConnection();
+                String uuid = UUID.randomUUID().toString(); // change to distribute UUID generation.
+                lockFlag.set(uuid);
+                return commands.set(key, uuid, SetParams.setParams().nx().px(expire));
+            };
+            String result = redisTemplate.execute(redisCallback);
+            return !StringUtils.isEmpty(result);
+        } catch (Exception e) {
+            log.error("set redis occurred an exception", e);
+        }
+        return false;
+    }
+
+    public boolean unlock(String key) {
+        boolean success = false;
+        try {
+            List<String> keys = new ArrayList<>();
+            keys.add(key);
+            List<String> args = new ArrayList<>();
+            args.add(lockFlag.get());
+
+            // use lua script
+            RedisCallback<Long> redisCallback = connection -> {
+                Object nativeConnection = connection.getNativeConnection();
+
+                if (nativeConnection instanceof JedisCluster) { // cluster mode
+                    return (Long) ((JedisCluster) nativeConnection).eval(UNLOCK_LUA, keys, args);
+                } else if (nativeConnection instanceof Jedis) { // single mode
+                    return (Long) ((Jedis) nativeConnection).eval(UNLOCK_LUA, keys, args);
+                }
+                return 0L;
+            };
+            Long result = redisTemplate.execute(redisCallback);
+            success = result != null && result > 0;
+        } catch (Exception e) {
+            log.error("release lock occurred an exception", e);
+        } finally {
+            if (success) {
+                lockFlag.remove();
+            }
+        }
+        return success;
+    }
+
+}
+```
+### 55.3.2 定义AOP拦截点
+- 定义RedisLock注解
+```java
+package tech.pdai.springboot.redis.jedis.lock.annotation;
+
+import java.lang.annotation.*;
+
+/**
+ * @author pdai
+ */
+@Target({ElementType.METHOD})
+@Retention(RetentionPolicy.RUNTIME)
+@Inherited
+public @interface RedisLock {
+
+    /**
+     * redis lock key as value.
+     *
+     * @return lock key
+     */
+    String value() default "";
+
+    /**
+     * how long we hold the lock.
+     *
+     * @return mills
+     */
+    long expireMills() default 30000;
+
+    /**
+     * if lock failed, do we need to retry, default retry 0 means NO retry.
+     *
+     * @return retry times
+     */
+    int retryTimes() default 0;
+
+    /**
+     * when we retry to get lock, what's the duration for next retry.
+     *
+     * @return mills
+     */
+    long retryDurationMills() default 200;
+
+}
+```
+### 55.3.3 定义AOP切面
+定义AOP切面类RedisLockAspect，用来拦截@RedisLock注解方法，并调用RedisDistributedLock对方法加锁处理。
+```java
+package tech.pdai.springboot.redis.jedis.lock.lock;
+
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.reflect.MethodSignature;
+import org.springframework.context.annotation.Configuration;
+import tech.pdai.springboot.redis.jedis.lock.annotation.RedisLock;
+
+import javax.annotation.Resource;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+
+/**
+ * @author pdai
+ */
+@Slf4j
+@Aspect
+@Configuration
+public class RedisLockAspect {
+
+    /**
+     * lock impl.
+     */
+    @Resource
+    private RedisDistributedLock distributedLock;
+
+    /**
+     * AOP, around PJP.
+     *
+     * @param pjp ProceedingJoinPoint
+     * @return Object
+     * @throws Throwable Throwable
+     */
+    @Around("@annotation(tech.pdai.springboot.redis.jedis.lock.annotation.RedisLock)")
+    public Object around(ProceedingJoinPoint pjp) throws Throwable {
+        // get attribute through annotation
+        Method method = ((MethodSignature) pjp.getSignature()).getMethod();
+        RedisLock redisLock = method.getAnnotation(RedisLock.class);
+        String key = redisLock.value();
+        if (StringUtils.isEmpty(key)) {
+            Object[] args = pjp.getArgs();
+            key = Arrays.toString(args);
+        }
+
+        // do lock
+        boolean lock = distributedLock.lock(key, redisLock.expireMills(), redisLock.retryTimes(),
+                redisLock.retryDurationMills());
+        if (!lock) {
+            log.debug("get lock failed, key: {}", key);
+            return null;
+        }
+
+        // execute method, and unlock
+        log.debug("get lock success, key: {}", key);
+        try {
+            // execute
+            return pjp.proceed();
+        } catch (Exception e) {
+            log.error("execute locked method occurred an exception", e);
+        } finally {
+            // unlock
+            boolean releaseResult = distributedLock.unlock(key);
+            log.debug("release lock: {}, success: {}", key, releaseResult);
+        }
+
+        return null;
+    }
+
+}
+```
+### 55.3.4 切面使用
+只需要添加@RedisLock注解即可：
+```java
+@RedisLock
+public void xxxMethod() {
+
+}
+```
+# 五十六、▶SpringBoot集成MongoDB - 基于MongoTemplate的数据操作 
+> MongoDB是一个文档型NoSQL数据库，Spring通过模板方式（MongoTemplate）提供了对MongoDB的数据查询和操作功能。本文主要介绍基于MongoTemplate方式对MongoDB进行数据操作的案例。
+
+## 56.1 知识准备
+
+### 56.1.1 MongoDB基础和核心概念
+MongoDB是一个基于分布式文件存储的文档数据库，使用BSON（类似JSON）格式存储数据。核心概念包括数据库（Database）、集合（Collection）和文档（Document），其中集合相当于关系型数据库中的表，文档相当于行。
+
+| 概念 | 说明 | 类比关系型数据库 |
+| :--- | :--- | :--- |
+| **数据库（Database）** | 物理容器，包含多个集合 | 数据库 |
+| **集合（Collection）** | 一组文档的容器，无需固定结构 | 表 |
+| **文档（Document）** | 键值对的数据单元，使用BSON格式 | 行 |
+| **字段（Field）** | 文档中的键值对 | 列 |
+
+### 56.1.2 什么是MongoTemplate
+MongoTemplate是Spring Data MongoDB提供的核心类，用于简化MongoDB的操作。它封装了常见的CRUD（增删改查）方法，支持面向对象的方式操作文档数据。
+
+### 56.1.3 Spring中的模板模式和MongoTemplate
+- **模板方法模式**：与RedisTemplate类似，MongoTemplate也基于模板模式，定义了数据操作的骨架，具体实现由Spring处理。
+- **Spring中的模板类**：除了MongoTemplate，还有JdbcTemplate、RedisTemplate等。
+- **MongoTemplate的常见操作**：
+```java
+mongoTemplate.save(object); // 插入或更新文档
+mongoTemplate.find(query, entityClass); // 查询文档
+mongoTemplate.updateFirst(query, update, entityClass); // 更新文档
+mongoTemplate.remove(query, entityClass); // 删除文档
+```
+
+## 56.2 实现案例
+> 本例子基于SpringBoot 2.x+，使用MongoTemplate操作MongoDB数据。
+
+### 56.2.1 包依赖
+在pom.xml中引入spring-boot-starter-data-mongodb依赖：
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-mongodb</artifactId>
+</dependency>
+```
+
+### 56.2.2 yml配置
+在application.yml中配置MongoDB连接信息：
+```yml
+spring:
+  data:
+    mongodb:
+      host: localhost
+      port: 27017
+      database: testdb
+      # 或使用URI方式：uri: mongodb://user:password@host:port/database
+```
+
+### 56.2.3 MongoConfig配置（可选）
+如果需自定义配置，可通过@Bean定义MongoTemplate，但SpringBoot通常自动配置：
+```java
+package tech.pdai.springboot.mongo.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import com.mongodb.client.MongoClient;
+
+@Configuration
+public class MongoConfig {
+    @Bean
+    public MongoTemplate mongoTemplate(MongoClient mongoClient) {
+        return new MongoTemplate(mongoClient, "testdb");
+    }
+}
+```
+
+### 56.2.4 MongoTemplate的使用
+以User实体为例，演示增删改查操作：
+```java
+package tech.pdai.springboot.mongo.controller;
+
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.web.bind.annotation.*;
+import tech.pdai.springboot.mongo.entity.User;
+import tech.pdai.springboot.mongo.entity.response.ResponseResult;
+import javax.annotation.Resource;
+
+@RestController
+@RequestMapping("/user")
+public class UserController {
+    @Resource
+    private MongoTemplate mongoTemplate;
+
+    @PostMapping("add")
+    public ResponseResult<User> add(@RequestBody User user) {
+        User savedUser = mongoTemplate.save(user); // 保存文档，自动生成_id
+        return ResponseResult.success(savedUser);
+    }
+
+    @GetMapping("find/{id}")
+    public ResponseResult<User> findById(@PathVariable String id) {
+        User user = mongoTemplate.findById(id, User.class); // 根据ID查询
+        return ResponseResult.success(user);
+    }
+}
+```
+
+### 56.2.5 简单测试
+- **插入数据**：访问POST /user/add，Body传入JSON如{"name":"张三","age":25}，MongoTemplate.save()会自动插入到User集合。
+- **查询数据**：访问GET /user/find/{id}，返回对应文档。
+- **效果**：数据以BSON格式存储在MongoDB的testdb数据库的user集合中。
+# 五十七、SpringBoot集成MongoDB - 基于MongoRepository的数据操作  
+> MongoRepository是Spring Data MongoDB提供的声明式数据访问接口，通过方法命名约定或注解简化MongoDB的CRUD操作。本文主要介绍基于MongoRepository方式对MongoDB进行数据操作的案例。
+
+## 57.1 知识准备  
+### 57.1.1 什么是MongoRepository  
+MongoRepository是Spring Data MongoDB的核心接口之一，继承自PagingAndSortingRepository和CrudRepository。它通过**接口声明+方法命名规则**自动生成查询逻辑，无需编写实现代码，极大提升了开发效率。  
+- **优势**：  
+  - 减少样板代码，只需定义接口即可获得标准CRUD方法。  
+  - 支持方法名自动推导查询（如`findByName`）、分页排序、自定义注解查询。  
+- **与MongoTemplate的关系**：  
+  - MongoTemplate提供底层灵活操作，MongoRepository专注于声明式简化。  
+  - 实际项目中常结合使用：简单CRUD用MongoRepository，复杂查询用MongoTemplate。  
+
+### 57.1.2 Spring Data Repository模式  
+Spring Data的Repository模式是数据访问层的抽象，核心接口层次如下：  
+```  
+Repository (标记接口)  
+  └─ CrudRepository (基础CRUD)  
+       └─ PagingAndSortingRepository (分页排序)  
+            └─ MongoRepository (MongoDB特化接口)  
+```  
+**常用方法示例**：  
+```java  
+// 自动提供的方法  
+save(S entity);                 // 保存或更新  
+findById(ID id);               // 根据ID查询  
+findAll();                     // 查询全部  
+deleteById(ID id);             // 根据ID删除  
+count();                       // 统计数量  
+```  
+
+### 57.1.3 方法命名约定与查询推导  
+MongoRepository支持通过方法名自动生成查询条件，规则如下：  
+- **关键词**：`findBy`、`deleteBy`、`countBy`等。  
+- **属性名**：实体字段名（如`name`对应`findByName`）。  
+- **条件词**：`And`、`Or`、`Between`、`Like`等。  
+**示例**：  
+```java  
+// 根据名称查询  
+List<User> findByName(String name);  
+// 多条件查询  
+List<User> findByNameAndAge(String name, int age);  
+// 模糊查询  
+List<User> findByNameLike(String pattern);  
+// 分页查询  
+Page<User> findByAgeGreaterThan(int age, Pageable pageable);  
+```  
+> 注意：属性名需与实体字段一致，严格遵循驼峰命名法。  
+
+## 57.2 实现案例  
+> 本案例基于SpringBoot 2.x+，使用MongoRepository实现MongoDB的声明式数据操作。  
+
+### 57.2.1 包依赖  
+与MongoTemplate相同，引入`spring-boot-starter-data-mongodb`：  
+```xml  
+<dependency>  
+    <groupId>org.springframework.boot</groupId>  
+    <artifactId>spring-boot-starter-data-mongodb</artifactId>  
+</dependency>  
+```  
+
+### 57.2.2 yml配置  
+配置MongoDB连接信息（与MongoTemplate案例一致）：  
+```yml  
+spring:  
+  data:  
+    mongodb:  
+      host: localhost  
+      port: 27017  
+      database: testdb  
+      # 或使用URI方式：uri: mongodb://user:password@host:port/database  
+```  
+
+### 57.2.3 定义实体和Repository接口  
+**实体类**（需添加`@Document`注解）：  
+```java  
+package tech.pdai.springboot.mongo.entity;  
+
+import org.springframework.data.annotation.Id;  
+import org.springframework.data.mongodb.core.mapping.Document;  
+
+@Document(collection = "user") // 指定集合名  
+public class User {  
+    @Id  
+    private String id;  
+    private String name;  
+    private Integer age;  
+    // getter/setter省略  
+}  
+```  
+
+**Repository接口**（继承MongoRepository）：  
+```java  
+package tech.pdai.springboot.mongo.dao;  
+
+import org.springframework.data.mongodb.repository.MongoRepository;  
+import tech.pdai.springboot.mongo.entity.User;  
+import java.util.List;  
+
+public interface UserRepository extends MongoRepository<User, String> {  
+    // 自动推导方法：根据名称查询  
+    List<User> findByName(String name);  
+
+    // 自定义条件查询：年龄大于指定值  
+    List<User> findByAgeGreaterThan(int age);  
+}  
+```  
+
+### 57.2.4 在Controller中使用Repository  
+通过注入Repository接口调用方法：  
+```java  
+package tech.pdai.springboot.mongo.controller;  
+
+import org.springframework.data.domain.Page;  
+import org.springframework.data.domain.PageRequest;  
+import org.springframework.web.bind.annotation.*;  
+import tech.pdai.springboot.mongo.dao.UserRepository;  
+import tech.pdai.springboot.mongo.entity.User;  
+import tech.pdai.springboot.mongo.entity.response.ResponseResult;  
+import javax.annotation.Resource;  
+import java.util.List;  
+
+@RestController  
+@RequestMapping("/user")  
+public class UserController {  
+    @Resource  
+    private UserRepository userRepository;  
+
+    @PostMapping("add")  
+    public ResponseResult<User> add(@RequestBody User user) {  
+        User savedUser = userRepository.save(user); // 自动生成ID并保存  
+        return ResponseResult.success(savedUser);  
+    }  
+
+    @GetMapping("find/{id}")  
+    public ResponseResult<User> findById(@PathVariable String id) {  
+        return userRepository.findById(id)  
+                .map(ResponseResult::success)  
+                .orElse(ResponseResult.fail("用户不存在"));  
+    }  
+
+    @GetMapping("list")  
+    public ResponseResult<List<User>> list() {  
+        return ResponseResult.success(userRepository.findAll());  
+    }  
+
+    @GetMapping("search")  
+    public ResponseResult<List<User>> search(@RequestParam String name) {  
+        return ResponseResult.success(userRepository.findByName(name));  
+    }  
+}  
+```  
+
+### 57.2.5 简单测试  
+- **插入数据**：访问 `POST /user/add`，Body传入`{"name":"李四","age":30}`，Repository自动保存到MongoDB的`user`集合。  
+- **查询数据**：  
+  - `GET /user/find/1`：根据ID查询。  
+  - `GET /user/list`：查询所有用户。  
+  - `GET /user/search?name=李四`：根据名称查询。  
+- **效果**：数据通过声明式接口操作，无需编写具体实现代码。  
+
+> 提示：复杂查询（如聚合操作）仍需结合MongoTemplate实现，MongoRepository更适合标准化CRUD场景。
+# 五十八、▶SpringBoot集成ElasticSearch - 基于ElasticsearchTemplate的数据操作
+> Elasticsearch是一个分布式、RESTful风格的搜索和分析引擎，Spring Data Elasticsearch通过ElasticsearchTemplate提供了强大的数据操作能力。本文主要介绍基于ElasticsearchTemplate方式对Elasticsearch进行数据操作的案例。
+
+## 58.1 知识准备
+
+### 58.1.1 Elasticsearch基础和核心概念
+Elasticsearch是基于Lucene的分布式搜索引擎，使用JSON格式存储数据。核心概念包括索引（Index）、类型（Type，7.x后已废弃）、文档（Document）和映射（Mapping）。
+
+| 概念 | 说明 | 类比关系型数据库 |
+| :--- | :--- | :--- |
+| **索引（Index）** | 文档的集合，相当于数据库 | 数据库 |
+| **类型（Type）** | 索引中的逻辑分类（7.x后已废弃） | 表 |
+| **文档（Document）** | 索引中的基本数据单元，JSON格式 | 行 |
+| **映射（Mapping）** | 文档字段的类型定义 | 表结构 |
+| **分片（Shard）** | 索引的分区，支持水平扩展 | 分区表 |
+
+### 58.1.2 什么是ElasticsearchTemplate
+ElasticsearchTemplate是Spring Data Elasticsearch提供的核心模板类，封装了Elasticsearch的CRUD操作、复杂查询、聚合分析等功能。它简化了与Elasticsearch集群的交互，提供面向对象的操作方式。
+
+### 58.1.3 Spring中的模板模式和ElasticsearchTemplate
+- **模板方法模式**：与MongoTemplate类似，ElasticsearchTemplate基于模板模式，定义了搜索操作的通用流程。
+- **主要功能**：
+  - 文档的索引、更新、删除操作
+  - 复杂的查询构建（QueryBuilder、BoolQueryBuilder等）
+  - 聚合分析（AggregationBuilder）
+  - 高亮显示、排序、分页等搜索特性
+
+## 58.2 实现案例
+> 本案例基于SpringBoot 2.x+，使用ElasticsearchTemplate操作Elasticsearch数据。
+
+### 58.2.1 包依赖
+在pom.xml中引入Spring Data Elasticsearch依赖：
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-elasticsearch</artifactId>
+</dependency>
+```
+
+### 58.2.2 yml配置
+在application.yml中配置Elasticsearch连接信息：
+```yml
+spring:
+  elasticsearch:
+    uris: http://localhost:9200  # Elasticsearch服务器地址
+    # 可选配置
+    connection-timeout: 1s       # 连接超时时间
+    socket-timeout: 30s          # socket超时时间
+    username: elastic            # 用户名（如果启用安全认证）
+    password: password           # 密码
+```
+
+### 58.2.3 ElasticsearchConfig配置（可选）
+如需自定义配置，可通过@Bean定义ElasticsearchTemplate：
+```java
+package tech.pdai.springboot.elasticsearch.config;
+
+import org.elasticsearch.client.RestHighLevelClient;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.elasticsearch.core.ElasticsearchRestTemplate;
+import org.springframework.data.elasticsearch.client.ClientConfiguration;
+import org.springframework.data.elasticsearch.client.RestClients;
+
+@Configuration
+public class ElasticsearchConfig {
+    
+    @Bean
+    public RestHighLevelClient elasticsearchClient() {
+        ClientConfiguration clientConfiguration = ClientConfiguration.builder()
+            .connectedTo("localhost:9200")
+            .build();
+        return RestClients.create(clientConfiguration).rest();
+    }
+    
+    @Bean
+    public ElasticsearchRestTemplate elasticsearchTemplate() {
+        return new ElasticsearchRestTemplate(elasticsearchClient());
+    }
+}
+```
+
+> **注意**：Spring Boot 2.3+版本推荐使用`ElasticsearchRestTemplate`替代旧的`ElasticsearchTemplate`。
+
+### 58.2.4 定义实体类
+使用注解定义Elasticsearch文档映射：
+```java
+package tech.pdai.springboot.elasticsearch.entity;
+
+import org.springframework.data.annotation.Id;
+import org.springframework.data.elasticsearch.annotations.Document;
+import org.springframework.data.elasticsearch.annotations.Field;
+import org.springframework.data.elasticsearch.annotations.FieldType;
+
+@Document(indexName = "user_index") // 指定索引名称
+public class User {
+    @Id
+    private String id;
+    
+    @Field(type = FieldType.Text, analyzer = "ik_max_word") // 使用IK分词器
+    private String name;
+    
+    @Field(type = FieldType.Integer)
+    private Integer age;
+    
+    @Field(type = FieldType.Text, analyzer = "ik_max_word")
+    private String description;
+    
+    // getter/setter省略
+}
+```
+
+### 58.2.5 ElasticsearchTemplate的使用
+演示基本的CRUD和搜索操作：
+```java
+package tech.pdai.springboot.elasticsearch.controller;
+
+import org.elasticsearch.index.query.QueryBuilders;
+import org.springframework.data.elasticsearch.core.ElasticsearchRestTemplate;
+import org.springframework.data.elasticsearch.core.SearchHits;
+import org.springframework.data.elasticsearch.core.query.*;
+import org.springframework.web.bind.annotation.*;
+import tech.pdai.springboot.elasticsearch.entity.User;
+import tech.pdai.springboot.elasticsearch.entity.response.ResponseResult;
+import javax.annotation.Resource;
+import java.util.List;
+
+@RestController
+@RequestMapping("/user")
+public class UserController {
+    
+    @Resource
+    private ElasticsearchRestTemplate elasticsearchTemplate;
+    
+    // 创建索引（如果不存在）
+    @PostMapping("/create-index")
+    public ResponseResult<Boolean> createIndex() {
+        boolean created = elasticsearchTemplate.indexOps(User.class).create();
+        return ResponseResult.success(created);
+    }
+    
+    // 添加/更新文档
+    @PostMapping("/save")
+    public ResponseResult<User> save(@RequestBody User user) {
+        IndexQuery indexQuery = new IndexQueryBuilder()
+            .withObject(user)
+            .build();
+        String documentId = elasticsearchTemplate.index(indexQuery, elasticsearchTemplate.getIndexCoordinatesFor(User.class));
+        user.setId(documentId);
+        return ResponseResult.success(user);
+    }
+    
+    // 根据ID查询
+    @GetMapping("/{id}")
+    public ResponseResult<User> findById(@PathVariable String id) {
+        User user = elasticsearchTemplate.get(id, User.class);
+        return ResponseResult.success(user);
+    }
+    
+    // 全文搜索
+    @GetMapping("/search")
+    public ResponseResult<List<User>> search(@RequestParam String keyword) {
+        NativeSearchQuery searchQuery = new NativeSearchQueryBuilder()
+            .withQuery(QueryBuilders.multiMatchQuery(keyword, "name", "description"))
+            .build();
+        
+        SearchHits<User> searchHits = elasticsearchTemplate.search(searchQuery, User.class);
+        List<User> users = searchHits.getSearchHits().stream()
+            .map(hit -> hit.getContent())
+            .collect(Collectors.toList());
+            
+        return ResponseResult.success(users);
+    }
+    
+    // 删除文档
+    @DeleteMapping("/{id}")
+    public ResponseResult<String> delete(@PathVariable String id) {
+        elasticsearchTemplate.delete(id, User.class);
+        return ResponseResult.success("删除成功");
+    }
+}
+```
+
+### 58.2.6 复杂查询示例
+演示更复杂的查询场景：
+```java
+// 多条件组合查询
+@GetMapping("/advanced-search")
+public ResponseResult<List<User>> advancedSearch(
+        @RequestParam(required = false) String name,
+        @RequestParam(required = false) Integer minAge,
+        @RequestParam(required = false) Integer maxAge) {
+    
+    BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
+    
+    if (StringUtils.hasText(name)) {
+        boolQuery.must(QueryBuilders.matchQuery("name", name));
+    }
+    
+    if (minAge != null && maxAge != null) {
+        boolQuery.must(QueryBuilders.rangeQuery("age").gte(minAge).lte(maxAge));
+    }
+    
+    NativeSearchQuery searchQuery = new NativeSearchQueryBuilder()
+        .withQuery(boolQuery)
+        .withSort(SortBuilders.fieldSort("age").order(SortOrder.ASC))
+        .withPageable(PageRequest.of(0, 10)) // 分页
+        .build();
+    
+    SearchHits<User> searchHits = elasticsearchTemplate.search(searchQuery, User.class);
+    // ... 处理结果
+}
+```
+
+### 58.2.7 简单测试
+- **创建索引**：访问 `POST /user/create-index`，创建user_index索引。
+- **添加文档**：访问 `POST /user/save`，Body传入`{"name":"张三","age":25,"description":"软件工程师"}`。
+- **搜索文档**：访问 `GET /user/search?keyword=软件`，返回包含"软件"关键词的用户。
+- **效果**：数据存储在Elasticsearch中，支持高效的全文搜索和复杂查询。
+
+> **注意事项**：
+> 1. Elasticsearch需要先安装并启动（默认端口9200）
+> 2. 建议安装IK分词器以支持中文搜索
+> 3. 生产环境需要配置集群信息和安全认证
+# 五十九、SpringBoot集成ElasticSearch - 多种集成方式详解
+> SpringBoot集成Elasticsearch有多种方式，每种方式各有优劣，适用于不同的场景。本文详细总结Elasticsearch的三种主要集成方式及其适用场景。
+
+## 59.1 Spring Data Elasticsearch 集成方式概览
+
+### 59.1.1 三种主要集成方式对比
+
+| 集成方式 | 版本要求 | 特点 | 适用场景 |
+| :--- | :--- | :--- | :--- |
+| **ElasticsearchRepository** | Spring Boot 2.x+ | 声明式接口，方法命名约定，开发效率高 | 标准CRUD、简单查询、快速开发 |
+| **ElasticsearchRestTemplate** | Spring Boot 2.3+ | 灵活性强，支持复杂查询和聚合操作 | 复杂业务逻辑、动态查询、聚合分析 |
+| **原生RestHighLevelClient** | 所有版本 | 最底层控制，与ES版本兼容性最好 | 需要精细控制、特定版本需求 |
+
+## 59.2 方式一：ElasticsearchRepository（声明式接口）
+
+### 59.2.1 核心概念
+ElasticsearchRepository是Spring Data Elasticsearch提供的声明式数据访问接口，类似于JPA Repository模式。
+
+**优势：**
+- 减少样板代码，自动实现基础CRUD
+- 支持方法名自动推导查询
+- 内置分页、排序支持
+- 易于单元测试
+
+### 59.2.2 实现示例
+
+**实体类定义：**
+```java
+package tech.pdai.springboot.elasticsearch.entity;
+
+import org.springframework.data.annotation.Id;
+import org.springframework.data.elasticsearch.annotations.Document;
+import org.springframework.data.elasticsearch.annotations.Field;
+import org.springframework.data.elasticsearch.annotations.FieldType;
+
+@Document(indexName = "user_index")
+public class User {
+    @Id
+    private String id;
+    
+    @Field(type = FieldType.Text, analyzer = "ik_max_word")
+    private String name;
+    
+    @Field(type = FieldType.Keyword)
+    private String email;
+    
+    @Field(type = FieldType.Integer)
+    private Integer age;
+    
+    // getter/setter
+}
+```
+
+**Repository接口：**
+```java
+package tech.pdai.springboot.elasticsearch.repository;
+
+import org.springframework.data.elasticsearch.repository.ElasticsearchRepository;
+import tech.pdai.springboot.elasticsearch.entity.User;
+import java.util.List;
+
+public interface UserRepository extends ElasticsearchRepository<User, String> {
+    
+    // 根据名称查询（自动分词）
+    List<User> findByName(String name);
+    
+    // 根据邮箱精确查询
+    User findByEmail(String email);
+    
+    // 年龄范围查询
+    List<User> findByAgeBetween(Integer minAge, Integer maxAge);
+    
+    // 名称模糊查询 + 分页
+    List<User> findByNameContaining(String name, org.springframework.data.domain.Pageable pageable);
+    
+    // 自定义查询
+    @Query("{\"match\": {\"name\": \"?0\"}}")
+    List<User> findByNameCustom(String name);
+}
+```
+
+**Service层使用：**
+```java
+@Service
+public class UserService {
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    public User saveUser(User user) {
+        return userRepository.save(user);
+    }
+    
+    public Optional<User> findById(String id) {
+        return userRepository.findById(id);
+    }
+    
+    public List<User> searchUsers(String keyword, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        return userRepository.findByNameContaining(keyword, pageable);
+    }
+}
+```
+
+## 59.3 方式二：ElasticsearchRestTemplate（模板方式）
+
+### 59.3.1 核心概念
+ElasticsearchRestTemplate是Spring Data Elasticsearch提供的模板类，提供更灵活的操作方式。
+
+**优势：**
+- 支持复杂的查询构建
+- 完整的聚合分析功能
+- 动态查询条件
+- 批量操作支持
+
+### 59.3.2 实现示例
+
+**复杂查询示例：**
+```java
+@Service
+public class UserTemplateService {
+    
+    @Autowired
+    private ElasticsearchRestTemplate elasticsearchTemplate;
+    
+    // 多条件组合查询
+    public List<User> advancedSearch(UserSearchCriteria criteria) {
+        NativeSearchQueryBuilder queryBuilder = new NativeSearchQueryBuilder();
+        
+        BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
+        
+        if (StringUtils.hasText(criteria.getKeyword())) {
+            boolQuery.should(QueryBuilders.matchQuery("name", criteria.getKeyword()))
+                     .should(QueryBuilders.matchQuery("description", criteria.getKeyword()));
+        }
+        
+        if (criteria.getMinAge() != null && criteria.getMaxAge() != null) {
+            boolQuery.must(QueryBuilders.rangeQuery("age")
+                         .gte(criteria.getMinAge())
+                         .lte(criteria.getMaxAge()));
+        }
+        
+        if (criteria.getCreateTimeStart() != null) {
+            boolQuery.must(QueryBuilders.rangeQuery("createTime")
+                         .gte(criteria.getCreateTimeStart()));
+        }
+        
+        NativeSearchQuery searchQuery = queryBuilder.withQuery(boolQuery)
+                                                   .withPageable(PageRequest.of(0, 100))
+                                                   .build();
+        
+        SearchHits<User> searchHits = elasticsearchTemplate.search(searchQuery, User.class);
+        return searchHits.getSearchHits().stream()
+                        .map(SearchHit::getContent)
+                        .collect(Collectors.toList());
+    }
+    
+    // 聚合分析
+    public Map<String, Long> aggregateByAgeGroup() {
+        TermsAggregationBuilder aggregation = AggregationBuilders.terms("age_group")
+                                                                .field("age")
+                                                                .size(10);
+        
+        NativeSearchQuery searchQuery = new NativeSearchQueryBuilder()
+            .addAggregation(aggregation)
+            .build();
+        
+        SearchHits<User> searchHits = elasticsearchTemplate.search(searchQuery, User.class);
+        Terms terms = searchHits.getAggregations().get("age_group");
+        
+        return terms.getBuckets().stream()
+                   .collect(Collectors.toMap(
+                       Terms.Bucket::getKeyAsString,
+                       Terms.Bucket::getDocCount
+                   ));
+    }
+}
+```
+
+## 59.4 方式三：原生RestHighLevelClient（底层控制）
+
+### 59.4.1 核心概念
+直接使用Elasticsearch官方提供的RestHighLevelClient，提供最底层的控制能力。
+
+**适用场景：**
+- 需要与特定ES版本紧密集成
+- 使用ES最新特性
+- 性能要求极高的场景
+- 复杂的索引管理操作
+
+### 59.4.2 实现示例
+
+**配置类：**
+```java
+@Configuration
+public class ElasticsearchConfig {
+    
+    @Value("${spring.elasticsearch.uris}")
+    private String esUrl;
+    
+    @Bean
+    public RestHighLevelClient restHighLevelClient() {
+        RestClientBuilder builder = RestClient.builder(
+            HttpHost.create(esUrl)
+        );
+        
+        // 可选：配置连接池、超时时间等
+        builder.setRequestConfigCallback(requestConfigBuilder -> 
+            requestConfigBuilder
+                .setConnectTimeout(5000)
+                .setSocketTimeout(60000)
+        );
+        
+        return new RestHighLevelClient(builder);
+    }
+}
+```
+
+**使用示例：**
+```java
+@Service
+public class NativeElasticsearchService {
+    
+    @Autowired
+    private RestHighLevelClient client;
+    
+    // 索引文档
+    public IndexResponse indexDocument(User user) throws IOException {
+        IndexRequest request = new IndexRequest("user_index")
+            .id(user.getId())
+            .source(convertToMap(user), XContentType.JSON);
+        
+        return client.index(request, RequestOptions.DEFAULT);
+    }
+    
+    // 复杂搜索
+    public List<User> nativeSearch(UserSearchCriteria criteria) throws IOException {
+        SearchRequest searchRequest = new SearchRequest("user_index");
+        SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
+        
+        BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
+        
+        // 构建查询条件
+        if (StringUtils.hasText(criteria.getKeyword())) {
+            MultiMatchQueryBuilder multiMatchQuery = QueryBuilders.multiMatchQuery(
+                criteria.getKeyword(), "name", "description")
+                .type(MultiMatchQueryBuilder.Type.BEST_FIELDS);
+            boolQuery.must(multiMatchQuery);
+        }
+        
+        sourceBuilder.query(boolQuery)
+                     .from(0)
+                     .size(100)
+                     .timeout(new TimeValue(60, TimeUnit.SECONDS));
+        
+        searchRequest.source(sourceBuilder);
+        
+        SearchResponse response = client.search(searchRequest, RequestOptions.DEFAULT);
+        
+        return Arrays.stream(response.getHits().getHits())
+                    .map(hit -> convertToUser(hit.getSourceAsString()))
+                    .collect(Collectors.toList());
+    }
+    
+    // 批量操作
+    public BulkResponse bulkIndex(List<User> users) throws IOException {
+        BulkRequest request = new BulkRequest();
+        
+        for (User user : users) {
+            request.add(new IndexRequest("user_index")
+                .id(user.getId())
+                .source(convertToMap(user), XContentType.JSON));
+        }
+        
+        return client.bulk(request, RequestOptions.DEFAULT);
+    }
+    
+    private Map<String, Object> convertToMap(User user) {
+        // 转换逻辑
+        return Map.of(
+            "name", user.getName(),
+            "email", user.getEmail(),
+            "age", user.getAge()
+        );
+    }
+}
+```
+
+## 59.5 版本兼容性与选择建议
+
+### 59.5.1 版本兼容性矩阵
+| Spring Boot版本 | Spring Data ES版本 | ES客户端 | 推荐方式 |
+| :--- | :--- | :--- | :--- |
+| 2.3.x - 2.7.x | 4.x | RestHighLevelClient | ElasticsearchRestTemplate |
+| 3.0.x+ | 5.x | ElasticsearchClient | 新版本客户端 |
+
+### 59.5.2 选择建议
+
+**1. 新项目推荐组合：**
+```yaml
+# 适用场景：大多数业务场景
+主要使用：ElasticsearchRepository（80%场景）
+辅助使用：ElasticsearchRestTemplate（20%复杂场景）
+```
+
+**2. 根据复杂度选择：**
+- **简单CRUD** → ElasticsearchRepository
+- **中等复杂度** → ElasticsearchRestTemplate  
+- **高性能要求/复杂特性** → RestHighLevelClient
+
+**3. 实际项目中的混合使用：**
+```java
+@Service
+public class UserService {
+    
+    @Autowired
+    private UserRepository userRepository;          // 简单操作
+    
+    @Autowired
+    private ElasticsearchRestTemplate template;     // 复杂查询
+    
+    @Autowired
+    private RestHighLevelClient nativeClient;       // 特殊需求
+    
+    public UserStatistics getComplexStatistics() {
+        // 使用Repository进行基础查询
+        long totalCount = userRepository.count();
+        
+        // 使用Template进行聚合分析
+        Map<String, Long> ageStats = template.aggregateAgeGroups();
+        
+        // 使用原生客户端进行高性能操作
+        // ... 特殊逻辑
+        
+        return new UserStatistics(totalCount, ageStats);
+    }
+}
+```
+
+## 59.6 总结
+
+SpringBoot集成Elasticsearch提供了多种方式，每种方式都有其独特的优势和适用场景：
+
+- **ElasticsearchRepository**：开发效率最高，适合标准业务场景
+- **ElasticsearchRestTemplate**：灵活性强，适合复杂查询需求  
+- **RestHighLevelClient**：控制力最强，适合特殊需求和高性能场景
+
+**最佳实践建议：**
+1. 新项目优先使用ElasticsearchRepository + ElasticsearchRestTemplate组合
+2. 根据业务复杂度选择合适的集成方式
+3. 关注版本兼容性，特别是SpringBoot 3.0+的版本变化
+4. 在生产环境中做好连接池配置和超时设置
+
+通过合理选择集成方式，可以充分发挥Elasticsearch的强大功能，同时保持代码的简洁性和可维护性。
+# 六十、▶SpringBoot集成Socket - 基础的Websocket实现
+
+> WebSocket是一种在单个TCP连接上进行全双工通信的协议，能够实现客户端和服务器之间的实时双向数据传输。本文主要介绍SpringBoot中基于WebSocket的基础实现方案。
+
+## 60.1 知识准备
+
+### 60.1.1 WebSocket协议概述
+WebSocket是HTML5开始提供的一种在单个TCP连接上进行全双工通讯的协议，解决了HTTP协议无法实现服务器主动推送的问题。
+
+**与HTTP轮询对比：**
+| 特性 | HTTP轮询 | WebSocket |
+| :--- | :--- | :--- |
+| **连接方式** | 短连接，频繁建立断开 | 长连接，一次建立持续通信 |
+| **实时性** | 延迟高，依赖轮询间隔 | 实时双向通信 |
+| **服务器开销** | 高，频繁处理连接请求 | 低，连接复用 |
+| **适用场景** | 简单消息推送 | 实时交互应用（聊天、游戏等） |
+
+### 60.1.2 Spring WebSocket支持
+Spring Framework 4.0+提供了完整的WebSocket支持，主要包括：
+- **WebSocket API**：底层WebSocket连接处理
+- **STOMP协议**：基于帧的简单文本消息协议
+- **SockJS**：WebSocket的备选方案，兼容老浏览器
+
+### 60.1.3 核心组件
+```mermaid
+graph TB
+    A[客户端] --> B[WebSocket连接]
+    B --> C[WebSocketHandler]
+    C --> D[消息处理逻辑]
+    D --> E[业务服务]
+    E --> C
+    C --> B
+    B --> A
+```
+
+## 60.2 基础WebSocket实现
+
+### 60.2.1 包依赖
+在pom.xml中引入WebSocket依赖：
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-websocket</artifactId>
+</dependency>
+```
+
+### 60.2.2 WebSocket配置类
+创建WebSocket配置，注册WebSocket处理器和拦截器：
+```java
+package tech.pdai.springboot.websocket.config;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.socket.config.annotation.EnableWebSocket;
+import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
+import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
+import tech.pdai.springboot.websocket.handler.ChatWebSocketHandler;
+import tech.pdai.springboot.websocket.interceptor.WebSocketHandshakeInterceptor;
+
+@Configuration
+@EnableWebSocket
+public class WebSocketConfig implements WebSocketConfigurer {
+
+    @Override
+    public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
+        registry.addHandler(new ChatWebSocketHandler(), "/websocket/chat")
+                .addInterceptors(new WebSocketHandshakeInterceptor())
+                .setAllowedOrigins("*"); // 生产环境应限制具体域名
+    }
+}
+```
+
+### 60.2.3 WebSocket处理器
+实现WebSocketHandler接口处理连接和消息：
+```java
+package tech.pdai.springboot.websocket.handler;
+
+import org.springframework.web.socket.*;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
+import java.io.IOException;
+import java.util.concurrent.ConcurrentHashMap;
+
+public class ChatWebSocketHandler extends TextWebSocketHandler {
+    
+    // 保存所有连接的会话
+    private static final ConcurrentHashMap<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
+    
+    /**
+     * 连接建立后触发
+     */
+    @Override
+    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        String userId = (String) session.getAttributes().get("userId");
+        sessions.put(userId, session);
+        System.out.println("用户 " + userId + " 连接成功，当前在线人数: " + sessions.size());
+        
+        // 发送欢迎消息
+        sendMessageToUser(userId, "连接成功，欢迎使用WebSocket聊天室！");
+    }
+    
+    /**
+     * 处理文本消息
+     */
+    @Override
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+        String userId = (String) session.getAttributes().get("userId");
+        String payload = message.getPayload();
+        
+        System.out.println("收到来自用户 " + userId + " 的消息: " + payload);
+        
+        // 处理不同类型的消息
+        handleMessage(userId, payload);
+    }
+    
+    /**
+     * 连接关闭后触发
+     */
+    @Override
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
+        String userId = (String) session.getAttributes().get("userId");
+        sessions.remove(userId);
+        System.out.println("用户 " + userId + " 断开连接，当前在线人数: " + sessions.size());
+    }
+    
+    /**
+     * 处理传输错误
+     */
+    @Override
+    public void handleTransportError(WebSocketSession session, Throwable exception) throws Exception {
+        System.err.println("WebSocket传输错误: " + exception.getMessage());
+    }
+    
+    /**
+     * 向指定用户发送消息
+     */
+    public void sendMessageToUser(String userId, String message) {
+        WebSocketSession session = sessions.get(userId);
+        if (session != null && session.isOpen()) {
+            try {
+                session.sendMessage(new TextMessage(message));
+            } catch (IOException e) {
+                System.err.println("向用户 " + userId + " 发送消息失败: " + e.getMessage());
+            }
+        }
+    }
+    
+    /**
+     * 向所有用户广播消息
+     */
+    public void broadcastMessage(String message) {
+        sessions.values().forEach(session -> {
+            if (session.isOpen()) {
+                try {
+                    session.sendMessage(new TextMessage(message));
+                } catch (IOException e) {
+                    System.err.println("广播消息失败: " + e.getMessage());
+                }
+            }
+        });
+    }
+    
+    /**
+     * 处理业务消息
+     */
+    private void handleMessage(String userId, String message) {
+        // 简单的消息处理逻辑
+        if (message.startsWith("@all ")) {
+            // 广播消息
+            String content = message.substring(5);
+            broadcastMessage("用户 " + userId + " 说: " + content);
+        } else if (message.startsWith("@user ")) {
+            // 私聊消息格式: @user targetUserId messageContent
+            String[] parts = message.split(" ", 3);
+            if (parts.length == 3) {
+                String targetUserId = parts[1];
+                String content = parts[2];
+                sendMessageToUser(targetUserId, "用户 " + userId + " 对你说: " + content);
+            }
+        } else {
+            // 默认处理
+            sendMessageToUser(userId, "服务器回复: 收到你的消息 - " + message);
+        }
+    }
+}
+```
+
+### 60.2.4 WebSocket拦截器
+实现握手拦截器，可以在连接建立前后进行拦截处理：
+```java
+package tech.pdai.springboot.websocket.interceptor;
+
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.web.socket.WebSocketHandler;
+import org.springframework.web.socket.server.support.HttpSessionHandshakeInterceptor;
+import java.util.Map;
+
+public class WebSocketHandshakeInterceptor extends HttpSessionHandshakeInterceptor {
+    
+    /**
+     * 握手前拦截
+     */
+    @Override
+    public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response, 
+                                   WebSocketHandler wsHandler, Map<String, Object> attributes) throws Exception {
+        
+        // 从请求参数中获取用户ID（实际项目中应从token或session中获取）
+        String query = request.getURI().getQuery();
+        if (query != null && query.contains("userId=")) {
+            String userId = query.substring(query.indexOf("userId=") + 7);
+            attributes.put("userId", userId);
+            System.out.println("用户 " + userId + " 正在建立WebSocket连接");
+            return true;
+        }
+        
+        return false; // 拒绝连接
+    }
+    
+    /**
+     * 握手后拦截
+     */
+    @Override
+    public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response, 
+                               WebSocketHandler wsHandler, Exception exception) {
+        if (exception == null) {
+            System.out.println("WebSocket握手成功");
+        } else {
+            System.err.println("WebSocket握手失败: " + exception.getMessage());
+        }
+    }
+}
+```
+
+### 60.2.5 消息控制器（可选）
+提供HTTP接口来主动推送消息：
+```java
+package tech.pdai.springboot.websocket.controller;
+
+import org.springframework.web.bind.annotation.*;
+import tech.pdai.springboot.websocket.handler.ChatWebSocketHandler;
+import tech.pdai.springboot.websocket.entity.response.ResponseResult;
+import javax.annotation.Resource;
+
+@RestController
+@RequestMapping("/websocket")
+public class WebSocketController {
+    
+    @Resource
+    private ChatWebSocketHandler chatWebSocketHandler;
+    
+    /**
+     * 向指定用户推送消息
+     */
+    @PostMapping("/sendToUser")
+    public ResponseResult<String> sendToUser(@RequestParam String userId, 
+                                           @RequestParam String message) {
+        chatWebSocketHandler.sendMessageToUser(userId, message);
+        return ResponseResult.success("消息发送成功");
+    }
+    
+    /**
+     * 广播消息
+     */
+    @PostMapping("/broadcast")
+    public ResponseResult<String> broadcast(@RequestParam String message) {
+        chatWebSocketHandler.broadcastMessage(message);
+        return ResponseResult.success("广播消息发送成功");
+    }
+}
+```
+
+### 60.2.6 前端HTML示例
+创建简单的WebSocket客户端页面：
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket聊天室</title>
+    <style>
+        #messageArea { height: 300px; border: 1px solid #ccc; overflow-y: scroll; padding: 10px; }
+        #inputArea { margin-top: 10px; }
+        .system-msg { color: #999; font-style: italic; }
+        .user-msg { color: #333; }
+    </style>
+</head>
+<body>
+    <h2>WebSocket聊天室</h2>
+    <div id="messageArea"></div>
+    <div id="inputArea">
+        <input type="text" id="messageInput" placeholder="输入消息..." style="width: 300px;">
+        <button onclick="sendMessage()">发送</button>
+        <button onclick="connect()">连接</button>
+        <button onclick="disconnect()">断开</button>
+    </div>
+
+    <script>
+        let websocket = null;
+        const userId = 'user_' + Math.random().toString(36).substr(2, 9);
+        
+        function connect() {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                addMessage('系统', '已经连接了');
+                return;
+            }
+            
+            // 建立WebSocket连接
+            websocket = new WebSocket('ws://localhost:8080/websocket/chat?userId=' + userId);
+            
+            websocket.onopen = function(event) {
+                addMessage('系统', '连接成功');
+            };
+            
+            websocket.onmessage = function(event) {
+                addMessage('服务器', event.data);
+            };
+            
+            websocket.onclose = function(event) {
+                addMessage('系统', '连接断开');
+            };
+            
+            websocket.onerror = function(event) {
+                addMessage('系统', '连接错误: ' + event.data);
+            };
+        }
+        
+        function disconnect() {
+            if (websocket) {
+                websocket.close();
+            }
+        }
+        
+        function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value.trim();
+            
+            if (message && websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(message);
+                addMessage('我', message);
+                messageInput.value = '';
+            }
+        }
+        
+        function addMessage(sender, content) {
+            const messageArea = document.getElementById('messageArea');
+            const messageDiv = document.createElement('div');
+            messageDiv.innerHTML = `<strong>${sender}:</strong> ${content}`;
+            messageArea.appendChild(messageDiv);
+            messageArea.scrollTop = messageArea.scrollHeight;
+        }
+        
+        // 回车发送消息
+        document.getElementById('messageInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        
+        // 页面加载时自动连接
+        window.onload = connect;
+    </script>
+</body>
+</html>
+```
+
+## 60.3 测试与验证
+
+### 60.3.1 启动应用
+1. 启动SpringBoot应用
+2. 访问 `http://localhost:8080/websocket.html`（需要将HTML文件放在static目录）
+
+### 60.3.2 功能测试
+- **连接测试**：打开页面自动建立WebSocket连接
+- **消息发送**：输入消息点击发送，查看服务器回复
+- **广播测试**：打开多个浏览器标签，测试广播功能
+- **异常测试**：断开网络测试重连机制
+
+### 60.3.3 接口测试
+使用Postman测试HTTP推送接口：
+```bash
+# 向指定用户推送消息
+POST /websocket/sendToUser?userId=user123&message=Hello
+
+# 广播消息
+POST /websocket/broadcast?message=系统通知
+```
+
+## 60.4 扩展与优化建议
+
+### 60.4.1 生产环境优化
+```java
+// 1. 连接数限制
+@Bean
+public ServletServerContainerFactoryBean createWebSocketContainer() {
+    ServletServerContainerFactoryBean container = new ServletServerContainerFactoryBean();
+    container.setMaxTextMessageBufferSize(8192);
+    container.setMaxBinaryMessageBufferSize(8192);
+    container.setMaxSessionIdleTimeout(300000L); // 5分钟超时
+    return container;
+}
+
+// 2. 心跳检测
+@Component
+public class WebSocketHeartbeatTask {
+    @Scheduled(fixedRate = 30000) // 30秒心跳
+    public void heartbeat() {
+        // 发送心跳包，检测连接状态
+    }
+}
+```
+
+### 60.4.2 高级特性
+- **STOMP协议**：使用@MessageMapping注解简化消息路由
+- **SockJS支持**：兼容不支持WebSocket的浏览器
+- **集群支持**：使用Redis Pub/Sub实现多实例消息同步
+- **安全认证**：集成Spring Security进行连接认证
+
+> **总结**：SpringBoot提供了简洁的WebSocket集成方案，通过WebSocketHandler可以快速实现实时通信功能。在实际项目中，需要根据业务需求选择合适的协议和优化策略。
+# 六十一、▶SpringBoot集成SSE - 基础的SSE实现
+
+> Server-Sent Events（SSE）是一种基于HTTP的服务器向客户端推送事件的技术，在大模型时代尤为重要。本文介绍SpringBoot中SSE的基础实现，并重点阐述SSE与大模型流式输出的紧密关系。
+
+## 61.1 知识准备
+
+### 61.1.1 SSE协议概述
+SSE是HTML5标准的一部分，允许服务器通过HTTP长连接向客户端推送文本事件。相比WebSocket，SSE是单向通信（服务器→客户端），更适合消息推送场景。
+
+**SSE与WebSocket对比：**
+| 特性 | SSE | WebSocket |
+| :--- | :--- | :--- |
+| **通信方向** | 单向（服务器→客户端） | 双向全双工 |
+| **协议基础** | 基于HTTP，兼容性好 | 独立协议，需要升级 |
+| **重连机制** | 内置自动重连 | 需要手动实现 |
+| **适用场景** | 新闻推送、股票行情、大模型流式输出 | 实时聊天、在线游戏 |
+| **大模型集成** | ⭐⭐⭐⭐⭐（天然适合流式响应） | ⭐⭐（需要额外处理） |
+
+### 61.1.2 SSE与大模型的关系
+在大模型应用场景中，SSE技术发挥着关键作用：
+
+**核心价值：**
+- **流式响应**：大模型生成内容时往往是逐词(token)输出，SSE支持分块传输
+- **实时体验**：用户能够立即看到生成过程，减少等待焦虑
+- **资源优化**：服务器可以边生成边推送，避免一次性计算完整响应
+- **错误恢复**：SSE内置重连机制，网络中断后可继续接收
+
+**典型应用场景：**
+- ChatGPT类应用的对话流式输出
+- 代码生成工具的实时预览
+- 长文本生成的进度展示
+- 多模态模型的渐进式响应
+
+### 61.1.3 Spring中的SSE支持
+Spring Framework 4.2+ 提供了完整的SSE支持：
+- **SseEmitter**：核心类，用于创建和管理SSE连接
+- **ResponseBodyEmitter**：SSE的父类，支持异步响应
+- **@CrossOrigin**：解决前端跨域问题
+
+## 61.2 基础SSE实现
+
+### 61.2.1 包依赖
+Spring Boot已内置SSE支持，无需额外依赖：
+```xml
+<!-- Spring Boot Web Starter已包含SSE支持 -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+```
+
+### 61.2.2 SSE配置类
+配置SSE相关的跨域和异步支持：
+```java
+package tech.pdai.springboot.sse.config;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@Configuration
+public class SseConfig implements WebMvcConfigurer {
+
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        registry.addMapping("/sse/**")
+                .allowedOrigins("*")
+                .allowedMethods("GET", "POST")
+                .allowCredentials(false)
+                .maxAge(3600);
+    }
+}
+```
+
+### 61.2.3 SSE服务类
+创建SSE服务，管理连接和消息推送：
+```java
+package tech.pdai.springboot.sse.service;
+
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import java.io.IOException;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+@Service
+public class SseService {
+    
+    // 存储所有活跃的SSE连接
+    private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    
+    /**
+     * 创建新的SSE连接
+     */
+    public SseEmitter createConnection(String clientId) {
+        // 设置超时时间（建议根据业务调整）
+        SseEmitter emitter = new SseEmitter(5 * 60 * 1000L); // 5分钟超时
+        
+        // 存储连接
+        emitters.put(clientId, emitter);
+        
+        // 设置完成和超时回调
+        emitter.onCompletion(() -> {
+            System.out.println("SSE连接完成: " + clientId);
+            emitters.remove(clientId);
+        });
+        
+        emitter.onTimeout(() -> {
+            System.out.println("SSE连接超时: " + clientId);
+            emitters.remove(clientId);
+        });
+        
+        emitter.onError((e) -> {
+            System.err.println("SSE连接错误: " + clientId + ", " + e.getMessage());
+            emitters.remove(clientId);
+        });
+        
+        // 发送连接成功事件
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("connected")
+                    .data("SSE连接建立成功，客户端ID: " + clientId));
+        } catch (IOException e) {
+            emitter.completeWithError(e);
+        }
+        
+        System.out.println("创建SSE连接，客户端ID: " + clientId + ", 当前连接数: " + emitters.size());
+        return emitter;
+    }
+    
+    /**
+     * 向指定客户端发送消息
+     */
+    public void sendMessageToClient(String clientId, String message) {
+        SseEmitter emitter = emitters.get(clientId);
+        if (emitter != null) {
+            try {
+                emitter.send(SseEmitter.event()
+                        .name("message")
+                        .data(message));
+            } catch (IOException e) {
+                System.err.println("向客户端 " + clientId + " 发送消息失败: " + e.getMessage());
+                emitters.remove(clientId);
+            }
+        }
+    }
+    
+    /**
+     * 向所有客户端广播消息
+     */
+    public void broadcastMessage(String message) {
+        emitters.forEach((clientId, emitter) -> {
+            if (emitter != null) {
+                try {
+                    emitter.send(SseEmitter.event()
+                            .name("broadcast")
+                            .data(message));
+                } catch (IOException e) {
+                    System.err.println("广播消息到客户端 " + clientId + " 失败: " + e.getMessage());
+                    emitters.remove(clientId);
+                }
+            }
+        });
+    }
+    
+    /**
+     * 模拟大模型流式输出
+     */
+    @Async
+    public void simulateModelStreaming(String clientId, String prompt) {
+        SseEmitter emitter = emitters.get(clientId);
+        if (emitter == null) {
+            return;
+        }
+        
+        // 模拟大模型生成过程
+        String[] responseParts = {
+            "思考中", "...", "正在分析您的问题", "...", 
+            "根据我的知识", "这个问题涉及多个方面", 
+            "首先", "让我们从基础概念开始", "...",
+            "总结来说", prompt + "的答案是：这是一个需要深入探讨的话题"
+        };
+        
+        // 分块发送，模拟流式输出
+        scheduler.scheduleAtFixedRate(new Runnable() {
+            private int index = 0;
+            
+            @Override
+            public void run() {
+                if (index < responseParts.length && emitter != null) {
+                    try {
+                        // 发送数据事件
+                        emitter.send(SseEmitter.event()
+                                .name("model-response")
+                                .id(String.valueOf(index)) // 事件ID，用于重连时定位
+                                .data(responseParts[index])
+                                .reconnectTime(3000L)); // 重连时间建议
+                        
+                        System.out.println("向客户端 " + clientId + " 发送模型响应片段: " + responseParts[index]);
+                        index++;
+                    } catch (IOException e) {
+                        System.err.println("流式输出中断: " + e.getMessage());
+                        scheduler.shutdown();
+                    }
+                } else {
+                    // 发送结束事件
+                    try {
+                        emitter.send(SseEmitter.event()
+                                .name("model-complete")
+                                .data("模型生成完成"));
+                        System.out.println("模型流式输出完成");
+                    } catch (IOException e) {
+                        System.err.println("发送完成事件失败: " + e.getMessage());
+                    }
+                    scheduler.shutdown();
+                }
+            }
+        }, 0, 1, TimeUnit.SECONDS); // 每秒发送一个片段
+    }
+    
+    /**
+     * 关闭连接
+     */
+    public void closeConnection(String clientId) {
+        SseEmitter emitter = emitters.get(clientId);
+        if (emitter != null) {
+            emitter.complete();
+            emitters.remove(clientId);
+            System.out.println("关闭SSE连接: " + clientId);
+        }
+    }
+    
+    /**
+     * 获取当前连接数
+     */
+    public int getConnectionCount() {
+        return emitters.size();
+    }
+}
+```
+
+### 61.2.4 SSE控制器
+创建REST控制器提供SSE端点：
+```java
+package tech.pdai.springboot.sse.controller;
+
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import tech.pdai.springboot.sse.service.SseService;
+import tech.pdai.springboot.sse.entity.response.ResponseResult;
+import javax.annotation.Resource;
+
+@RestController
+@RequestMapping("/sse")
+@CrossOrigin(origins = "*") // 允许跨域访问
+public class SseController {
+    
+    @Resource
+    private SseService sseService;
+    
+    /**
+     * 建立SSE连接
+     */
+    @GetMapping(value = "/connect", produces = "text/event-stream")
+    public SseEmitter connect(@RequestParam String clientId) {
+        return sseService.createConnection(clientId);
+    }
+    
+    /**
+     * 发送消息到指定客户端
+     */
+    @PostMapping("/send")
+    public ResponseResult<String> sendMessage(@RequestParam String clientId, 
+                                            @RequestParam String message) {
+        sseService.sendMessageToClient(clientId, message);
+        return ResponseResult.success("消息发送成功");
+    }
+    
+    /**
+     * 广播消息
+     */
+    @PostMapping("/broadcast")
+    public ResponseResult<String> broadcast(@RequestParam String message) {
+        sseService.broadcastMessage(message);
+        return ResponseResult.success("广播消息发送成功");
+    }
+    
+    /**
+     * 模拟大模型流式对话（核心功能）
+     */
+    @PostMapping("/chat/stream")
+    public ResponseResult<String> streamChat(@RequestParam String clientId,
+                                           @RequestParam String message) {
+        sseService.simulateModelStreaming(clientId, message);
+        return ResponseResult.success("开始流式对话");
+    }
+    
+    /**
+     * 关闭连接
+     */
+    @PostMapping("/disconnect")
+    public ResponseResult<String> disconnect(@RequestParam String clientId) {
+        sseService.closeConnection(clientId);
+        return ResponseResult.success("连接已关闭");
+    }
+    
+    /**
+     * 获取连接状态
+     */
+    @GetMapping("/status")
+    public ResponseResult<Integer> getStatus() {
+        return ResponseResult.success(sseService.getConnectionCount());
+    }
+}
+```
+
+### 61.2.5 大模型集成示例（真实场景）
+演示如何集成真实的大模型API进行流式输出：
+```java
+package tech.pdai.springboot.sse.integration;
+
+import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import java.io.IOException;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+
+@Component
+public class ModelIntegrationService {
+    
+    /**
+     * 集成真实大模型API的流式调用
+     */
+    public void streamModelResponse(String clientId, String prompt, SseEmitter emitter) {
+        // 模拟调用大模型API（如OpenAI GPT、文心一言等）
+        // 实际项目中替换为真实的API调用
+        
+        new Thread(() -> {
+            try {
+                // 模拟API调用过程
+                emitter.send(SseEmitter.event()
+                        .name("model-start")
+                        .data("开始调用大模型API..."));
+                
+                // 分块处理模型响应
+                processModelStream(clientId, prompt, emitter);
+                
+            } catch (Exception e) {
+                try {
+                    emitter.send(SseEmitter.event()
+                            .name("model-error")
+                            .data("模型调用失败: " + e.getMessage()));
+                } catch (IOException ex) {
+                    // 忽略发送错误
+                }
+            }
+        }).start();
+    }
+    
+    private void processModelStream(String clientId, String prompt, SseEmitter emitter) 
+            throws IOException, InterruptedException {
+        
+        // 模拟大模型流式响应（实际项目中替换为真实的流式HTTP调用）
+        String simulatedResponse = "大模型正在思考您的问题：'" + prompt + "'。这是一个复杂的问题，让我逐步分析...";
+        
+        // 将响应拆分为多个token模拟流式输出
+        String[] tokens = simulatedResponse.split("(?<=[。！？,.!?])|(?=\\s)");
+        
+        for (int i = 0; i < tokens.length; i++) {
+            if (!tokens[i].trim().isEmpty()) {
+                emitter.send(SseEmitter.event()
+                        .name("model-token")
+                        .id(String.valueOf(i))
+                        .data(tokens[i].trim()));
+                
+                // 模拟网络延迟
+                Thread.sleep(100 + (long) (Math.random() * 200));
+            }
+        }
+        
+        // 发送完成事件
+        emitter.send(SseEmitter.event()
+                .name("model-complete")
+                .data("模型响应完成"));
+    }
+}
+```
+
+### 61.2.6 前端HTML示例
+创建SSE客户端页面，展示大模型流式输出效果：
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SSE大模型流式对话演示</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #chatArea { height: 400px; border: 1px solid #ddd; padding: 10px; overflow-y: auto; margin-bottom: 10px; }
+        .user-msg { color: #0066cc; margin: 5px 0; }
+        .model-msg { color: #333; margin: 5px 0; background: #f5f5f5; padding: 5px; border-radius: 3px; }
+        .system-msg { color: #999; font-style: italic; margin: 5px 0; }
+        #inputArea { display: flex; gap: 10px; }
+        #messageInput { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 3px; }
+        button { padding: 8px 15px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .status { margin-top: 10px; color: #666; }
+    </style>
+</head>
+<body>
+    <h2>大模型流式对话演示 (基于SSE)</h2>
+    <div class="status">连接状态: <span id="status">未连接</span></div>
+    <div id="chatArea"></div>
+    <div id="inputArea">
+        <input type="text" id="messageInput" placeholder="输入您的问题..." />
+        <button onclick="sendMessage()">发送</button>
+        <button onclick="connectSSE()">连接SSE</button>
+        <button onclick="disconnectSSE()">断开连接</button>
+    </div>
+
+    <script>
+        let eventSource = null;
+        const clientId = 'user_' + Math.random().toString(36).substr(2, 8);
+        let modelResponseBuffer = ''; // 用于累积模型响应
+        
+        function connectSSE() {
+            if (eventSource) {
+                addMessage('系统', '已经连接了');
+                return;
+            }
+            
+            // 建立SSE连接
+            eventSource = new EventSource(`/sse/connect?clientId=${clientId}`);
+            
+            eventSource.onopen = function(event) {
+                document.getElementById('status').textContent = '已连接';
+                addMessage('系统', 'SSE连接建立成功');
+            };
+            
+            // 监听不同类型的事件
+            eventSource.addEventListener('connected', function(event) {
+                addMessage('系统', event.data);
+            });
+            
+            eventSource.addEventListener('message', function(event) {
+                addMessage('服务器', event.data);
+            });
+            
+            eventSource.addEventListener('model-response', function(event) {
+                // 大模型流式响应 - 逐词显示效果
+                modelResponseBuffer += event.data;
+                updateModelResponse(modelResponseBuffer);
+            });
+            
+            eventSource.addEventListener('model-token', function(event) {
+                // 更细粒度的token级流式输出
+                modelResponseBuffer += event.data;
+                updateModelResponse(modelResponseBuffer);
+            });
+            
+            eventSource.addEventListener('model-complete', function(event) {
+                addMessage('系统', '模型生成完成');
+                modelResponseBuffer = ''; // 清空缓冲区
+            });
+            
+            eventSource.addEventListener('model-error', function(event) {
+                addMessage('系统', '错误: ' + event.data, 'error');
+            });
+            
+            eventSource.onerror = function(event) {
+                document.getElementById('status').textContent = '连接错误';
+                addMessage('系统', 'SSE连接错误，尝试重连...');
+            };
+        }
+        
+        function disconnectSSE() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+                document.getElementById('status').textContent = '已断开';
+                addMessage('系统', 'SSE连接已关闭');
+                
+                // 通知服务器关闭连接
+                fetch(`/sse/disconnect?clientId=${clientId}`, { method: 'POST' });
+            }
+        }
+        
+        function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value.trim();
+            
+            if (message) {
+                addMessage('我', message);
+                messageInput.value = '';
+                
+                // 发送到服务器，触发大模型流式响应
+                fetch(`/sse/chat/stream?clientId=${clientId}&message=${encodeURIComponent(message)}`, {
+                    method: 'POST'
+                }).then(response => {
+                    if (!response.ok) {
+                        throw new Error('请求失败');
+                    }
+                    return response.json();
+                }).then(data => {
+                    console.log('流式对话开始:', data);
+                }).catch(error => {
+                    addMessage('系统', '发送失败: ' + error.message, 'error');
+                });
+            }
+        }
+        
+        function addMessage(sender, content, type = 'info') {
+            const chatArea = document.getElementById('chatArea');
+            const messageDiv = document.createElement('div');
+            
+            let className = 'system-msg';
+            if (sender === '我') className = 'user-msg';
+            else if (sender === '模型') className = 'model-msg';
+            
+            messageDiv.className = className;
+            messageDiv.innerHTML = `<strong>${sender}:</strong> ${content}`;
+            chatArea.appendChild(messageDiv);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+        
+        function updateModelResponse(content) {
+            const chatArea = document.getElementById('chatArea');
+            let modelMsg = document.getElementById('current-model-response');
+            
+            if (!modelMsg) {
+                modelMsg = document.createElement('div');
+                modelMsg.id = 'current-model-response';
+                modelMsg.className = 'model-msg';
+                modelMsg.innerHTML = '<strong>模型:</strong> ';
+                chatArea.appendChild(modelMsg);
+            }
+            
+            modelMsg.innerHTML = `<strong>模型:</strong> ${content}`;
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+        
+        // 回车发送消息
+        document.getElementById('messageInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        
+        // 页面加载时自动连接
+        window.onload = connectSSE;
+        
+        // 页面关闭时断开连接
+        window.addEventListener('beforeunload', disconnectSSE);
+    </script>
+</body>
+</html>
+```
+
+## 61.3 测试与验证
+
+### 61.3.1 启动应用
+1. 启动SpringBoot应用（默认端口8080）
+2. 访问 `http://localhost:8080/sse-demo.html` 测试SSE功能
+
+### 61.3.2 功能测试
+- **连接测试**：点击"连接SSE"按钮，观察连接状态
+- **大模型流式对话**：输入问题，观察逐词输出的流式效果
+- **多客户端测试**：打开多个浏览器标签模拟多用户场景
+- **网络中断测试**：断开网络后重连，验证自动恢复机制
+
+### 61.3.3 API测试
+使用curl命令测试SSE端点：
+```bash
+# 建立SSE连接
+curl -N -H "Accept:text/event-stream" "http://localhost:8080/sse/connect?clientId=test123"
+
+# 发送消息触发大模型流式响应
+curl -X POST "http://localhost:8080/sse/chat/stream?clientId=test123&message=什么是人工智能"
+```
+
+## 61.4 扩展与优化建议
+
+### 61.4.1 生产环境优化
+```java
+// 1. 连接管理优化
+@Component
+public class SseConnectionManager {
+    private final Map<String, SseEmitter> connections = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService heartbeatExecutor = 
+        Executors.newScheduledThreadPool(2);
+    
+    @PostConstruct
+    public void init() {
+        // 心跳检测，清理僵尸连接
+        heartbeatExecutor.scheduleAtFixedRate(this::checkConnections, 30, 30, TimeUnit.SECONDS);
+    }
+    
+    private void checkConnections() {
+        connections.entrySet().removeIf(entry -> {
+            try {
+                entry.getValue().send(SseEmitter.event().name("heartbeat").data("ping"));
+                return false;
+            } catch (IOException e) {
+                return true; // 连接已失效
+            }
+        });
+    }
+}
+
+// 2. 大模型集成优化
+@Service
+public class ModelStreamingService {
+    private final WebClient webClient;
+    
+    public ModelStreamingService() {
+        this.webClient = WebClient.builder()
+            .baseUrl("https://api.openai.com/v1/chat/completions")
+            .defaultHeader("Authorization", "Bearer YOUR_API_KEY")
+            .build();
+    }
+    
+    public void streamModelResponse(String prompt, SseEmitter emitter) {
+        webClient.post()
+            .bodyValue(Map.of(
+                "model", "gpt-4",
+                "messages", List.of(Map.of("role", "user", "content", prompt)),
+                "stream", true
+            ))
+            .accept(MediaType.TEXT_EVENT_STREAM)
+            .retrieve()
+            .bodyToFlux(String.class)
+            .subscribe(
+                data -> {
+                    try {
+                        // 解析大模型流式响应
+                        if (data.startsWith("data: ")) {
+                            String jsonData = data.substring(6);
+                            if (!jsonData.equals("[DONE]")) {
+                                // 提取模型输出内容
+                                String content = extractContent(jsonData);
+                                emitter.send(SseEmitter.event()
+                                    .name("model-token")
+                                    .data(content));
+                            }
+                        }
+                    } catch (IOException e) {
+                        // 处理发送错误
+                    }
+                },
+                error -> {
+                    try {
+                        emitter.send(SseEmitter.event()
+                            .name("model-error")
+                            .data("模型调用失败"));
+                    } catch (IOException e) {
+                        // 忽略错误
+                    }
+                },
+                () -> {
+                    try {
+                        emitter.send(SseEmitter.event()
+                            .name("model-complete")
+                            .data("生成完成"));
+                    } catch (IOException e) {
+                        // 忽略错误
+                    }
+                }
+            );
+    }
+}
+```
+
+### 61.4.2 大模型集成最佳实践
+1. **流式控制**：设置合适的chunk大小，平衡实时性和性能
+2. **错误处理**：实现重试机制和降级方案
+3. **速率限制**：控制请求频率，避免API限制
+4. **上下文管理**：维护对话历史，支持多轮对话
+5. **性能监控**：记录响应时间、token数量等指标
+
+### 61.4.3 高级特性集成
+- **分片传输**：大响应内容的分片处理
+- **优先级队列**：重要请求优先处理
+- **缓存策略**：常见问题的缓存响应
+- **多模型路由**：根据场景选择不同的大模型
+
+> **总结**：SSE技术为大模型应用提供了理想的流式输出方案。SpringBoot通过SseEmitter简化了SSE集成，结合大模型的token级流式输出，能够显著提升用户体验。在实际项目中，建议根据业务需求选择合适的优化策略，充分发挥SSE在大模型场景中的优势。
+# 六十一、▶SpringBoot定时任务 - Timer实现方式
+> 定时任务在实际开发中有着广泛的用途，本文主要帮助你构建定时任务的知识体系，同时展示Timer 的schedule和scheduleAtFixedRate例子；后续的文章中我们将逐一介绍其它常见的与SpringBoot的集成。
+## 61.1 知识准备
+> 需要对定时任务的使用场景和常见的实现方式。
+### 61.1.1 什么样的场景会使用定时任务？
+比如每天/每周/每月生成日志汇总，定时发送推送信息，定时生成数据表格等
+
+### 61.1.2 定时任务有哪些实现方式？
+> 首先你需要构建如下实现定时任务的知识体系。在后续的文章中我们将逐一介绍在SpringBoot下的集成。
+- 定时任务基础
+  - Cron表达式
+  - Linux定时任务工具crontab
+- JDK内置
+  - Timer
+  - ScheduleExecutorService
+- Netty
+  - HashedWheelTimer
+- Spring
+  - Spring自带Schedule
+  - Spring集成Quartz
+- 分布式集群
+  - Quartz持久化JDBC方式
+  - Elastic-job
+  - xxl-job
+## 61.2 Timer实现案例
+> Timer 的schedule和scheduleAtFixedRate例子如下。
+### 61.2.1 schedule延迟任务
+执行定时任务，延迟1秒开始执行。
+```java
+@SneakyThrows
+public static void timer() {
+    // start timer
+    Timer timer = new Timer();
+    timer.schedule(new TimerTask() {
+        public void run() {
+            log.info("timer-task @{}", LocalDateTime.now());
+        }
+    }, 1000);
+
+    // waiting to process(sleep to mock)
+    Thread.sleep(3000);
+
+    // stop timer
+    timer.cancel();
+}
+```
+输出
+```sh
+10:05:47.440 [Timer-0] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-task @2021-10-01T20:05:47.436
+```
+### 61.2.2 schedule周期任务
+延迟0.5秒开始执行，每秒执行一次， 10秒后停止。
+```java
+@SneakyThrows
+public static void timerPeriod() {
+    // start timer
+    Timer timer = new Timer();
+    timer.schedule(new TimerTask() {
+        @SneakyThrows
+        public void run() {
+            log.info("timer-period-task @{}", LocalDateTime.now());
+            Thread.sleep(100); // 可以设置的执行时间, 来测试当执行时间大于执行周期时任务执行的变化 
+        }
+    }, 500, 1000);
+
+    // waiting to process(sleep to mock)
+    Thread.sleep(10000);
+
+    // stop timer
+    timer.cancel();
+}
+```
+输出
+```java
+10:05:49.781 [Timer-1] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-period-task @2021-10-01T10:05:49.781
+10:05:50.781 [Timer-1] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-period-task @2021-10-01T10:05:50.781
+10:05:51.781 [Timer-1] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-period-task @2021-10-01T10:05:51.781
+10:05:52.781 [Timer-1] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-period-task @2021-10-01T10:05:52.781
+10:05:53.782 [Timer-1] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-period-task @2021-10-01T10:05:53.782
+10:05:54.783 [Timer-1] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-period-task @2021-10-01T10:05:54.783
+10:05:55.783 [Timer-1] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-period-task @2021-10-01T10:05:55.783
+10:05:56.784 [Timer-1] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-period-task @2021-10-01T10:05:56.784
+10:05:57.785 [Timer-1] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-period-task @2021-10-01T10:05:57.785
+10:05:58.786 [Timer-1] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-period-task @2021-10-01T10:05:58.786
+```
+### 61.2.3 scheduleAtFixedRate
+延迟0.5秒开始执行，每秒执行一次， 10秒后停止。
+
+同时测试某次任务执行时间大于周期时间的变化。
+```java
+@SneakyThrows
+public static void timerFixedRate() {
+    // start timer
+    Timer timer = new Timer();
+    timer.scheduleAtFixedRate(new TimerTask() {
+        int count = 0;
+
+        @SneakyThrows
+        public void run() {
+            if (count++==2) {
+                Thread.sleep(5000); // 某一次执行时间超过了period(执行周期）
+            }
+            log.info("timer-fixedRate-task @{}", LocalDateTime.now());
+
+        }
+    }, 500, 1000);
+
+    // waiting to process(sleep to mock)
+    Thread.sleep(10000);
+
+    // stop timer
+    timer.cancel();
+}
+```
+输出
+```sh
+10:05:59.781 [Timer-2] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-fixedRate-task @2021-10-01T10:05:59.781
+10:06:00.782 [Timer-2] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-fixedRate-task @2021-10-01T10:06:00.782
+10:06:06.783 [Timer-2] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-fixedRate-task @2021-10-01T10:06:06.783
+10:06:06.783 [Timer-2] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-fixedRate-task @2021-10-01T10:06:06.783
+10:06:06.783 [Timer-2] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-fixedRate-task @2021-10-01T10:06:06.783
+10:06:06.783 [Timer-2] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-fixedRate-task @2021-10-01T10:06:06.783
+10:06:06.783 [Timer-2] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-fixedRate-task @2021-10-01T10:06:06.783
+10:06:06.783 [Timer-2] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-fixedRate-task @2021-10-01T10:06:06.783
+10:06:07.781 [Timer-2] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-fixedRate-task @2021-10-01T10:06:07.781
+10:06:08.781 [Timer-2] INFO tech.pdai.springboot.schedule.timer.timertest.TimerTester - timer-fixedRate-task @2021-10-01T10:06:08.781
+```
+（你会发现周期执行1秒中执行一次，但是某次执行了5秒，这时候，后续的任务会加快执行进度，一次性就执行了，执行的时间都是10:06:06.783， 所以scheduleAtFixedRate最大的特点是**保证了总时间段内的执行次数**）
+## 61.3 进一步理解
+### 61.3.1 schedule 和 scheduleAtFixedRate 有何区别？
+- schedule：每次执行完当前任务后，然后间隔一个period的时间再执行下一个任务； 当某个任务执行周期大于时间间隔时，依然按照间隔时间执行下个任务，即它**保证了任务之间执行的间隔**。
+- scheduleAtFixedRate：每次执行时间为上一次任务开始起向后推一个period间隔，也就是说下次执行时间相对于上一次任务开始的时间点；按照上述的例子，它**保证了总时间段内的任务的执行次数**。
+### 61.3.2 为什么几乎很少使用Timer这种方式？
+- Timer底层是使用一个单线来实现多个Timer任务处理的，所有任务都是由同一个线程来调度，所有任务都是串行执行，意味着同一时间只能有一个任务得到执行，而前一个任务的延迟或者异常会影响到之后的任务。
+- 如果有一个定时任务在运行时，产生未处理的异常，那么当前这个线程就会停止，那么所有的定时任务都会停止，受到影响。
+- PS：在这点上你可以看到，定时任务Job中**异常**和**超时**等一般都是要自行处理的，以防止对其它任务的影响。
 
 
 
