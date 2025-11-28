@@ -25283,7 +25283,7 @@ public ThreadPoolExecutor(int corePoolSize,
 
 LinkedBlockingQueue比ArrayBlockingQueue在插入删除节点性能方面更优，但是二者在put(), take()任务的时均需要加锁，SynchronousQueue使用无锁算法，根据节点的状态判断执行，而不需要用到锁，其核心是Transfer.transfer().
 
-- `maximumPoolSize`  线程池中允许的最大线程数。如果当前阻塞队列满了，且继续提交任务，则创建新的线程执行任务，前提是当前线程数小于maximumPoolSize；当阻塞队列是无界队列, 则maximumPoolSize则不起作用, 因为无法提交至核心线程池的线程会一直持续地放入workQueue.
+- `maximumPoolSize`  线程池中允许的最大线程数。如果当前阻塞队列满了，且继续提交任务，则创建新的线程执行任务，前提是当前线程数小于maximumPoolSize；当阻塞队列是无界队列, 则maximumPoolSize则不起作用, 因为无法提交至核心线程池的线程会一直持续地放入workQueue.(**要注意这个地方很重要，是阻塞队列满了之后(workQueue)，继续提交任务才会按照不超过maximumPoolSize继续创建线程，且如果是无界阻塞队列的话这个maximumPoolSize无效**，可以参考springboot章节，定时任务：newScheduledThreadPool)
 - `keepAliveTime`  （非核心线程）线程空闲时的存活时间，即当线程没有任务执行时，该线程继续存活的时间；默认情况下，该参数只在线程数大于corePoolSize时才有用, 超过这个时间的空闲线程将被终止；
 - `unit`  keepAliveTime的单位
 - `threadFactory`  创建线程的工厂，通过自定义的线程工厂可以给每个新建的线程设置一个具有识别度的线程名。默认为DefaultThreadFactory

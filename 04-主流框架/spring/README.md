@@ -33439,6 +33439,4261 @@ public static void timerFixedRate() {
 - Timer底层是使用一个单线来实现多个Timer任务处理的，所有任务都是由同一个线程来调度，所有任务都是串行执行，意味着同一时间只能有一个任务得到执行，而前一个任务的延迟或者异常会影响到之后的任务。
 - 如果有一个定时任务在运行时，产生未处理的异常，那么当前这个线程就会停止，那么所有的定时任务都会停止，受到影响。
 - PS：在这点上你可以看到，定时任务Job中**异常**和**超时**等一般都是要自行处理的，以防止对其它任务的影响。
+# 六十二、SpringBoot定时任务 - ScheduleExecutorService实现方式
+> 上文介绍的Timer在实际开发中很少被使用， 因为Timer底层是使用一个单线程来实现多个Timer任务处理的，所有任务都是由同一个线程来调度，所有任务都是串行执行。而ScheduledExecutorService是基于线程池的，可以开启多个线程进行执行多个任务，每个任务开启一个线程； 这样任务的延迟和未处理异常就不会影响其它任务的执行了。
+## 62.1 知识准备
+> 需要对ScheduledExecutorService 代替 Timer的原因以及ScheduledExecutorService所在的知识体系有了解。
+### 62.1.1 为什么用ScheduledExecutorService 代替 Timer？
+上文我们说到Timer底层是使用一个单线程来实现多个Timer任务处理的，所有任务都是由同一个线程来调度，所有任务都是串行执行，意味着同一时间只能有一个任务得到执行，而前一个任务的延迟或者异常会影响到之后的任务。
+
+如果有一个定时任务在运行时，产生未处理的异常，那么当前这个线程就会停止，那么所有的定时任务都会停止，受到影响。
+
+而ScheduledExecutorService是基于线程池的，可以开启多个线程进行执行多个任务，每个任务开启一个线程； 这样任务的延迟和未处理异常就不会影响其它任务的执行了。
+### 62.1.2 ScheduledExecutorService所在的线程池的知识体系？
+![225.java-thread-x-juc-overview-1-u.png](../../assets/images/04-主流框架/spring/225.java-thread-x-juc-overview-1-u.png)
+## 62.2 ScheduledExecutorService实现案例
+ScheduledExecutorService使用例子如下。
+
+### 62.2.1 schedule
+延迟1秒执行一个进程任务。
+```java
+@SneakyThrows
+public static void schedule() {
+    ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
+    executor.schedule(
+            new Runnable() {
+                @Override
+                @SneakyThrows
+                public void run() {
+                    log.info("run schedule @ {}", LocalDateTime.now());
+                }
+            },
+            1000,
+            TimeUnit.MILLISECONDS);
+    // waiting to process(sleep to mock)
+    Thread.sleep(10000);
+
+    // stop
+    executor.shutdown();
+}
+```
+输出
+```sh
+21:07:02.047 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run schedule @ 2022-03-10T21:07:02.046
+```
+### 62.2.2 scheduleAtFixedRate
+延迟0.5秒开始执行，每秒执行一次， 10秒后停止。
+
+同时测试某次任务执行时间大于周期时间的变化。
+```java
+/**
+    * 每秒执行一次，延迟0.5秒执行。
+    */
+@SneakyThrows
+public static void scheduleAtFixedRate() {
+    AtomicInteger count = new AtomicInteger(0);
+    ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
+    executor.scheduleAtFixedRate(
+            new Runnable() {
+                @Override
+                @SneakyThrows
+                public void run() {
+                    if (count.getAndIncrement()==2) {
+                        Thread.sleep(5000); // 执行时间超过执行周期
+                    }
+                    log.info("run scheduleAtFixedRate @ {}", LocalDateTime.now());
+                }
+            },
+            500,
+            1000, // 每隔多久执行
+            TimeUnit.MILLISECONDS);
+    // waiting to process(sleep to mock)
+    Thread.sleep(10000);
+
+    // stop
+    executor.shutdown();
+}
+```
+输出：
+```java
+20:51:47.626 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleAtFixedRate @ 2022-03-10T20:51:47.624
+20:51:48.575 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleAtFixedRate @ 2022-03-10T20:51:48.575
+20:51:54.579 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleAtFixedRate @ 2022-03-10T20:51:54.579
+20:51:54.579 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleAtFixedRate @ 2022-03-10T20:51:54.579
+20:51:54.579 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleAtFixedRate @ 2022-03-10T20:51:54.579
+20:51:54.580 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleAtFixedRate @ 2022-03-10T20:51:54.580
+20:51:54.580 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleAtFixedRate @ 2022-03-10T20:51:54.580
+20:51:54.580 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleAtFixedRate @ 2022-03-10T20:51:54.580
+20:51:55.574 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleAtFixedRate @ 2022-03-10T20:51:55.574
+20:51:56.578 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleAtFixedRate @ 2022-03-10T20:51:56.578
+```
+（你会发现周期执行1秒中执行一次，但是某次执行了5秒，这时候，后续的任务会加快执行进度，一次性就执行了，执行的时间都是20:51:54，所以scheduleAtFixedRate最大的特点是保证了总时间段内的执行次数）
+### 62.2.3 scheduleWithFixedDelay
+延迟0.5秒开始执行，每秒执行一次， 10秒后停止。
+
+同时测试某次任务执行时间大于周期时间的变化。
+```java
+/**
+    * 每秒执行一次，延迟0.5秒执行。
+    */
+@SneakyThrows
+public static void scheduleWithFixedDelay() {
+    AtomicInteger count = new AtomicInteger(0);
+    ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
+    executor.scheduleWithFixedDelay(
+            new Runnable() {
+                @Override
+                @SneakyThrows
+                public void run() {
+                    if (count.getAndIncrement()==2) {
+                        Thread.sleep(5000); // 执行时间超过执行周期
+                    }
+                    log.info("run scheduleWithFixedDelay @ {}", LocalDateTime.now());
+                }
+            },
+            500,
+            1000, // 上次执行完成后，延迟多久执行
+            TimeUnit.MILLISECONDS);
+
+    // waiting to process(sleep to mock)
+    Thread.sleep(10000);
+
+    // stop
+    executor.shutdown();
+}
+```
+输出：
+```sh
+20:50:03.559 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleWithFixedDelay @ 2022-03-10T20:50:03.557
+20:50:04.564 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleWithFixedDelay @ 2022-03-10T20:50:04.564
+20:50:10.568 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleWithFixedDelay @ 2022-03-10T20:50:10.568
+20:50:11.569 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleWithFixedDelay @ 2022-03-10T20:50:11.569
+20:50:12.571 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.executorservice.ScheduleExecutorServiceDemo - run scheduleWithFixedDelay @ 2022-03-10T20:50:12.571
+```
+## 62.3 进一步理解
+### 62.3.1 schedule 和 scheduleAtFixedRate和 scheduleWithFixedDelay有何区别？
+- schedule：延迟执行一个任务。
+- scheduleAtFixedRate：每次执行时间为上一次任务开始起向后推一个period间隔，也就是说下次执行时间相对于上一次任务开始的时间点；按照上述的例子，**它保证了总时间段内的任务的执行次数**
+- scheduleAtFixedDelay：每次执行完当前任务后，然后间隔一个period的时间再执行下一个任务； 当某个任务执行周期大于时间间隔时，依然按照间隔时间执行下个任务，即**它保证了任务之间执行的间隔,注意这里的间隔是包含任务执行时间，即需要等前一个任务结束然后间隔1S再执行下一个任务**。
+  
+（PS：和timer对比下，timer中没有scheduleAtFixedDelay，它的schedule等同于scheduleAtFixedDelay）
+### 62.3.1 ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);1代表什么?
+#### 62.3.1.1 先说答案
+**先说答案：Executors.newScheduledThreadPool(1) ，则永远都会只有一个线程被创建，其他定时任务的线程都会被放到阻塞队列中等待**
+#### 62.3.1.2 基础概念
+首先需要明确一些概念：
+- 线程池核心线程数和最大线程数之间关系
+
+当提交一个新任务到线程池时：
+
+1. 首先线程池判断基本线程池(corePoolSize)是否已满？没满，创建一个工作线程来执行任务。满了，则进入下个流程；
+2. 其次线程池判断工作队列(workQueue)是否已满？没满，则将新提交的任务存储在工作队列里。满了，则进入下个流程；
+3. 最后线程池判断整个线程池(maximumPoolSize)是否已满？没满，则创建一个新的工作线程来执行任务，满了，则交给饱和策略来处理这个任务；
+4. 如果线程池中的线程数量大于 corePoolSize 时，如果某线程空闲时间超过keepAliveTime，线程将被终止，直至线程池中的线程数目不大于corePoolSize；如果允许为核心池中的线程设置存活时间，那么核心池中的线程空闲时间超过 keepAliveTime，线程也会被终止。
+5. 只有当阻塞队列满了后，才会触发非核心线程的创建。所以非核心线程只是临时过来打杂的。直到空闲了，然后自己关闭了。
+#### 62.3.1.3 进一步解释
+`Executors.newScheduledThreadPool(1)` 中的参数 `1` 确实设置的是**核心线程数（corePoolSize）**，而**最大线程数（maximumPoolSize）** 被设置为 `Integer.MAX_VALUE`（即整形的最大值）。这是 `ScheduledThreadPoolExecutor` 的标准配置。
+
+然而，在实际行为中，**这个线程池通常只会使用核心线程数（即1个线程）来执行任务**，不会创建更多线程。原因在于 `ScheduledThreadPoolExecutor` 使用了一个**无界队列（DelayedWorkQueue）**。让我详细解释一下：
+
+##### 62.3.1.3.1 源码分析：
+- `Executors.newScheduledThreadPool(1)` 的源码如下（基于 OpenJDK）：
+  ```java
+  public static ScheduledExecutorService newScheduledThreadPool(int corePoolSize) {
+      return new ScheduledThreadPoolExecutor(corePoolSize);
+  }
+  ```
+- `ScheduledThreadPoolExecutor` 的构造函数：
+  ```java
+  public ScheduledThreadPoolExecutor(int corePoolSize) {
+      super(corePoolSize, Integer.MAX_VALUE, 0, NANOSECONDS, new DelayedWorkQueue());
+  }
+  ```
+- 这里，`super` 调用的是 `ThreadPoolExecutor` 的构造函数，参数为：
+  - `corePoolSize`：1（核心线程数）
+  - `maximumPoolSize`：`Integer.MAX_VALUE`（最大线程数）
+  - `workQueue`：`DelayedWorkQueue`（一个无界延迟队列）
+
+##### 62.3.1.3.2 为什么实际只用一个线程？
+在 `ThreadPoolExecutor` 的工作机制中：
+1. 当提交新任务时，如果当前线程数小于核心线程数，会创建新线程。
+2. 如果线程数已达到核心线程数，任务会被放入队列。
+3. **只有当队列满时**，才会创建新线程（直到达到最大线程数）。
+
+但由于 `DelayedWorkQueue` 是一个**无界队列**（容量理论上无限），它永远不会满。因此：
+- 任务总是被放入队列，而不会触发创建额外线程。
+- 线程数会稳定在核心线程数（1个），不会增加到 `Integer.MAX_VALUE`。
+
+##### 62.3.1.3.3 在您的代码中的影响：
+- 您使用 `scheduleWithFixedDelay` 调度了一个周期性任务。由于线程池只有1个核心线程，所有任务都会由这个单线程顺序执行。
+- 当任务执行时间超过延迟时间（如您的示例中休眠5秒），下一个任务会等待当前任务完成后再开始计算延迟（因为 `scheduleWithFixedDelay` 是“固定延迟”模式）。
+- 即使有多个任务堆积在队列中，也只有一个线程处理它们，不会创建新线程。
+
+##### 62.3.1.3.4 验证行为：
+如果您运行代码，输出会类似这样（时间间隔示例）：
+```
+run scheduleWithFixedDelay @ 开始后0.5秒
+run scheduleWithFixedDelay @ 开始后1.5秒
+run scheduleWithFixedDelay @ 开始后2.5秒（这里休眠5秒）
+run scheduleWithFixedDelay @ 开始后7.5秒（2.5秒开始 + 5秒休眠 + 1秒延迟）
+run scheduleWithFixedDelay @ 开始后8.5秒
+```
+这证实了任务由单线程顺序执行。
+
+##### 62.3.1.3.5 如果真想创建多个线程？
+- 只有当任务提交速度极快，且队列“几乎满”时（但无界队列不会满），才可能触发创建新线程，但这在现实中很少发生。
+- 如果您需要并行执行，应增加核心线程数（如 `newScheduledThreadPool(5)`），或使用其他线程池类型。
+
+总结：**虽然最大线程数设置为 `Integer.MAX_VALUE`，但由于无界队列的存在，实际线程数不会超过核心线程数（1个）**。
+# 六十三、SpringBoot定时任务 - Netty HashedWheelTimer方式
+> Timer和ScheduledExecutorService是JDK内置的定时任务方案，而业内还有一个经典的定时任务的设计叫时间轮(Timing Wheel), Netty内部基于时间轮实现了一个HashedWheelTimer来优化百万量级I/O超时的检测，它是一个高性能，低消耗的数据结构，它适合用非准实时，延迟的短平快任务，例如心跳检测。本文主要介绍时间轮(Timing Wheel)及其使用。
+## 63.1 知识准备
+### 63.1.1 什么是时间轮(Timing Wheel)
+> 时间轮(Timing Wheel)是George Varghese和Tony Lauck在1996年的论文'<a href='https://www.cse.wustl.edu/~cdgill/courses/cs6874/TimingWheels.ppt'>Hashed and Hierarchical Timing Wheels: data structures to efficiently implement a timer facility</a>'实现的，它在Linux内核中使用广泛，是Linux内核定时器的实现方法和基础之一。
+
+时间轮(Timing Wheel)是一种环形的数据结构，就像一个时钟可以分成很多格子(Tick)，每个格子代表时间的间隔，它指向存储的具体任务（timerTask）的一个链表。
+![226.spring-framework-introduce-4.png](../../assets/images/04-主流框架/spring/226.spring-framework-introduce-4.png)
+
+以上述在论文中的图片例子，这里一个轮子包含8个格子(Tick), 每个tick是一秒钟；
+- 任务的添加：如果一个任务要在17秒后执行，那么它需要转2轮，最终加到Tick=1位置的链表中。
+- 任务的执行：在时钟转2Round到Tick=1的位置，开始执行这个位置指向的链表中的这个任务。（# 这里表示剩余需要转几轮再执行这个任务）
+### 63.1.2 Netty的HashedWheelTimer要解决什么问题
+> HashedWheelTimer是Netty根据时间轮(Timing Wheel)开发的工具类，它要解决什么问题呢？这里面有两个要点：`延迟任务` + `低时效性`。
+
+在Netty中的一个典型应用场景是判断某个连接是否idle，如果idle（如客户端由于网络原因导致到服务器的心跳无法送达），则服务器会主动断开连接，释放资源。判断连接是否idle是通过定时任务完成的，但是Netty可能维持数百万级别的长连接，对每个连接去定义一个定时任务是不可行的，所以如何提升I/O超时调度的效率呢？
+
+Netty根据时间轮(Timing Wheel)开发了HashedWheelTimer工具类，用来优化I/O超时调度(本质上是延迟任务)；之所以采用时间轮(Timing Wheel)的结构还有一个很重要的原因是I/O超时这种类型的任务对时效性不需要非常精准。
+### 63.1.3 HashedWheelTimer的使用方式
+> 在了解时间轮(Timing Wheel)和Netty的HashedWheelTimer要解决的问题后，我们看下HashedWheelTimer的使用方式
+- 通过构造函数看主要参数
+```java
+public HashedWheelTimer(
+        ThreadFactory threadFactory,
+        long tickDuration, TimeUnit unit, int ticksPerWheel, boolean leakDetection,
+        long maxPendingTimeouts, Executor taskExecutor) {
+
+}
+```
+- 具体参数说明如下：
+    - `threadFactory`：线程工厂，用于创建工作线程， 默认是Executors.defaultThreadFactory()
+    - `tickDuration`：tick的周期，即多久tick一次(也就是说从一个格子切换到下一个格子需要消耗的时间是多少)
+    - `unit`: tick周期的单位
+    - `ticksPerWheel`：时间轮的长度，一圈下来有多少格
+    - `leakDetection`：是否开启内存泄漏检测，默认是true
+    - `maxPendingTimeouts`：最多执行的任务数，默认是-1，即不限制。在高并发量情况下才会设置这个参数。
+## 63.2 实现案例
+### 63.2.1 Pom依赖
+```xml
+<dependency>
+    <groupId>io.netty</groupId>
+    <artifactId>netty-all</artifactId>
+    <version>4.1.77.Final</version>
+</dependency>
+```
+### 36.2.2 2个简单例子
+例子1：5秒后执行TimerTask
+```java
+@SneakyThrows
+public static void simpleHashedWheelTimer() {
+    log.info("init task 1...");
+    
+    HashedWheelTimer timer = new HashedWheelTimer(1, TimeUnit.SECONDS, 8);
+
+    // add a new timeout
+    timer.newTimeout(timeout -> {
+        log.info("running task 1...");
+    }, 5, TimeUnit.SECONDS);
+}
+```
+执行结果如下：
+```sh
+23:32:21.364 [main] INFO tech.pdai.springboot.schedule.timer.netty.HashedWheelTimerTester - init task 1...
+...
+23:32:27.454 [pool-1-thread-1] INFO tech.pdai.springboot.schedule.timer.netty.HashedWheelTimerTester - running task 1...
+```
+例子2：任务失效后cancel并让它重新在3秒后执行。
+```java
+@SneakyThrows
+public static void reScheduleHashedWheelTimer() {
+    log.info("init task 2...");
+
+    HashedWheelTimer timer = new HashedWheelTimer(1, TimeUnit.SECONDS, 8);
+
+    Thread.sleep(5000);
+
+    // add a new timeout
+    Timeout tm = timer.newTimeout(timeout -> {
+        log.info("running task 2...");
+    }, 5, TimeUnit.SECONDS);
+
+    // cancel
+    if (!tm.isExpired()) {
+        log.info("cancel task 2...");
+        tm.cancel();
+    }
+
+    // reschedule
+    timer.newTimeout(tm.task(), 3, TimeUnit.SECONDS);
+}
+```
+```sh
+23:28:36.408 [main] INFO tech.pdai.springboot.schedule.timer.netty.HashedWheelTimerTester - init task 2...
+23:28:41.412 [main] INFO tech.pdai.springboot.schedule.timer.netty.HashedWheelTimerTester - cancel task 2...
+23:28:45.414 [pool-2-thread-1] INFO tech.pdai.springboot.schedule.timer.netty.HashedWheelTimerTester - running task 2...
+```
+## 63.3 进一步理解
+### 63.3.1 HashedWheelTimer是如何实现的?
+![227.springboot-timer-timewheel-3.png](../../assets/images/04-主流框架/spring/227.springboot-timer-timewheel-3.png)
+
+- Worker：worker工作线程主要负责任务调度触发，单线程运行。
+- HashedWheelBucket： 时间轮上面的格子，内部持有HashedWheelTimeout组成的链表结构的头尾节点，多个格子组成的时间轮形成一圈又一圈的任务环
+- HashedWheelTimeout： 往时间轮里面提交的任务会被封装成HashedWheelTimeout
+
+构造函数
+```java
+public HashedWheelTimer(
+        ThreadFactory threadFactory,
+        long tickDuration, TimeUnit unit, int ticksPerWheel, boolean leakDetection,
+        long maxPendingTimeouts, Executor taskExecutor) {
+
+    checkNotNull(threadFactory, "threadFactory");
+    checkNotNull(unit, "unit");
+    checkPositive(tickDuration, "tickDuration");
+    checkPositive(ticksPerWheel, "ticksPerWheel");
+    this.taskExecutor = checkNotNull(taskExecutor, "taskExecutor");
+
+    // Normalize ticksPerWheel to power of two and initialize the wheel.
+    wheel = createWheel(ticksPerWheel);
+    mask = wheel.length - 1;
+
+    // Convert tickDuration to nanos.
+    long duration = unit.toNanos(tickDuration);
+
+    // Prevent overflow.
+    if (duration >= Long.MAX_VALUE / wheel.length) {
+        throw new IllegalArgumentException(String.format(
+                "tickDuration: %d (expected: 0 < tickDuration in nanos < %d",
+                tickDuration, Long.MAX_VALUE / wheel.length));
+    }
+
+    if (duration < MILLISECOND_NANOS) {
+        logger.warn("Configured tickDuration {} smaller than {}, using 1ms.",
+                    tickDuration, MILLISECOND_NANOS);
+        this.tickDuration = MILLISECOND_NANOS;
+    } else {
+        this.tickDuration = duration;
+    }
+
+    workerThread = threadFactory.newThread(worker);
+
+    leak = leakDetection || !workerThread.isDaemon() ? leakDetector.track(this) : null;
+
+    this.maxPendingTimeouts = maxPendingTimeouts;
+
+    if (INSTANCE_COUNTER.incrementAndGet() > INSTANCE_COUNT_LIMIT &&
+        WARNED_TOO_MANY_INSTANCES.compareAndSet(false, true)) {
+        reportTooManyInstances();
+    }
+}
+```
+创建wheel
+```java
+private static HashedWheelBucket[] createWheel(int ticksPerWheel) {
+    //ticksPerWheel may not be greater than 2^30
+    checkInRange(ticksPerWheel, 1, 1073741824, "ticksPerWheel");
+
+    ticksPerWheel = normalizeTicksPerWheel(ticksPerWheel);
+    HashedWheelBucket[] wheel = new HashedWheelBucket[ticksPerWheel];
+    for (int i = 0; i < wheel.length; i ++) {
+        wheel[i] = new HashedWheelBucket();
+    }
+    return wheel;
+}
+
+private static int normalizeTicksPerWheel(int ticksPerWheel) {
+    int normalizedTicksPerWheel = 1;
+    while (normalizedTicksPerWheel < ticksPerWheel) {
+        normalizedTicksPerWheel <<= 1;
+    }
+    return normalizedTicksPerWheel;
+}
+```
+任务的添加
+```java
+@Override
+public Timeout newTimeout(TimerTask task, long delay, TimeUnit unit) {
+    checkNotNull(task, "task");
+    checkNotNull(unit, "unit");
+
+    long pendingTimeoutsCount = pendingTimeouts.incrementAndGet();
+
+    if (maxPendingTimeouts > 0 && pendingTimeoutsCount > maxPendingTimeouts) {
+        pendingTimeouts.decrementAndGet();
+        throw new RejectedExecutionException("Number of pending timeouts ("
+            + pendingTimeoutsCount + ") is greater than or equal to maximum allowed pending "
+            + "timeouts (" + maxPendingTimeouts + ")");
+    }
+
+    start();
+
+    // Add the timeout to the timeout queue which will be processed on the next tick.
+    // During processing all the queued HashedWheelTimeouts will be added to the correct HashedWheelBucket.
+    long deadline = System.nanoTime() + unit.toNanos(delay) - startTime;
+
+    // Guard against overflow.
+    if (delay > 0 && deadline < 0) {
+        deadline = Long.MAX_VALUE;
+    }
+    HashedWheelTimeout timeout = new HashedWheelTimeout(this, task, deadline);
+    timeouts.add(timeout);
+    return timeout;
+}
+
+```
+执行方法
+```java
+/**
+    * Starts the background thread explicitly.  The background thread will
+    * start automatically on demand even if you did not call this method.
+    *
+    * @throws IllegalStateException if this timer has been
+    *                               {@linkplain #stop() stopped} already
+    */
+public void start() {
+    switch (WORKER_STATE_UPDATER.get(this)) {
+        case WORKER_STATE_INIT:
+            if (WORKER_STATE_UPDATER.compareAndSet(this, WORKER_STATE_INIT, WORKER_STATE_STARTED)) {
+                workerThread.start();
+            }
+            break;
+        case WORKER_STATE_STARTED:
+            break;
+        case WORKER_STATE_SHUTDOWN:
+            throw new IllegalStateException("cannot be started once stopped");
+        default:
+            throw new Error("Invalid WorkerState");
+    }
+
+    // Wait until the startTime is initialized by the worker.
+    while (startTime == 0) {
+        try {
+            startTimeInitialized.await();
+        } catch (InterruptedException ignore) {
+            // Ignore - it will be ready very soon.
+        }
+    }
+}
+```
+停止方法
+```java
+@Override
+public Set<Timeout> stop() {
+    if (Thread.currentThread() == workerThread) {
+        throw new IllegalStateException(
+                HashedWheelTimer.class.getSimpleName() +
+                        ".stop() cannot be called from " +
+                        TimerTask.class.getSimpleName());
+    }
+
+    if (!WORKER_STATE_UPDATER.compareAndSet(this, WORKER_STATE_STARTED, WORKER_STATE_SHUTDOWN)) {
+        // workerState can be 0 or 2 at this moment - let it always be 2.
+        if (WORKER_STATE_UPDATER.getAndSet(this, WORKER_STATE_SHUTDOWN) != WORKER_STATE_SHUTDOWN) {
+            INSTANCE_COUNTER.decrementAndGet();
+            if (leak != null) {
+                boolean closed = leak.close(this);
+                assert closed;
+            }
+        }
+
+        return Collections.emptySet();
+    }
+
+    try {
+        boolean interrupted = false;
+        while (workerThread.isAlive()) {
+            workerThread.interrupt();
+            try {
+                workerThread.join(100);
+            } catch (InterruptedException ignored) {
+                interrupted = true;
+            }
+        }
+
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
+    } finally {
+        INSTANCE_COUNTER.decrementAndGet();
+        if (leak != null) {
+            boolean closed = leak.close(this);
+            assert closed;
+        }
+    }
+    return worker.unprocessedTimeouts();
+}
+```
+### 63.2.2 什么是多级Timing Wheel?
+多级的时间轮是比较好理解的，时钟是有小时，分钟，秒的，秒转一圈(Round)分钟就转一个格（Tick）, 分钟转一圈(Round)小时就转一格（Tick）。
+![228.springboot-timer-timewheel-2.png](../../assets/images/04-主流框架/spring/228.springboot-timer-timewheel-2.png)
+
+
+PS：显然HashedWheelTimer是一层时间轮。
+# 六十四、SpringBoot定时任务 - Spring Schedule实现方式
+> 前文我们介绍了Timer和ScheduledExecutorService是JDK内置的定时任务方案以及Netty内部基于时间轮实现的HashedWheelTimer；而主流的SpringBoot集成方案有两种，一种是Spring Sechedule, 另一种是Spring集成Quartz； 本文主要介绍Spring Schedule实现方式。
+## 64.1 准备知识点
+### 64.1.1 什么是cron表达式
+定时任务和CRON表达式在开发中使用也非常广泛；在学习时，总体上理解，对常用的知悉，开发时可以快速查询使用即可。
+#### 64.1.1.1 什么是Cron
+Cron来自百度百科（在新窗口打开），计划任务是指任务在约定的时间执行已经计划好的工作，这是表面的意思。在Linux中，我们经常用到cron服务器来完成这项工作。cron服务器可以根据配置文件约定的时间来执行特定的任务。
+
+Cron表达式是一个字符串，字符串以5或6个空格隔开，分为6或7个域，每一个域代表一个含义。Cron有如下两种语法格式：
+- Seconds Minutes Hours DayofMonth Month DayofWeek Year
+- Seconds Minutes Hours DayofMonth Month DayofWeek
+
+#### 64.1.1.2 Cron表达式的结构
+Cron表达式是一个具有时间含义的字符串，字符串以5个空格隔开，分为6个域，格式为X X X X X X。其中X是一个域的占位符。单个域有多个取值时，使用半角逗号,隔开取值。每个域可以是确定的取值，也可以是具有逻辑意义的特殊字符。
+
+#### 64.1.1.3 域取值
+下表为Cron表达式中六个域能够取的值以及支持的特殊字符。
+
+| 域 | 是否必需 | 取值范围 | 特殊字符 |
+|----|----------|----------|----------|
+| 秒 (Seconds) | 是 | [0, 59] | * , - / |
+| 分钟 (Minutes) | 是 | [0, 59] | * , - / |
+| 小时 (Hours) | 是 | [0, 23] | * , - / |
+| 日期 (DayofMonth) | 是 | [1, 31] | * , - / ? L W |
+| 月份 (Month) | 是 | [1, 12] 或 [JAN, DEC] | * , - / |
+| 星期 (DayofWeek) | 是 | [1, 7] 或 [MON, SUN]。若使用[1, 7]表达方式，1代表星期一，7代表星期日。 | * , - / ? L # |
+| 年 (Year) | 否 | 1970+ | * , - / |
+
+#### 64.1.1.4 特殊字符
+每一个域都使用数字，但还可以出现如下特殊字符，它们的含义是：
+- `*`：表示匹配该域的任意值。假如在Minutes域使用`*`，即表示每分钟都会触发事件。
+- `?`：只能用在DayofMonth和DayofWeek两个域。它也匹配域的任意值，但实际不会。因为DayofMonth和DayofWeek会相互影响。例如想在每月的20日触发调度，不管20日到底是星期几，则只能使用如下写法：`13 13 15 20 * ?`，其中最后一位只能用`?`，而不能使用`*`，如果使用`*`表示不管星期几都会触发，实际上并不是这样。
+- `-`：表示范围。例如在Minutes域使用`5-20`，表示从5分到20分钟每分钟触发一次。
+- `/`：表示起始时间开始触发，然后每隔固定时间触发一次。例如在Minutes域使用`5/20`，则意味着5分钟触发一次，而25、45等分别触发一次。
+- `,`：表示列出枚举值。例如：在Minutes域使用`5,20`，则意味着在5和20分每分钟触发一次。
+- `L`：表示最后，只能出现在DayofWeek和DayofMonth域。如果在DayofWeek域使用`5L`，意味着在最后的一个星期四触发。
+- `W`：表示有效工作日（周一到周五），只能出现在DayofMonth域，系统将在离指定日期的最近的有效工作日触发事件。例如：在DayofMonth使用`5W`，如果5日是星期六，则将在最近的工作日：星期五，即4日触发；如果5日是星期天，则在6日（周一）触发；如果5日在星期一到星期五中的一天，则就在5日触发。另外一点，W的最近寻找不会跨过月份。
+- `LW`：这两个字符可以连用，表示在某个月最后一个工作日，即最后一个星期五。
+- `#`：用于确定每个月第几个星期几，只能出现在DayofWeek域。例如在`3#2`，表示某月的第二个星期三。
+
+#### 64.1.1.5 常用表达式例子
+以下是一些常用的Cron表达式例子：
+- `0 0 2 1 * ? *`：表示在每月的1日的凌晨2点调整任务。
+- `0 15 10 ? * MON-FRI`：表示周一到周五每天上午10:15执行作业。
+- `0 15 10 ? 6L 2002-2006`：表示2002-2006年的每个月的最后一个星期五上午10:15执行作业。
+- `0 0 10,14,16 * * ?`：每天上午10点，下午2点，4点。
+- `0 0/30 9-17 * * ?`：朝九晚五工作时间内每半小时。
+- `0 0 12 ? * WED`：表示每个星期三中午12点。
+- `0 0 12 * * ?`：每天中午12点触发。
+- `0 15 10 ? * *`：每天上午10:15触发。
+- `0 15 10 * * ?`：每天上午10:15触发。
+- `0 15 10 * * ? *`：每天上午10:15触发。
+- `0 15 10 * * ? 2005`：2005年的每天上午10:15触发。
+- `0 * 14 * * ?`：在每天下午2点到下午2:59期间的每1分钟触发。
+- `0 0/5 14 * * ?`：在每天下午2点到下午2:55期间的每5分钟触发。
+- `0 0/5 14,18 * * ?`：在每天下午2点到2:55期间和下午6点到6:55期间的每5分钟触发。
+- `0 0-5 14 * * ?`：在每天下午2点到下午2:05期间的每1分钟触发。
+- `0 10,44 14 ? 3 WED`：每年三月的星期三的下午2:10和2:44触发。
+- `0 15 10 ? * MON-FRI`：周一至周五的上午10:15触发。
+- `0 15 10 15 * ?`：每月15日上午10:15触发。
+- `0 15 10 L * ?`：每月最后一日的上午10:15触发。
+- `0 15 10 ? * 6L`：每月的最后一个星期五上午10:15触发。
+- `0 15 10 ? * 6L 2002-2005`：2002年至2005年的每月的最后一个星期五上午10:15触发。
+- `0 15 10 ? * 6#3`：每月的第三个星期五上午10:15触发。
+
+#### 64.1.1.6 注释
+注：有些子表达式能包含一些范围或列表，例如：子表达式（天（星期））可以为“MON-FRI”、“MON，WED，FRI”、“MON-WED,SAT”。
+- `*`字符代表所有可能的值。因此，`*`在子表达式（月）里表示每个月的含义，`*`在子表达式（天（星期））表示星期的每一天。
+- `/`字符用来指定数值的增量。例如：在子表达式（分钟）里的“0/15”表示从第0分钟开始，每15分钟；在子表达式（分钟）里的“3/20”表示从第3分钟开始，每20分钟（它和“3，23，43”的含义一样）。
+- `?`字符仅被用于天（月）和天（星期）两个子表达式，表示不指定值。当2个子表达式其中之一被指定了值以后，为了避免冲突，需要将另一个子表达式的值设为“?”。
+- `L`字符仅被用于天（月）和天（星期）两个子表达式，它是单词“last”的缩写。但是它在两个子表达式里的含义是不同的：在天（月）子表达式中，“L”表示一个月的最后一天；在天（星期）子表达式中，“L”表示一个星期的最后一天，也就是SAT。如果在“L”前有具体的内容，它就具有其他的含义了。例如：“6L”表示这个月的倒数第6天，“FRIL”表示这个月的最一个星期五。注意：在使用“L”参数时，不要指定列表或范围，因为这会导致问题。
+## 64.2 实现案例
+> SpringTask封装的比较好，使用非常简单。
+
+### 64.2.1 @EnableScheduling+@Scheduled
+- 通过@EnableScheduling启用定时任务，@Scheduled定义任务
+```java
+@EnableScheduling
+@Configuration
+public class ScheduleDemo {
+
+    /**
+     * 每隔1分钟执行一次。
+     */
+    @Scheduled(fixedRate = 1000 * 60 * 1)
+    public void runScheduleFixedRate() {
+        log.info("runScheduleFixedRate: current DateTime, {}", LocalDateTime.now());
+    }
+
+    /**
+     * 每个整点小时执行一次。
+     */
+    @Scheduled(cron = "0 0 */1 * * ?")
+    public void runScheduleCron() {
+        log.info("runScheduleCron: current DateTime, {}", LocalDateTime.now());
+    }
+
+}
+```
+- @Scheduled所支持的参数：
+    - `cron`：cron表达式，指定任务在特定时间执行；
+    - `fixedDelay`：表示上一次任务执行完成后多久再次执行，参数类型为long，单位ms；f
+    - `ixedDelayString`：与fixedDelay含义一样，只是参数类型变为String；
+    - `fixedRate`：表示按一定的频率执行任务，参数类型为long，单位ms；
+    - `fixedRateString`: 与fixedRate的含义一样，只是将参数类型变为String；
+    - `initialDelay`：表示延迟多久再第一次执行任务，参数类型为long，单位ms；
+    - `initialDelayString`：与initialDelay的含义一样，只是将参数类型变为String；
+    - `zone`：时区，默认为当前时区，一般没有用到。
+## 64.3 进一步理解
+### 64.3.1 使用Spring Schedule要注意什么？
+- 关于异常处理
+
+建议自行处理异常
+- 关于超时处理
+
+在实际的开发中，这个问题经常会出现，比如执行一段时间后定时任务不再执行了； 这种情况会发生在，比如你调用一个第三方接口，没有设置调用超时，继而引发异常，这时候当前任务便阻塞了。
+### 64.3.2 SpringTask的原理？
+> SpringTask的源码在这里：
+![229.springboot-task-2.png](../../assets/images/04-主流框架/spring/229.springboot-task-2.png)
+#### 64.3.2.1 @EnableScheduling注解
+添加@EnableScheduling注解会自动注入SchedulingConfiguration
+```java
+ * @author Chris Beams
+ * @author Juergen Hoeller
+ * @since 3.1
+ * @see Scheduled
+ * @see SchedulingConfiguration
+ * @see SchedulingConfigurer
+ * @see ScheduledTaskRegistrar
+ * @see Trigger
+ * @see ScheduledAnnotationBeanPostProcessor
+ */
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Import(SchedulingConfiguration.class)
+@Documented
+public @interface EnableScheduling {
+
+}
+```
+#### 64.3.2.2 SchedulingConfiguration中初始化ScheduledAnnotationBeanPostProcessor
+SchedulingConfiguration配置中自动初始化ScheduledAnnotationBeanPostProcessor
+```java
+@Configuration(proxyBeanMethods = false)
+@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+public class SchedulingConfiguration {
+
+	@Bean(name = TaskManagementConfigUtils.SCHEDULED_ANNOTATION_PROCESSOR_BEAN_NAME)
+	@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+	public ScheduledAnnotationBeanPostProcessor scheduledAnnotationProcessor() {
+		return new ScheduledAnnotationBeanPostProcessor();
+	}
+
+}
+```
+- Spring 容器中 Bean 的生命周期流程
+![230.spring-framework-ioc-source-102.png](../../assets/images/04-主流框架/spring/230.spring-framework-ioc-source-102.png)
+#### 64.3.2.3 ScheduledTaskRegistrar注册task
+在ScheduledAnnotationBeanPostProcessor构造函数中初始化了ScheduledTaskRegistrar
+```java
+/**
+    * Create a default {@code ScheduledAnnotationBeanPostProcessor}.
+    */
+public ScheduledAnnotationBeanPostProcessor() {
+    this.registrar = new ScheduledTaskRegistrar();
+}
+```
+ScheduledTaskRegistrar最主要的是注册各种类型的task （这种方式在新的版本中已经废弃了）
+```java
+protected void scheduleTasks() {
+    if (this.taskScheduler == null) {
+        this.localExecutor = Executors.newSingleThreadScheduledExecutor();
+        this.taskScheduler = new ConcurrentTaskScheduler(this.localExecutor);
+    }
+    if (this.triggerTasks != null) {
+        for (TriggerTask task : this.triggerTasks) {
+            addScheduledTask(scheduleTriggerTask(task));
+        }
+    }
+    if (this.cronTasks != null) {
+        for (CronTask task : this.cronTasks) {
+            addScheduledTask(scheduleCronTask(task));
+        }
+    }
+    if (this.fixedRateTasks != null) {
+        for (IntervalTask task : this.fixedRateTasks) {
+            addScheduledTask(scheduleFixedRateTask(task));
+        }
+    }
+    if (this.fixedDelayTasks != null) {
+        for (IntervalTask task : this.fixedDelayTasks) {
+            addScheduledTask(scheduleFixedDelayTask(task));
+        }
+    }
+}
+```
+注册哪些Task，怎么设计类的呢？
+![231.springboot-task-1.png](../../assets/images/04-主流框架/spring/231.springboot-task-1.png)
+#### 64.3.2.4 ScheduledAnnotationBeanPostProcessor加载Scheduled注解
+在BeanPostProcessor的postProcessAfterInitialization阶段加载Scheduled注解
+```java
+@Override
+public Object postProcessAfterInitialization(Object bean, String beanName) {
+    if (bean instanceof AopInfrastructureBean || bean instanceof TaskScheduler ||
+            bean instanceof ScheduledExecutorService) {
+        // Ignore AOP infrastructure such as scoped proxies.
+        return bean;
+    }
+
+    Class<?> targetClass = AopProxyUtils.ultimateTargetClass(bean);
+    if (!this.nonAnnotatedClasses.contains(targetClass) &&
+            AnnotationUtils.isCandidateClass(targetClass, Arrays.asList(Scheduled.class, Schedules.class))) {
+        Map<Method, Set<Scheduled>> annotatedMethods = MethodIntrospector.selectMethods(targetClass,
+                (MethodIntrospector.MetadataLookup<Set<Scheduled>>) method -> {
+                    Set<Scheduled> scheduledAnnotations = AnnotatedElementUtils.getMergedRepeatableAnnotations(
+                            method, Scheduled.class, Schedules.class);
+                    return (!scheduledAnnotations.isEmpty() ? scheduledAnnotations : null);
+                });
+        if (annotatedMethods.isEmpty()) {
+            this.nonAnnotatedClasses.add(targetClass);
+            if (logger.isTraceEnabled()) {
+                logger.trace("No @Scheduled annotations found on bean class: " + targetClass);
+            }
+        }
+        else {
+            // Non-empty set of methods
+            annotatedMethods.forEach((method, scheduledAnnotations) ->
+                    scheduledAnnotations.forEach(scheduled -> processScheduled(scheduled, method, bean)));
+            if (logger.isTraceEnabled()) {
+                logger.trace(annotatedMethods.size() + " @Scheduled methods processed on bean '" + beanName +
+                        "': " + annotatedMethods);
+            }
+        }
+    }
+    return bean;
+}
+```
+Scheduled注解是添加到方法级别，具体如下
+```java
+@Target({ElementType.METHOD, ElementType.ANNOTATION_TYPE})
+@Retention(RetentionPolicy.RUNTIME)
+@Documented
+@Repeatable(Schedules.class)
+public @interface Scheduled {
+
+	/**
+	 * A special cron expression value that indicates a disabled trigger: {@value}.
+	 * <p>This is primarily meant for use with <code>${...}</code> placeholders,
+	 * allowing for external disabling of corresponding scheduled methods.
+	 * @since 5.1
+	 * @see ScheduledTaskRegistrar#CRON_DISABLED
+	 */
+	String CRON_DISABLED = ScheduledTaskRegistrar.CRON_DISABLED;
+
+
+	/**
+	 * A cron-like expression, extending the usual UN*X definition to include triggers
+	 * on the second, minute, hour, day of month, month, and day of week.
+	 * <p>For example, {@code "0 * * * * MON-FRI"} means once per minute on weekdays
+	 * (at the top of the minute - the 0th second).
+	 * <p>The fields read from left to right are interpreted as follows.
+	 * <ul>
+	 * <li>second</li>
+	 * <li>minute</li>
+	 * <li>hour</li>
+	 * <li>day of month</li>
+	 * <li>month</li>
+	 * <li>day of week</li>
+	 * </ul>
+	 * <p>The special value {@link #CRON_DISABLED "-"} indicates a disabled cron
+	 * trigger, primarily meant for externally specified values resolved by a
+	 * <code>${...}</code> placeholder.
+	 * @return an expression that can be parsed to a cron schedule
+	 * @see org.springframework.scheduling.support.CronExpression#parse(String)
+	 */
+	String cron() default "";
+
+	/**
+	 * A time zone for which the cron expression will be resolved. By default, this
+	 * attribute is the empty String (i.e. the server's local time zone will be used).
+	 * @return a zone id accepted by {@link java.util.TimeZone#getTimeZone(String)},
+	 * or an empty String to indicate the server's default time zone
+	 * @since 4.0
+	 * @see org.springframework.scheduling.support.CronTrigger#CronTrigger(String, java.util.TimeZone)
+	 * @see java.util.TimeZone
+	 */
+	String zone() default "";
+
+	/**
+	 * Execute the annotated method with a fixed period between the end of the
+	 * last invocation and the start of the next.
+	 * <p>The time unit is milliseconds by default but can be overridden via
+	 * {@link #timeUnit}.
+	 * @return the delay
+	 */
+	long fixedDelay() default -1;
+
+	/**
+	 * Execute the annotated method with a fixed period between the end of the
+	 * last invocation and the start of the next.
+	 * <p>The time unit is milliseconds by default but can be overridden via
+	 * {@link #timeUnit}.
+	 * @return the delay as a String value &mdash; for example, a placeholder
+	 * or a {@link java.time.Duration#parse java.time.Duration} compliant value
+	 * @since 3.2.2
+	 */
+	String fixedDelayString() default "";
+
+	/**
+	 * Execute the annotated method with a fixed period between invocations.
+	 * <p>The time unit is milliseconds by default but can be overridden via
+	 * {@link #timeUnit}.
+	 * @return the period
+	 */
+	long fixedRate() default -1;
+
+	/**
+	 * Execute the annotated method with a fixed period between invocations.
+	 * <p>The time unit is milliseconds by default but can be overridden via
+	 * {@link #timeUnit}.
+	 * @return the period as a String value &mdash; for example, a placeholder
+	 * or a {@link java.time.Duration#parse java.time.Duration} compliant value
+	 * @since 3.2.2
+	 */
+	String fixedRateString() default "";
+
+	/**
+	 * Number of units of time to delay before the first execution of a
+	 * {@link #fixedRate} or {@link #fixedDelay} task.
+	 * <p>The time unit is milliseconds by default but can be overridden via
+	 * {@link #timeUnit}.
+	 * @return the initial
+	 * @since 3.2
+	 */
+	long initialDelay() default -1;
+
+	/**
+	 * Number of units of time to delay before the first execution of a
+	 * {@link #fixedRate} or {@link #fixedDelay} task.
+	 * <p>The time unit is milliseconds by default but can be overridden via
+	 * {@link #timeUnit}.
+	 * @return the initial delay as a String value &mdash; for example, a placeholder
+	 * or a {@link java.time.Duration#parse java.time.Duration} compliant value
+	 * @since 3.2.2
+	 */
+	String initialDelayString() default "";
+
+	/**
+	 * The {@link TimeUnit} to use for {@link #fixedDelay}, {@link #fixedDelayString},
+	 * {@link #fixedRate}, {@link #fixedRateString}, {@link #initialDelay}, and
+	 * {@link #initialDelayString}.
+	 * <p>Defaults to {@link TimeUnit#MICROSECONDS}.
+	 * <p>This attribute is ignored for {@linkplain #cron() cron expressions}
+	 * and for {@link java.time.Duration} values supplied via {@link #fixedDelayString},
+	 * {@link #fixedRateString}, or {@link #initialDelayString}.
+	 * @return the {@code TimeUnit} to use
+	 * @since 5.3.10
+	 */
+	TimeUnit timeUnit() default TimeUnit.MILLISECONDS;
+
+}
+```
+获取到方法上Scheduled注解（对任务的定义），通过processScheduled处理具体类型的task
+```java
+/**
+    * Process the given {@code @Scheduled} method declaration on the given bean.
+    * @param scheduled the {@code @Scheduled} annotation
+    * @param method the method that the annotation has been declared on
+    * @param bean the target bean instance
+    * @see #createRunnable(Object, Method)
+    */
+protected void processScheduled(Scheduled scheduled, Method method, Object bean) {
+    try {
+        Runnable runnable = createRunnable(bean, method);
+        boolean processedSchedule = false;
+        String errorMessage =
+                "Exactly one of the 'cron', 'fixedDelay(String)', or 'fixedRate(String)' attributes is required";
+
+        Set<ScheduledTask> tasks = new LinkedHashSet<>(4);
+
+        // Determine initial delay
+        long initialDelay = convertToMillis(scheduled.initialDelay(), scheduled.timeUnit());
+        String initialDelayString = scheduled.initialDelayString();
+        if (StringUtils.hasText(initialDelayString)) {
+            Assert.isTrue(initialDelay < 0, "Specify 'initialDelay' or 'initialDelayString', not both");
+            if (this.embeddedValueResolver != null) {
+                initialDelayString = this.embeddedValueResolver.resolveStringValue(initialDelayString);
+            }
+            if (StringUtils.hasLength(initialDelayString)) {
+                try {
+                    initialDelay = convertToMillis(initialDelayString, scheduled.timeUnit());
+                }
+                catch (RuntimeException ex) {
+                    throw new IllegalArgumentException(
+                            "Invalid initialDelayString value \"" + initialDelayString + "\" - cannot parse into long");
+                }
+            }
+        }
+
+        // Check cron expression
+        String cron = scheduled.cron();
+        if (StringUtils.hasText(cron)) {
+            String zone = scheduled.zone();
+            if (this.embeddedValueResolver != null) {
+                cron = this.embeddedValueResolver.resolveStringValue(cron);
+                zone = this.embeddedValueResolver.resolveStringValue(zone);
+            }
+            if (StringUtils.hasLength(cron)) {
+                Assert.isTrue(initialDelay == -1, "'initialDelay' not supported for cron triggers");
+                processedSchedule = true;
+                if (!Scheduled.CRON_DISABLED.equals(cron)) {
+                    TimeZone timeZone;
+                    if (StringUtils.hasText(zone)) {
+                        timeZone = StringUtils.parseTimeZoneString(zone);
+                    }
+                    else {
+                        timeZone = TimeZone.getDefault();
+                    }
+                    tasks.add(this.registrar.scheduleCronTask(new CronTask(runnable, new CronTrigger(cron, timeZone))));
+                }
+            }
+        }
+
+        // At this point we don't need to differentiate between initial delay set or not anymore
+        if (initialDelay < 0) {
+            initialDelay = 0;
+        }
+
+        // Check fixed delay
+        long fixedDelay = convertToMillis(scheduled.fixedDelay(), scheduled.timeUnit());
+        if (fixedDelay >= 0) {
+            Assert.isTrue(!processedSchedule, errorMessage);
+            processedSchedule = true;
+            tasks.add(this.registrar.scheduleFixedDelayTask(new FixedDelayTask(runnable, fixedDelay, initialDelay)));
+        }
+
+        String fixedDelayString = scheduled.fixedDelayString();
+        if (StringUtils.hasText(fixedDelayString)) {
+            if (this.embeddedValueResolver != null) {
+                fixedDelayString = this.embeddedValueResolver.resolveStringValue(fixedDelayString);
+            }
+            if (StringUtils.hasLength(fixedDelayString)) {
+                Assert.isTrue(!processedSchedule, errorMessage);
+                processedSchedule = true;
+                try {
+                    fixedDelay = convertToMillis(fixedDelayString, scheduled.timeUnit());
+                }
+                catch (RuntimeException ex) {
+                    throw new IllegalArgumentException(
+                            "Invalid fixedDelayString value \"" + fixedDelayString + "\" - cannot parse into long");
+                }
+                tasks.add(this.registrar.scheduleFixedDelayTask(new FixedDelayTask(runnable, fixedDelay, initialDelay)));
+            }
+        }
+
+        // Check fixed rate
+        long fixedRate = convertToMillis(scheduled.fixedRate(), scheduled.timeUnit());
+        if (fixedRate >= 0) {
+            Assert.isTrue(!processedSchedule, errorMessage);
+            processedSchedule = true;
+            tasks.add(this.registrar.scheduleFixedRateTask(new FixedRateTask(runnable, fixedRate, initialDelay)));
+        }
+        String fixedRateString = scheduled.fixedRateString();
+        if (StringUtils.hasText(fixedRateString)) {
+            if (this.embeddedValueResolver != null) {
+                fixedRateString = this.embeddedValueResolver.resolveStringValue(fixedRateString);
+            }
+            if (StringUtils.hasLength(fixedRateString)) {
+                Assert.isTrue(!processedSchedule, errorMessage);
+                processedSchedule = true;
+                try {
+                    fixedRate = convertToMillis(fixedRateString, scheduled.timeUnit());
+                }
+                catch (RuntimeException ex) {
+                    throw new IllegalArgumentException(
+                            "Invalid fixedRateString value \"" + fixedRateString + "\" - cannot parse into long");
+                }
+                tasks.add(this.registrar.scheduleFixedRateTask(new FixedRateTask(runnable, fixedRate, initialDelay)));
+            }
+        }
+
+        // Check whether we had any attribute set
+        Assert.isTrue(processedSchedule, errorMessage);
+
+        // Finally register the scheduled tasks
+        synchronized (this.scheduledTasks) {
+            Set<ScheduledTask> regTasks = this.scheduledTasks.computeIfAbsent(bean, key -> new LinkedHashSet<>(4));
+            regTasks.addAll(tasks);
+        }
+    }
+    catch (IllegalArgumentException ex) {
+        throw new IllegalStateException(
+                "Encountered invalid @Scheduled method '" + method.getName() + "': " + ex.getMessage());
+    }
+}
+```
+#### 64.3.2.5 ScheduledTaskRegistrar 中解析task
+以CronTask为例，如果定义了taskScheduler则由taskScheduler执行，如果没有放到unresolvedTasks中。
+```java
+/**
+    * Schedule the specified cron task, either right away if possible
+    * or on initialization of the scheduler.
+    * @return a handle to the scheduled task, allowing to cancel it
+    * (or {@code null} if processing a previously registered task)
+    * @since 4.3
+    */
+@Nullable
+public ScheduledTask scheduleCronTask(CronTask task) {
+    ScheduledTask scheduledTask = this.unresolvedTasks.remove(task);
+    boolean newTask = false;
+    if (scheduledTask == null) {
+        scheduledTask = new ScheduledTask(task);
+        newTask = true;
+    }
+    if (this.taskScheduler != null) {
+        scheduledTask.future = this.taskScheduler.schedule(task.getRunnable(), task.getTrigger());
+    }
+    else {
+        addCronTask(task);
+        this.unresolvedTasks.put(task, scheduledTask);
+    }
+    return (newTask ? scheduledTask : null);
+}
+```
+#### 64.3.2.6 TaskScheduler对Task处理
+默认是ConcurrentTaskScheduler， 处理方法如下
+```java
+@Override
+@Nullable
+public ScheduledFuture<?> schedule(Runnable task, Trigger trigger) {
+    try {
+        if (this.enterpriseConcurrentScheduler) {
+            return new EnterpriseConcurrentTriggerScheduler().schedule(decorateTask(task, true), trigger);
+        }
+        else {
+            ErrorHandler errorHandler =
+                    (this.errorHandler != null ? this.errorHandler : TaskUtils.getDefaultErrorHandler(true));
+            return new ReschedulingRunnable(task, trigger, this.clock, this.scheduledExecutor, errorHandler).schedule();
+        }
+    }
+    catch (RejectedExecutionException ex) {
+        throw new TaskRejectedException("Executor [" + this.scheduledExecutor + "] did not accept task: " + task, ex);
+    }
+}
+```
+EnterpriseConcurrentTriggerScheduler 是 JSR-236 Trigger标准，它的处理方法如下
+```java
+/**
+    * Delegate that adapts a Spring Trigger to a JSR-236 Trigger.
+    * Separated into an inner class in order to avoid a hard dependency on the JSR-236 API.
+    */
+private class EnterpriseConcurrentTriggerScheduler {
+
+    public ScheduledFuture<?> schedule(Runnable task, final Trigger trigger) {
+        ManagedScheduledExecutorService executor = (ManagedScheduledExecutorService) scheduledExecutor;
+        return executor.schedule(task, new javax.enterprise.concurrent.Trigger() {
+            @Override
+            @Nullable
+            public Date getNextRunTime(@Nullable LastExecution le, Date taskScheduledTime) {
+                return (trigger.nextExecutionTime(le != null ?
+                        new SimpleTriggerContext(le.getScheduledStart(), le.getRunStart(), le.getRunEnd()) :
+                        new SimpleTriggerContext()));
+            }
+            @Override
+            public boolean skipRun(LastExecution lastExecution, Date scheduledRunTime) {
+                return false;
+            }
+        });
+    }
+}
+```
+如果没有使用EnterpriseConcurrentTriggerScheduler, 则使用ReschedulingRunnable，本质上由ScheduledExecutorService处理
+```java
+public ReschedulingRunnable(Runnable delegate, Trigger trigger, Clock clock,
+			ScheduledExecutorService executor, ErrorHandler errorHandler) {
+
+    super(delegate, errorHandler);
+    this.trigger = trigger;
+    this.triggerContext = new SimpleTriggerContext(clock);
+    this.executor = executor;
+}
+
+
+@Nullable
+public ScheduledFuture<?> schedule() {
+    synchronized (this.triggerContextMonitor) {
+        this.scheduledExecutionTime = this.trigger.nextExecutionTime(this.triggerContext);
+        if (this.scheduledExecutionTime == null) {
+            return null;
+        }
+        long initialDelay = this.scheduledExecutionTime.getTime() - this.triggerContext.getClock().millis();
+        this.currentFuture = this.executor.schedule(this, initialDelay, TimeUnit.MILLISECONDS);
+        return this;
+    }
+}
+```
+### 64.3.3 进一步解释
+SpringTask 是 Spring 框架提供的定时任务调度模块，其核心原理基于 Spring 的 Bean 生命周期管理和 JDK 的 `ScheduledExecutorService`。下面我将从底层实现、任务解析与触发机制、以及 BeanPostProcessor 的作用三个方面详细解释。
+
+---
+
+##### **64.3.3.1 底层实现原理：定时任务如何执行？**
+SpringTask 的底层依赖于 **JDK 的 `ScheduledExecutorService`**（特别是 `ScheduledThreadPoolExecutor`）来实现定时任务的调度。具体流程如下：
+1. **任务封装**：当使用 `@Scheduled` 注解标记方法时，Spring 会将该方法封装为一个 `Runnable` 任务。
+2. **调度器核心**：通过 `TaskScheduler`（默认实现是 `ConcurrentTaskScheduler`）来管理任务调度。`ConcurrentTaskScheduler` 内部持有一个 `ScheduledExecutorService` 实例。
+3. **触发执行**：
+   - 对于 `cron` 表达式任务，Spring 使用 `CronTrigger` 计算下一次执行时间，然后通过 `ScheduledExecutorService.schedule()` 方法安排任务。
+   - 对于 `fixedDelay`/`fixedRate` 任务，直接使用 `ScheduledExecutorService.scheduleAtFixedRate()` 或 `scheduleWithFixedDelay()` 方法。
+4. **底层线程池**：所有定时任务都由一个共享的线程池（默认单线程）执行，确保任务按计划运行，但需注意长时间任务可能阻塞后续任务（需异步优化）。
+
+**关键代码段**（来自您提供的源码）：
+```java
+// 在 ConcurrentTaskScheduler 中，最终委托给 ScheduledExecutorService
+public ScheduledFuture<?> schedule(Runnable task, Trigger trigger) {
+    // ... 
+    return new ReschedulingRunnable(task, trigger, this.clock, this.scheduledExecutor, errorHandler).schedule();
+}
+
+// ReschedulingRunnable 内部使用 ScheduledExecutorService 调度
+public ScheduledFuture<?> schedule() {
+    long initialDelay = this.scheduledExecutionTime.getTime() - this.triggerContext.getClock().millis();
+    this.currentFuture = this.executor.schedule(this, initialDelay, TimeUnit.MILLISECONDS);
+    return this;
+}
+```
+**总结**：底层通过 JDK 原生定时线程池实现，Spring 只是封装了任务解析和触发逻辑。
+
+---
+
+##### **64.3.3.2 Spring 如何解析任务并保证定时触发？**
+Spring 通过 **任务注册表（ScheduledTaskRegistrar）** 和 **触发器（Trigger）** 机制来解析和调度任务，确保定时触发：
+1. **任务解析**：
+   - 在 Bean 初始化阶段（`postProcessAfterInitialization`），`ScheduledAnnotationBeanPostProcessor` 扫描所有 `@Scheduled` 注解的方法。
+   - 根据注解属性（如 `cron`、`fixedDelay`），将方法解析为具体的任务类型（`CronTask`、`FixedDelayTask` 等）。
+2. **任务注册**：
+   - 解析后的任务被注册到 `ScheduledTaskRegistrar` 中。如果 `TaskScheduler` 已就绪，直接调度；否则暂存到 `unresolvedTasks`，待 `TaskScheduler` 初始化后处理。
+3. **定时触发保证**：
+   - **Cron 任务**：使用 `CronTrigger` 计算下次执行时间。`CronTrigger` 基于 Spring 的 `CronExpression` 解析表达式，并返回准确的下一时间点。
+   - **固定延迟/速率任务**：通过 `ScheduledExecutorService` 的内置机制（如 `scheduleAtFixedRate`）确保周期执行。
+   - **容错机制**：任务执行异常时，Spring 提供了 `ErrorHandler` 处理，避免任务中断。
+
+**关键代码段**：
+```java
+// 处理 @Scheduled 注解的方法
+protected void processScheduled(Scheduled scheduled, Method method, Object bean) {
+    Runnable runnable = createRunnable(bean, method);
+    // 解析 cron 表达式
+    if (StringUtils.hasText(cron)) {
+        CronTrigger trigger = new CronTrigger(cron, timeZone);
+        tasks.add(this.registrar.scheduleCronTask(new CronTask(runnable, trigger)));
+    }
+    // 固定速率任务
+    if (fixedRate >= 0) {
+        tasks.add(this.registrar.scheduleFixedRateTask(new FixedRateTask(runnable, fixedRate, initialDelay)));
+    }
+}
+```
+**总结**：Spring 将任务解析为统一格式，利用 JDK 线程池的调度能力，结合触发器计算执行时间，从而保证定时触发。
+
+---
+
+##### **64.3.3.3 为什么使用 BeanPostProcessor？**
+`BeanPostProcessor` 是 Spring 容器中 Bean 生命周期管理的核心接口，SpringTask 使用 `ScheduledAnnotationBeanPostProcessor`（实现了 `BeanPostProcessor`）主要出于以下原因：
+1. **注解扫描时机**：Bean 的初始化后阶段（`postProcessAfterInitialization`）是扫描 `@Scheduled` 注解的理想时机。此时 Bean 已完全实例化，依赖注入完成，可以安全地提取方法信息。
+2. **非侵入式设计**：通过 `BeanPostProcessor`，Spring 无需修改原有 Bean 的定义，即可动态添加定时任务逻辑。这符合 Spring 的 AOP 思想，解耦业务代码和调度逻辑。
+3. **集中管理**：所有 Bean 的定时任务都由同一个后处理器处理，便于统一注册到 `ScheduledTaskRegistrar`，避免重复代码。
+4. **灵活性**：允许在 Bean 生命周期中动态调整任务（例如，根据配置启用/禁用任务）。
+
+**关键代码段**：
+```java
+@Override
+public Object postProcessAfterInitialization(Object bean, String beanName) {
+    // 忽略基础设施 Bean
+    if (bean instanceof AopInfrastructureBean || ...) {
+        return bean;
+    }
+    // 扫描 @Scheduled 注解的方法
+    Map<Method, Set<Scheduled>> annotatedMethods = MethodIntrospector.selectMethods(...);
+    annotatedMethods.forEach((method, scheduledAnnotations) -> 
+        scheduledAnnotations.forEach(scheduled -> processScheduled(scheduled, method, bean)));
+    return bean;
+}
+```
+**总结**：使用 `BeanPostProcessor` 是为了在 Bean 生命周期的合适阶段自动发现和处理 `@Scheduled` 注解，实现定时任务的无缝集成。
+
+---
+
+##### 64.3.3.4 **整体流程总结**
+1. **启动阶段**：`@EnableScheduling` 导入 `SchedulingConfiguration`，注册 `ScheduledAnnotationBeanPostProcessor`。
+2. **Bean 初始化**：后处理器扫描 Bean 的 `@Scheduled` 方法，解析为任务对象。
+3. **任务调度**：任务被注册到 `ScheduledTaskRegistrar`，由 `TaskScheduler`（底层是 `ScheduledExecutorService`）调度执行。
+4. **定时触发**：通过触发器（如 `CronTrigger`）或固定延迟机制，确保任务按计划运行。
+
+这种方式结合了 Spring 的依赖注入和 JDK 并发工具，实现了高效、可扩展的定时任务管理。如果您有具体代码场景需要进一步分析，欢迎提供更多细节！
+
+##### 64.3.3.5 SpringTask 如何解析 Cron 表达式并保证准时触发？
+
+问题涉及 SpringTask 的核心调度机制，特别是对于复杂 Cron 表达式（如“每个月第二个星期三”）的处理。下面我将结合 Spring 源码详细解释整个流程，包括表达式解析、时间计算和触发机制。
+
+---
+
+###### **64.3.3.5.1. Cron 表达式的解析与时间计算**
+SpringTask 使用 **`CronTrigger`** 类来处理 Cron 表达式。`CronTrigger` 基于 Spring 自带的 **`CronExpression`** 解析器，该解析器支持标准 Cron 语法（包括特殊字符如 `#`）。
+
+- **解析过程**：
+  - 当 Spring 扫描到 `@Scheduled(cron = "0 0 0 ? * 3#2")` 时（假设 `3#2` 表示第二个星期三），会创建一个 `CronTrigger` 实例。
+  - `CronTrigger` 内部调用 `CronExpression.parse("0 0 0 ? * 3#2")` 将字符串转换为可执行的调度规则。`CronExpression` 会解析每个域（秒、分、时、日期、月份、星期），并验证逻辑（例如，避免日期和星期的冲突）。
+  - 对于 `3#2`，解析器会识别：
+    - `3`：星期三（根据您的定义，1=星期一，7=星期日）。
+    - `#2`：第二个。
+    - 最终规则：计算每个月的第二个星期三的具体日期。
+
+- **时间计算**：
+  - `CronTrigger` 实现了 `Trigger` 接口，核心方法是 `nextExecutionTime(TriggerContext context)`。
+  - 该方法基于当前时间（从 `TriggerContext` 获取）和 Cron 规则，计算下一次执行的时间点。例如：
+    - 假设当前时间是 2023-10-01（星期日），`CronTrigger` 会遍历当前月份的日期，找到第二个星期三（如 2023-10-11），并返回该日期的 00:00:00 作为下次执行时间。
+    - 每次任务执行后，`TriggerContext` 会更新最后一次执行时间，供下次计算使用。
+
+**关键代码段**（来自 Spring 源码）：
+```java
+// CronTrigger 的 nextExecutionTime 方法
+public Date nextExecutionTime(TriggerContext triggerContext) {
+    Date lastExecution = triggerContext.lastScheduledExecutionTime();
+    Date lastCompletion = triggerContext.lastCompletionTime();
+    CronExpression expression = this.expression;
+    if (expression == null) {
+        expression = CronExpression.parse(this.sequence);
+    }
+    return expression.next(lastExecution != null ? lastExecution : new Date());
+}
+```
+
+---
+
+###### **64.3.3.5.2. 任务触发机制：如何“提醒”代码执行？**
+SpringTask 的触发机制依赖于 **JDK 的 `ScheduledExecutorService`**，其底层通过 **延迟队列和线程池** 实现精准定时。具体流程如下：
+
+1. **任务封装**：
+   - Spring 将 `@Scheduled` 方法封装为一个 `Runnable`（例如 `ScheduledMethodRunnable`）。
+   - 对于 Cron 任务，Spring 创建一个 `CronTask`，包含 `Runnable` 和 `CronTrigger`。
+
+2. **调度执行**：
+   - `TaskScheduler`（默认 `ConcurrentTaskScheduler`）接收任务后，使用 `ReschedulingRunnable` 来管理调度。
+   - `ReschedulingRunnable.schedule()` 方法调用 `CronTrigger.nextExecutionTime()` 获取下次执行时间，然后计算当前时间与目标时间的差值（初始延迟）。
+   - 通过 `ScheduledExecutorService.schedule(this, initialDelay, TimeUnit.MILLISECONDS)` 将任务提交到线程池。线程池内部使用 **优先级队列（DelayedWorkQueue）** 存储任务，按执行时间排序。
+
+3. **底层“提醒”机制**：
+   - `ScheduledThreadPoolExecutor` 的工作线程会定期检查队列中的任务。当任务的延迟时间到达时，线程池唤醒并执行任务。
+   - 任务执行后，`ReschedulingRunnable` 会 **递归调用** `schedule()` 方法：
+     - 再次计算下一次执行时间（例如，下个月的第二个星期三）。
+     - 重新提交任务到线程池，形成持续调度。
+
+**关键代码段**（简化版）：
+```java
+// ReschedulingRunnable 的调度逻辑
+public void run() {
+    try {
+        // 执行实际任务
+        super.run();
+    } finally {
+        // 执行完成后，重新计算下次时间并再次调度
+        if (!this.executor.isShutdown()) {
+            schedule();
+        }
+    }
+}
+
+public ScheduledFuture<?> schedule() {
+    Date nextExecutionTime = this.trigger.nextExecutionTime(this.triggerContext);
+    long delay = nextExecutionTime.getTime() - System.currentTimeMillis();
+    this.currentFuture = this.executor.schedule(this, delay, TimeUnit.MILLISECONDS);
+    return this.currentFuture;
+}
+```
+
+---
+
+###### **64.3.3.5.3. 为什么能保证准时触发？**
+- **精确的时间计算**：`CronExpression` 考虑了闰年、月份天数、星期规则等，确保日期计算准确。
+- **系统时钟依赖**：底层使用 `System.currentTimeMillis()` 或 `Clock` 类获取当前时间，与系统时间同步。
+- **线程池调度精度**：JDK 的 `ScheduledThreadPoolExecutor` 使用高精度计时器（底层依赖操作系统时钟中断），误差通常在毫秒级。
+- **容错处理**：如果任务执行时间过长，Spring 提供了配置选项（如 `@Async`）避免阻塞后续任务。
+
+---
+
+###### **64.3.3.5.4 示例：处理“每个月第二个星期三”**
+假设 Cron 表达式为 `0 0 0 ? * 3#2`：
+1. **解析**：Spring 识别出“第二个星期三”的规则。
+2. **计算**：每次执行后，`CronTrigger` 会计算下个月的第二个星期三（例如，从 10月11日 跳到 11月8日）。
+3. **触发**：线程池在目标日期的 00:00:00 唤醒任务并执行。
+
+---
+
+###### **64.3.3.5..5 总结**
+- **解析**：Spring 通过 `CronExpression` 解析复杂表达式（如 `#`），转换为可计算的时间规则。
+- **调度**：利用 `ScheduledExecutorService` 的延迟队列机制，实现“睡眠-唤醒”式触发。
+- **保证准时**：基于系统时间和递归调度，确保任务在精确时间点执行。
+
+这种设计使得 SpringTask 能够高效处理周期性、复杂时间规则的任务，同时保持低资源消耗。如果您有具体表达式或场景需要测试，我可以进一步分析！
+### 64.3.4 SpringTask扩展：@Async/@Scheduled注解配合使用-异步定时任务执行
+#### 64.3.4.1 `@Async` 配合 `@Scheduled` 的实现效果分析
+
+当 `@Async` 和 `@Scheduled` 同时使用时，会产生**异步定时任务**的效果。让我详细解释这种组合的工作原理和实际效果：
+
+---
+
+##### **1. 单独使用 `@Scheduled` 的问题**
+```java
+@Scheduled(cron = "0 0 3 * * ?")
+public void syncData() {
+    // 同步操作，可能很耗时
+    organizationService.updateOrganization();
+    userService.updateUserByAccount();
+}
+```
+**问题**：
+- SpringTask 默认使用**单线程**执行所有定时任务
+- 如果该任务执行时间较长（如几分钟），会**阻塞其他定时任务**
+- 任务本身是**同步执行**的，调用线程需要等待任务完成
+
+---
+
+##### **2. `@Async + @Scheduled` 的组合效果**
+```java
+@Async("threadPool")
+@Scheduled(cron = "0 0 3 * * ?")
+public void asyncUpdateOrganizationAndUser() {
+    // 异步执行
+}
+```
+
+#### 64.3.4.2 **执行流程**：
+1. **定时触发**：Spring 的定时任务调度器在每天凌晨3点触发方法调用
+2. **异步执行**：由于有 `@Async` 注解，Spring 不会直接执行方法体，而是：
+   - 将方法调用封装为 `Runnable` 任务
+   - 提交到指定的线程池（`threadPool`）
+   - 立即返回，不阻塞调度线程
+3. **并发处理**：线程池中的工作线程实际执行数据同步逻辑
+
+#### 64.3.4.3 **具体优势**：
+
+| 方面 | 单独 `@Scheduled` | `@Async + @Scheduled` |
+|------|-------------------|----------------------|
+| **调度线程** | 阻塞等待任务完成 | 立即返回，不阻塞 |
+| **任务执行** | 同步，单线程顺序执行 | 异步，线程池并发执行 |
+| **其他任务** | 被当前任务阻塞 | 不受影响，按时触发 |
+| **资源利用** | 低效 | 高效利用多线程 |
+
+---
+
+#### **64.3.4.4 . 线程池配置分析**
+您的线程池配置：
+```java
+@Bean("threadPool")
+public ThreadPoolTaskExecutor getThreadPool(){
+    threadPoolTaskExecutor.setCorePoolSize(10);    // 核心线程数
+    threadPoolTaskExecutor.setMaxPoolSize(20);     // 最大线程数  
+    threadPoolTaskExecutor.setQueueCapacity(100);  // 队列容量
+    threadPoolTaskExecutor.setKeepAliveSeconds(30);// 空闲线程存活时间
+}
+```
+
+**对于定时任务的应用场景**：
+- **核心线程10个**：可以同时处理10个定时任务
+- **队列容量100**：当核心线程忙时，新任务进入队列等待
+- **最大线程20个**：队列满时创建新线程，避免任务拒绝
+
+---
+
+#### **64.3.4.5. 实际执行时序示例**
+假设凌晨3点有多个定时任务需要执行：
+
+```
+时间轴：
+03:00:00 - 调度线程触发 asyncUpdateOrganizationAndUser()
+          ↓
+          任务提交到 threadPool，调度线程立即返回
+          ↓
+03:00:00 - 调度线程继续触发其他定时任务
+03:00:01 - threadPool 的工作线程开始执行数据同步
+03:02:30 - 数据同步完成（耗时2.5分钟）
+```
+
+**关键点**：
+- 调度线程只负责**触发**任务，不负责**执行**
+- 长时间任务在后台线程池中运行，不影响系统其他定时任务
+- 即使本次任务未完成，下次触发时仍会提交新任务到线程池
+
+---
+
+#### **64.3.4.6. 注意事项和最佳实践**
+
+##### **潜在问题**：
+1. **任务堆积**：如果任务执行时间 > 触发间隔，会导致任务在线程池中堆积
+2. **资源竞争**：多个异步任务可能竞争数据库连接等资源
+3. **异常处理**：异步任务的异常需要特殊处理，不会传播到调度线程
+
+##### **建议的改进**：
+```java
+@Async("threadPool")
+@Scheduled(cron = "0 0 3 * * ?")
+public void asyncUpdateOrganizationAndUser() {
+    try {
+        logger.info("开始同步组织信息...");
+        organizationService.updateOrganization();
+        logger.info("同步组织信息结束！");
+        
+        logger.info("开始同步人员信息...");
+        userService.updateUserByAccount();
+        logger.info("同步人员信息结束！");
+    } catch (Exception e) {
+        logger.error("同步组织/人员信息失败", e);
+        // 异步任务需要显式处理异常
+        // 可以考虑发送告警通知
+    }
+}
+```
+
+##### **监控建议**：
+```java
+// 添加任务执行监控
+@Async("threadPool")
+@Scheduled(cron = "0 0 3 * * ?")
+public void asyncUpdateOrganizationAndUser() {
+    long startTime = System.currentTimeMillis();
+    try {
+        // 业务逻辑
+    } finally {
+        long cost = System.currentTimeMillis() - startTime;
+        logger.info("数据同步任务执行完成，耗时: {}ms", cost);
+        
+        // 如果耗时过长，可以发出警告
+        if (cost > 300000) { // 5分钟
+            logger.warn("数据同步任务执行时间过长，请检查性能");
+        }
+    }
+}
+```
+
+---
+
+#### 64.3.4.7 **总结**
+`@Async + @Scheduled` 的组合实现了：
+- ✅ **非阻塞调度**：调度线程快速返回，不等待任务完成
+- ✅ **并发执行**：利用线程池提高任务处理能力  
+- ✅ **资源隔离**：耗时任务在独立线程池中运行，不影响系统稳定性
+- ✅ **弹性扩展**：通过线程池参数调整应对不同负载场景
+
+这种模式特别适合执行时间长、资源消耗大的后台定时任务，是生产环境中的推荐做法。
+### 64.3.5 `@Async` 配合 `@Scheduled` 源码解析
+#### **源码追踪：`@Async` 的异步执行机制**
+
+##### **1. 核心入口：`AsyncExecutionInterceptor`**
+
+`@Async` 的功能主要通过 AOP 拦截器实现，核心类是 **`AsyncExecutionInterceptor`**：
+
+```java
+// org.springframework.aop.interceptor.AsyncExecutionInterceptor
+public class AsyncExecutionInterceptor extends AsyncExecutionAspectSupport {
+    
+    @Override
+    @Nullable
+    public Object invoke(MethodInvocation invocation) throws Throwable {
+        // 关键方法：判断是否需要异步执行
+        if (isAsyncCall(invocation)) {
+            // 这里就是异步执行的入口
+            return doSubmit(invocation);
+        }
+        
+        // 同步执行
+        return invocation.proceed();
+    }
+}
+```
+
+##### **2. 核心实现：`doSubmit` 方法**
+
+```java
+// org.springframework.aop.interceptor.AsyncExecutionAspectSupport
+protected Object doSubmit(Callable<Object> task, AsyncTaskExecutor executor, Class<?> returnType) {
+    // 关键逻辑：将方法调用提交到线程池
+    if (CompletableFuture.class.isAssignableFrom(returnType)) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return task.call();
+            } catch (Throwable ex) {
+                throw new CompletionException(ex);
+            }
+        }, executor);
+    }
+    else if (ListenableFuture.class.isAssignableFrom(returnType)) {
+        return ((AsyncListenableTaskExecutor) executor).submitListenable(task);
+    }
+    else if (Future.class.isAssignableFrom(returnType)) {
+        return executor.submit(task);
+    }
+    else {
+        // 无返回值的情况 - 这就是您代码中的场景！
+        executor.submit(task);
+        return null;  // 立即返回null，不等待任务执行
+    }
+}
+```
+
+##### **3. 具体的任务封装过程**
+
+让我们看看 `MethodInvocation` 如何被封装为 `Runnable`：
+
+```java
+// 在 AsyncExecutionAspectSupport 中
+protected Callable<Object> createCallable(MethodInvocation invocation) {
+    return () -> {
+        try {
+            // 这里就是实际的方法调用
+            Object result = invocation.proceed();
+            if (result instanceof Future) {
+                return ((Future<?>) result).get();
+            }
+            return result;
+        } catch (Throwable ex) {
+            // 异常处理
+            handleError(ex, invocation.getMethod(), invocation.getArguments());
+            throw ex;
+        }
+    };
+}
+
+// 在 doSubmit 中会调用：
+Callable<Object> callable = createCallable(invocation);
+executor.submit(callable);  // 提交到线程池
+```
+
+##### **4. 结合 `@Scheduled` 的完整调用链**
+
+当 `@Async` 和 `@Scheduled` 一起使用时：
+
+```java
+// 1. ScheduledAnnotationBeanPostProcessor 触发定时任务
+// org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor
+private void processScheduled(Scheduled scheduled, Method method, Object bean) {
+    // 创建任务
+    Runnable task = createRunnable(bean, method);
+    
+    // 调度执行 - 这里会调用被 @Async 代理的方法
+    taskScheduler.schedule(task, new CronTrigger(scheduled.cron()));
+}
+
+// 2. 由于方法有 @Async 注解，实际调用的是代理对象
+// 代理对象会进入 AsyncExecutionInterceptor.invoke()
+
+// 3. AsyncExecutionInterceptor 拦截调用并提交到线程池
+public Object invoke(MethodInvocation invocation) {
+    // 判断是否需要异步执行
+    Method method = invocation.getMethod();
+    if (isAsyncCall(invocation)) {
+        // 获取指定的线程池（"threadPool"）
+        AsyncTaskExecutor executor = getDefaultExecutor(method);
+        
+        // 封装为 Callable 并提交
+        Callable<Object> task = () -> {
+            try {
+                return invocation.proceed(); // 实际方法执行
+            } catch (Throwable ex) {
+                throw new ExecutionException(ex);
+            }
+        };
+        
+        // 提交到线程池，立即返回
+        executor.submit(task);
+        return null;  // 立即返回，不阻塞
+    }
+    
+    return invocation.proceed();
+}
+```
+
+##### **5. 线程池提交的具体实现**
+
+在 `ThreadPoolTaskExecutor` 中：
+
+```java
+// org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
+@Override
+public Future<?> submit(Runnable task) {
+    // 委托给 JDK 的 ThreadPoolExecutor
+    return this.threadPoolExecutor.submit(task);
+}
+
+// 实际提交逻辑在 ThreadPoolExecutor 中
+public Future<?> submit(Runnable task) {
+    if (task == null) throw new NullPointerException();
+    
+    // 将 Runnable 封装为 FutureTask
+    RunnableFuture<Void> ftask = newTaskFor(task, null);
+    
+    // 执行提交 - 这里就是立即返回的关键
+    execute(ftask);
+    return ftask;
+}
+
+public void execute(Runnable command) {
+    // 线程池的核心提交逻辑
+    if (workerCountOf(c) < corePoolSize) {
+        if (addWorker(command, true))
+            return;  // 立即返回！
+    }
+    if (workQueue.offer(command)) {
+        // 进入队列，立即返回！
+        return;
+    }
+    // ... 其他逻辑
+}
+```
+
+#### **实际调试示例**
+
+您可以通过以下方式在 IDE 中调试验证：
+
+##### **1. 设置断点位置：**
+- `AsyncExecutionInterceptor.invoke()`
+- `ThreadPoolTaskExecutor.submit()`
+- `ThreadPoolExecutor.execute()`
+
+##### **2. 调试观察调用栈：**
+```
+Thread [taskScheduler-1] (调度线程)
+    AsyncExecutionInterceptor.invoke() 
+    → 提交任务到线程池
+    → 立即返回 null
+    
+Thread [taskExecutor-1] (工作线程)  
+    → 实际执行 asyncUpdateOrganizationAndUser() 方法
+```
+
+##### **3. 关键验证点：**
+1. **调度线程**：看到 `AsyncExecutionInterceptor` 提交任务后立即返回
+2. **工作线程**：看到不同的线程执行实际业务逻辑
+3. **时间差**：调度触发时间和实际执行时间可能有微小差异
+
+#### **总结**
+
+源码层面的关键证据：
+
+1. **`AsyncExecutionInterceptor.invoke()`**：检测到 `@Async` 注解，拦截方法调用
+2. **`doSubmit()`**：将方法调用封装为 `Callable/Runnable`
+3. **`executor.submit(task)`**：提交到指定线程池，**该方法立即返回**
+4. **调度线程继续执行**：不等待任务完成，可以立即触发下一个定时任务
+
+这就是 `@Async` 实现"立即返回，不阻塞调度线程"的完整源码路径。调度线程只负责触发和提交，实际执行由线程池的工作线程完成，实现了真正的异步执行。
+### 64.3.6 识别一个误区：@Async是可以让方法异步执行的注解，与@Scheduled并无关系
+
+**`@Async` 和 `@Scheduled` 确实是两个完全独立的注解**，它们可以单独使用，也可以组合使用。
+
+#### **`@Async` 的独立用途**
+
+`@Async` 的主要作用是将**任何方法调用**改为异步执行，不仅仅限于定时任务：
+
+##### **1. 在 Controller/Service 中的异步调用**
+```java
+@RestController
+public class UserController {
+    
+    @Autowired
+    private UserService userService;
+    
+    @PostMapping("/users/batch")
+    public String createUsersBatch(@RequestBody List<User> users) {
+        // 同步返回响应，后台异步处理
+        userService.asyncCreateUsers(users);
+        return "批量创建任务已提交，正在后台处理";
+    }
+}
+
+@Service
+public class UserService {
+    
+    @Async("threadPool")
+    public void asyncCreateUsers(List<User> users) {
+        // 异步批量创建用户，避免阻塞HTTP请求
+        users.forEach(user -> {
+            // 耗时操作
+            userRepository.save(user);
+            sendWelcomeEmail(user); // 发送欢迎邮件
+        });
+    }
+}
+```
+
+##### **2. 事件监听器的异步处理**
+```java
+@Component
+public class OrderEventListener {
+    
+    @Async("threadPool")
+    @EventListener
+    public void handleOrderCreatedEvent(OrderCreatedEvent event) {
+        // 异步处理订单创建后的后续操作
+        inventoryService.updateStock(event.getOrder());
+        notificationService.sendOrderConfirm(event.getOrder());
+        analyticsService.trackOrderEvent(event.getOrder());
+    }
+}
+```
+
+##### **3. 消息队列消费的异步处理**
+```java
+@Component
+public class MessageConsumer {
+    
+    @Async("threadPool")
+    @RabbitListener(queues = "order.queue")
+    public void processOrderMessage(OrderMessage message) {
+        // 异步处理消息，提高消费能力
+        orderService.processOrder(message);
+    }
+}
+```
+
+---
+
+#### **`@Scheduled` 的独立用途**
+
+同样，`@Scheduled` 也可以单独使用：
+
+##### **1. 简单的定时任务（无需异步）**
+```java
+@Component
+public class CacheScheduler {
+    
+    @Scheduled(fixedRate = 300000) // 5分钟执行一次
+    public void refreshCache() {
+        // 快速缓存刷新，不需要异步
+        cacheManager.refreshAll();
+    }
+    
+    @Scheduled(cron = "0 0 2 * * ?") // 每天凌晨2点
+    public void cleanupTempFiles() {
+        // 清理临时文件，执行时间短
+        fileService.cleanupTempFiles();
+    }
+}
+```
+
+---
+
+#### **`@Async` 和 `@Scheduled` 的关系分析**
+
+##### **它们确实是独立的：**
+
+| 特性 | `@Async` | `@Scheduled` |
+|------|----------|--------------|
+| **主要功能** | 异步执行 | 定时触发 |
+| **适用场景** | 任何方法调用 | 周期性任务 |
+| **依赖关系** | 不依赖 `@Scheduled` | 不依赖 `@Async` |
+| **组合效果** | 让定时任务异步执行 | 为异步方法提供触发时机 |
+
+##### **组合使用的场景判断：**
+
+```java
+// 需要组合使用的情况：
+@Async("threadPool")
+@Scheduled(cron = "0 0 3 * * ?")
+public void dataSyncTask() {
+    // 执行时间长（几分钟到几小时）
+    // 涉及外部系统调用
+    // 资源消耗大
+    syncExternalData();
+    generateReports();
+    backupDatabase();
+}
+
+// 不需要组合使用的情况：
+@Scheduled(fixedRate = 60000) // 1分钟
+public void healthCheck() {
+    // 快速健康检查，执行时间短（几秒钟）
+    healthService.checkServices();
+}
+```
+
+---
+
+#### **实际项目中的使用建议**
+
+##### **应该使用 `@Async + @Scheduled` 的场景：**
+1. **数据同步任务**：从外部系统同步数据，可能耗时较长
+2. **报表生成**：生成复杂的业务报表
+3. **批量处理**：处理大量数据的任务
+4. **外部API调用**：调用可能响应慢的外部服务
+
+##### **可以单独使用 `@Scheduled` 的场景：**
+1. **缓存刷新**：快速的缓存更新操作
+2. **状态检查**：服务健康检查
+3. **简单清理**：日志文件清理、临时文件删除
+4. **监控指标收集**：收集系统指标数据
+
+##### **应该单独使用 `@Async` 的场景：**
+1. **Web请求中的耗时操作**：文件上传处理、邮件发送
+2. **事件驱动的后台任务**：订单处理后的后续操作
+3. **消息队列消费**：提高消息处理吞吐量
+
+---
+
+#### **配置示例：明确的职责分离**
+
+```java
+@Configuration
+@EnableAsync
+@EnableScheduling
+public class AsyncSchedulingConfig {
+    
+    // 专门用于定时任务的线程池
+    @Bean("scheduledTaskExecutor")
+    public ThreadPoolTaskExecutor scheduledTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(5);
+        executor.setMaxPoolSize(10);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("scheduled-task-");
+        return executor;
+    }
+    
+    // 专门用于普通异步任务的线程池
+    @Bean("commonAsyncExecutor") 
+    public ThreadPoolTaskExecutor commonAsyncExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(20);
+        executor.setMaxPoolSize(50);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("async-task-");
+        return executor;
+    }
+}
+
+// 定时任务使用专门的线程池
+@Async("scheduledTaskExecutor")
+@Scheduled(cron = "0 0 3 * * ?")
+public void heavyScheduledTask() {
+    // 耗时定时任务
+}
+
+// 普通异步方法使用通用线程池  
+@Async("commonAsyncExecutor")
+public void asyncBusinessMethod() {
+    // 业务异步方法
+}
+```
+# 六十五、SpringBoot定时任务 - 基础quartz实现方式
+> 除了SpringTask，最为常用的Quartz，并且Spring也集成了Quartz的框架。本文主要介绍Quartz和基础的Quartz的集成案例。
+## 65.1 准备知识点
+### 65.1.1 什么是Quartz
+> 官网地址：http://www.quartz-scheduler.org/
+
+Quartz是OpenSymphony开源组织在Job scheduling领域又一个开源项目，它可以与J2EE与J2SE应用程序相结合也可以单独使用。Quartz可以用来创建简单或为运行十个，百个，甚至是好几万个Jobs这样复杂的程序。Jobs可以做成标准的Java组件或 EJBs。
+
+**它的特点如下**
+
+- 纯java实现，可以作为独立的应用程序，也可以嵌入在另一个独立式应用程序运行
+- 强大的调度功能，Spring默认的调度框架，灵活可配置；
+- 作业持久化，调度环境持久化机制，可以保存并恢复调度现场。系统关闭数据不会丢失；灵活的应用方式，可以任意定义触发器的调度时间表，支持任务和调度各种组合，组件式监听器、各种插件、线程池等功能，多种存储方式等；
+- 分布式和集群能力，可以被实例化，一个Quartz集群中的每个节点作为一个独立的Quartz使用，通过相同的数据库表来感知到另一个Quartz应用
+### 65.1.2 Quartz的体系结构
+![232.springboot-job-quartz-1.png](../../assets/images/04-主流框架/spring/232.springboot-job-quartz-1.png)
+- Job 表示一个工作，要执行的具体内容。
+- JobDetail 表示一个具体的可执行的调度程序，Job 是这个可执行程调度程序所要执行的内容，另外 JobDetail 还包含了这个任务调度的方案和策略。
+- Trigger 代表一个调度参数的配置，什么时候去调。
+- Scheduler 代表一个调度容器，一个调度容器中可以注册多个 JobDetail 和 Trigger。当 Trigger 与 JobDetail 组合，就可以被 Scheduler 容器调度了。
+## 65.2 实现案例
+- 引入POM依赖
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-quartz</artifactId>
+</dependency>
+```
+- 定义Job
+
+只需要继承QuartzJobBean，并重载executeInternal方法即可定义你自己的Job执行逻辑。
+```java
+@Slf4j
+public class HelloJob extends QuartzJobBean {
+
+    @Override
+    protected void executeInternal(JobExecutionContext context) throws JobExecutionException {
+        // get parameters
+        context.getJobDetail().getJobDataMap().forEach(
+                (k, v) -> log.info("param, key:{}, value:{}", k, v)
+        );
+        // your logics
+        log.info("Hello Job执行时间: " + new Date());
+    }
+}
+```
+- 配置Job
+
+JobDetail, Trigger, Schedule(这里采用CronScheduleBuilder)
+```java
+/**
+ * @author pdai
+ */
+@Configuration
+public class QuartzConfig {
+
+    @Bean("helloJob")
+    public JobDetail helloJobDetail() {
+        return JobBuilder.newJob(HelloJob.class)
+                .withIdentity("DateTimeJob")
+                .usingJobData("msg", "Hello Quartz")
+                .storeDurably()//即使没有Trigger关联时，也不需要删除该JobDetail
+                .build();
+    }
+
+    @Bean
+    public Trigger printTimeJobTrigger() {
+        // 每秒执行一次
+        CronScheduleBuilder cronScheduleBuilder = CronScheduleBuilder.cronSchedule("0/1 * * * * ?");
+        return TriggerBuilder.newTrigger()
+                .forJob(helloJobDetail())
+                .withIdentity("quartzTaskService")
+                .withSchedule(cronScheduleBuilder)
+                .build();
+    }
+}
+```
+- 执行测试
+```sh
+2021-10-01 13:09:00.380  INFO 38484 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port(s): 8080 (http)
+2021-10-01 13:09:00.391  INFO 38484 --- [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2021-10-01 13:09:00.392  INFO 38484 --- [           main] org.apache.catalina.core.StandardEngine  : Starting Servlet engine: [Apache Tomcat/9.0.50]
+2021-10-01 13:09:00.526  INFO 38484 --- [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2021-10-01 13:09:00.526  INFO 38484 --- [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 1424 ms
+2021-10-01 13:09:00.866  INFO 38484 --- [           main] org.quartz.impl.StdSchedulerFactory      : Using default implementation for ThreadExecutor
+2021-10-01 13:09:00.877  INFO 38484 --- [           main] org.quartz.core.SchedulerSignalerImpl    : Initialized Scheduler Signaller of type: class org.quartz.core.SchedulerSignalerImpl
+2021-10-01 13:09:00.877  INFO 38484 --- [           main] org.quartz.core.QuartzScheduler          : Quartz Scheduler v.2.3.2 created.
+2021-10-01 13:09:00.878  INFO 38484 --- [           main] org.quartz.simpl.RAMJobStore             : RAMJobStore initialized.
+2021-10-01 13:09:00.878  INFO 38484 --- [           main] org.quartz.core.QuartzScheduler          : Scheduler meta-data: Quartz Scheduler (v2.3.2) 'quartzScheduler' with instanceId 'NON_CLUSTERED'
+  Scheduler class: 'org.quartz.core.QuartzScheduler' - running locally.
+  NOT STARTED.
+  Currently in standby mode.
+  Number of jobs executed: 0
+  Using thread pool 'org.quartz.simpl.SimpleThreadPool' - with 10 threads.
+  Using job-store 'org.quartz.simpl.RAMJobStore' - which does not support persistence. and is not clustered.
+
+2021-10-01 13:09:00.878  INFO 38484 --- [           main] org.quartz.impl.StdSchedulerFactory      : Quartz scheduler 'quartzScheduler' initialized from an externally provided properties instance.
+2021-10-01 13:09:00.879  INFO 38484 --- [           main] org.quartz.impl.StdSchedulerFactory      : Quartz scheduler version: 2.3.2
+2021-10-01 13:09:00.879  INFO 38484 --- [           main] org.quartz.core.QuartzScheduler          : JobFactory set to: org.springframework.scheduling.quartz.SpringBeanJobFactory@6075b2d3
+2021-10-01 13:09:00.922  INFO 38484 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port(s): 8080 (http) with context path ''
+2021-10-01 13:09:00.923  INFO 38484 --- [           main] o.s.s.quartz.SchedulerFactoryBean        : Starting Quartz Scheduler now
+2021-10-01 13:09:00.923  INFO 38484 --- [           main] org.quartz.core.QuartzScheduler          : Scheduler quartzScheduler_$_NON_CLUSTERED started.
+2021-10-01 13:09:00.933  INFO 38484 --- [           main] tech.pdai.springboot.quartz.App          : Started App in 2.64 seconds (JVM running for 3.621)
+2021-10-01 13:09:00.931  INFO 38484 --- [eduler_Worker-1] t.pdai.springboot.quartz.job.HelloJob    : param, key:msg, value:Hello Quartz
+2021-10-01 13:09:00.933  INFO 38484 --- [eduler_Worker-1] t.pdai.springboot.quartz.job.HelloJob    : Hello Job执行时间: Wed Oct 27 13:09:00 CST 2021
+2021-10-01 13:09:01.001  INFO 38484 --- [eduler_Worker-2] t.pdai.springboot.quartz.job.HelloJob    : param, key:msg, value:Hello Quartz
+2021-10-01 13:09:01.001  INFO 38484 --- [eduler_Worker-2] t.pdai.springboot.quartz.job.HelloJob    : Hello Job执行时间: Wed Oct 27 13:09:01 CST 2021
+2021-10-01 13:09:02.000  INFO 38484 --- [eduler_Worker-3] t.pdai.springboot.quartz.job.HelloJob    : param, key:msg, value:Hello Quartz
+2021-10-01 13:09:02.000  INFO 38484 --- [eduler_Worker-3] t.pdai.springboot.quartz.job.HelloJob    : Hello Job执行时间: Wed Oct 27 13:09:02 CST 2021
+2021-10-01 13:09:03.000  INFO 38484 --- [eduler_Worker-4] t.pdai.springboot.quartz.job.HelloJob    : param, key:msg, value:Hello Quartz
+2021-10-01 13:09:03.001  INFO 38484 --- [eduler_Worker-4] t.pdai.springboot.quartz.job.HelloJob    : Hello Job执行时间: Wed Oct 27 13:09:03 CST 2021
+2021-10-01 13:09:04.001  INFO 38484 --- [eduler_Worker-5] t.pdai.springboot.quartz.job.HelloJob    : param, key:msg, value:Hello Quartz
+2021-10-01 13:09:04.001  INFO 38484 --- [eduler_Worker-5] t.pdai.springboot.quartz.job.HelloJob    : Hello Job执行时间: Wed Oct 27 13:09:04 CST 2021
+2021-10-01 13:09:05.002  INFO 38484 --- [eduler_Worker-6] t.pdai.springboot.quartz.job.HelloJob    : param, key:msg, value:Hello Quartz
+2021-10-01 13:09:05.003  INFO 38484 --- [eduler_Worker-6] t.pdai.springboot.quartz.job.HelloJob    : Hello Job执行时间: Wed Oct 27 13:09:05 CST 2021
+2021-10-01 13:09:06.000  INFO 38484 --- [eduler_Worker-7] t.pdai.springboot.quartz.job.HelloJob    : param, key:msg, value:Hello Quartz
+2021-10-01 13:09:06.001  INFO 38484 --- [eduler_Worker-7] t.pdai.springboot.quartz.job.HelloJob    : Hello Job执行时间: Wed Oct 27 13:09:06 CST 2021
+2021-10-01 13:09:07.002  INFO 38484 --- [eduler_Worker-8] t.pdai.springboot.quartz.job.HelloJob    : param, key:msg, value:Hello Quartz
+2021-10-01 13:09:07.002  INFO 38484 --- [eduler_Worker-8] t.pdai.springboot.quartz.job.HelloJob    : Hello Job执行时间: Wed Oct 27 13:09:07 CST 2021
+2021-10-01 13:09:08.002  INFO 38484 --- [eduler_Worker-9] t.pdai.springboot.quartz.job.HelloJob    : param, key:msg, value:Hello Quartz
+2021-10-01 13:09:08.003  INFO 38484 --- [eduler_Worker-9] t.pdai.springboot.quartz.job.HelloJob    : Hello Job执行时间: Wed Oct 27 13:09:08 CST 2021
+2021-10-01 13:09:09.000  INFO 38484 --- [duler_Worker-10] t.pdai.springboot.quartz.job.HelloJob    : param, key:msg, value:Hello Quartz
+2021-10-01 13:09:09.000  INFO 38484 --- [duler_Worker-10] t.pdai.springboot.quartz.job.HelloJob    : Hello Job执行时间: Wed Oct 27 13:09:09 CST 2021
+2021-10-01 13:09:10.001  INFO 38484 --- [eduler_Worker-1] t.pdai.springboot.quartz.job.HelloJob    : param, key:msg, value:Hello Quartz
+2021-10-01 13:09:10.002  INFO 38484 --- [eduler_Worker-1] t.pdai.springboot.quartz.job.HelloJob    : Hello Job执行时间: Wed Oct 27 13:09:10 CST 2021
+2021-10-01 13:09:11.014  INFO 38484 --- [eduler_Worker-2] t.pdai.springboot.quartz.job.HelloJob    : param, key:msg, value:Hello Quartz
+2021-10-01 13:09:11.014  INFO 38484 --- [eduler_Worker-2] t.pdai.springboot.quartz.job.HelloJob    : Hello Job执行时间: Wed Oct 27 13:09:11 CST 2021
+```
+参考：https://www.cnblogs.com/jijm123/p/14240320.html
+
+# 六十六、SpringBoot定时任务 - 分布式quartz cluster方式
+
+## 66.1 准备知识点
+
+需要理解Quartz的持久化。
+
+## 66.2 什么是Quartz持久化
+
+### 66.2.1 为什么要持久化？
+
+当程序突然被中断时，如断电，内存超出时，很有可能造成任务的丢失。可以将调度信息存储到数据库里面，进行持久化，当程序被中断后，再次启动，仍然会保留中断之前的数据，继续执行，而并不是重新开始。
+
+### 66.2.2 Quartz提供了两种持久化方式
+
+Quartz提供两种基本作业存储类型：
+
+**RAMJobStore**
+在默认情况下Quartz将任务调度的运行信息保存在内存中，这种方法提供了最佳的性能，因为内存中数据访问最快。不足之处是缺乏数据的持久性，当程序路途停止或系统崩溃时，所有运行的信息都会丢失。
+
+**JobStoreTX**
+所有的任务信息都会保存到数据库中，可以控制事物，还有就是如果应用服务器关闭或者重启，任务信息都不会丢失，并且可以恢复因服务器关闭或者重启而导致执行失败的任务。
+
+## 66.3 实现案例
+
+本例将展示quartz实现基于数据库的分布式任务管理，和控制job生命周期。
+
+整体项目结构如下：
+
+```
+项目结构
+├── src
+│   ├── main
+│   │   ├── java
+│   │   │   └── tech
+│   │   │       └── pdai
+│   │   │           └── springboot
+│   │   │               └── quartz
+│   │   │                   └── cluster
+│   │   │                       ├── controller
+│   │   │                       ├── entity
+│   │   │                       ├── job
+│   │   │                       └── manager
+│   │   └── resources
+│   │       └── application.yml
+│   └── test
+└── pom.xml
+```
+
+## 66.4 后端实现
+
+### 66.4.1 pom.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.5.3</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>tech.pdai</groupId>
+    <artifactId>423-springboot-demo-schedule-quartz-cluster</artifactId>
+    <version>1.0-SNAPSHOT</version>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-quartz</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+            <version>5.1.42</version><!--$NO-MVN-MAN-VER$-->
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.20</version>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>com.github.pagehelper</groupId>
+            <artifactId>pagehelper</artifactId>
+            <version>5.0.0</version>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+### 66.4.2 创建Schema
+
+需要提前在MySQL中创建schema: quartz_jobs
+
+```sql
+-- DROP TABLE IF EXISTS QRTZ_FIRED_TRIGGERS;
+-- DROP TABLE IF EXISTS QRTZ_PAUSED_TRIGGER_GRPS;
+-- DROP TABLE IF EXISTS QRTZ_SCHEDULER_STATE;
+-- DROP TABLE IF EXISTS QRTZ_LOCKS;
+-- DROP TABLE IF EXISTS QRTZ_SIMPLE_TRIGGERS;
+-- DROP TABLE IF EXISTS QRTZ_SIMPROP_TRIGGERS;
+-- DROP TABLE IF EXISTS QRTZ_CRON_TRIGGERS;
+-- DROP TABLE IF EXISTS QRTZ_BLOB_TRIGGERS;
+-- DROP TABLE IF EXISTS QRTZ_TRIGGERS;
+-- DROP TABLE IF EXISTS QRTZ_JOB_DETAILS;
+-- DROP TABLE IF EXISTS QRTZ_CALENDARS;
+-- DROP TABLE IF EXISTS QRTZ_TASK_HISTORY;
+
+CREATE TABLE QRTZ_JOB_DETAILS(
+  SCHED_NAME VARCHAR(120) NOT NULL,
+  JOB_NAME VARCHAR(200) NOT NULL,
+  JOB_GROUP VARCHAR(200) NOT NULL,
+  DESCRIPTION VARCHAR(250) NULL,
+  JOB_CLASS_NAME VARCHAR(250) NOT NULL,
+  IS_DURABLE VARCHAR(1) NOT NULL,
+  IS_NONCONCURRENT VARCHAR(1) NOT NULL,
+  IS_UPDATE_DATA VARCHAR(1) NOT NULL,
+  REQUESTS_RECOVERY VARCHAR(1) NOT NULL,
+  JOB_DATA BLOB NULL,
+  PRIMARY KEY (SCHED_NAME,JOB_NAME,JOB_GROUP))
+  ENGINE=InnoDB;
+
+CREATE TABLE QRTZ_TRIGGERS (
+  SCHED_NAME VARCHAR(120) NOT NULL,
+  TRIGGER_NAME VARCHAR(200) NOT NULL,
+  TRIGGER_GROUP VARCHAR(200) NOT NULL,
+  JOB_NAME VARCHAR(200) NOT NULL,
+  JOB_GROUP VARCHAR(200) NOT NULL,
+  DESCRIPTION VARCHAR(250) NULL,
+  NEXT_FIRE_TIME BIGINT(13) NULL,
+  PREV_FIRE_TIME BIGINT(13) NULL,
+  PRIORITY INTEGER NULL,
+  TRIGGER_STATE VARCHAR(16) NOT NULL,
+  TRIGGER_TYPE VARCHAR(8) NOT NULL,
+  START_TIME BIGINT(13) NOT NULL,
+  END_TIME BIGINT(13) NULL,
+  CALENDAR_NAME VARCHAR(200) NULL,
+  MISFIRE_INSTR SMALLINT(2) NULL,
+  JOB_DATA BLOB NULL,
+  PRIMARY KEY (SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP),
+  FOREIGN KEY (SCHED_NAME,JOB_NAME,JOB_GROUP)
+  REFERENCES QRTZ_JOB_DETAILS(SCHED_NAME,JOB_NAME,JOB_GROUP))
+  ENGINE=InnoDB;
+
+CREATE TABLE QRTZ_SIMPLE_TRIGGERS (
+  SCHED_NAME VARCHAR(120) NOT NULL,
+  TRIGGER_NAME VARCHAR(200) NOT NULL,
+  TRIGGER_GROUP VARCHAR(200) NOT NULL,
+  REPEAT_COUNT BIGINT(7) NOT NULL,
+  REPEAT_INTERVAL BIGINT(12) NOT NULL,
+  TIMES_TRIGGERED BIGINT(10) NOT NULL,
+  PRIMARY KEY (SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP),
+  FOREIGN KEY (SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP)
+  REFERENCES QRTZ_TRIGGERS(SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP))
+  ENGINE=InnoDB;
+
+CREATE TABLE QRTZ_CRON_TRIGGERS (
+  SCHED_NAME VARCHAR(120) NOT NULL,
+  TRIGGER_NAME VARCHAR(200) NOT NULL,
+  TRIGGER_GROUP VARCHAR(200) NOT NULL,
+  CRON_EXPRESSION VARCHAR(120) NOT NULL,
+  TIME_ZONE_ID VARCHAR(80),
+  PRIMARY KEY (SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP),
+  FOREIGN KEY (SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP)
+  REFERENCES QRTZ_TRIGGERS(SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP))
+  ENGINE=InnoDB;
+
+CREATE TABLE QRTZ_SIMPROP_TRIGGERS
+(
+  SCHED_NAME VARCHAR(120) NOT NULL,
+  TRIGGER_NAME VARCHAR(200) NOT NULL,
+  TRIGGER_GROUP VARCHAR(200) NOT NULL,
+  STR_PROP_1 VARCHAR(512) NULL,
+  STR_PROP_2 VARCHAR(512) NULL,
+  STR_PROP_3 VARCHAR(512) NULL,
+  INT_PROP_1 INT NULL,
+  INT_PROP_2 INT NULL,
+  LONG_PROP_1 BIGINT NULL,
+  LONG_PROP_2 BIGINT NULL,
+  DEC_PROP_1 NUMERIC(13,4) NULL,
+  DEC_PROP_2 NUMERIC(13,4) NULL,
+  BOOL_PROP_1 VARCHAR(1) NULL,
+  BOOL_PROP_2 VARCHAR(1) NULL,
+  PRIMARY KEY (SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP),
+  FOREIGN KEY (SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP)
+  REFERENCES QRTZ_TRIGGERS(SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP))
+  ENGINE=InnoDB;
+
+CREATE TABLE QRTZ_BLOB_TRIGGERS (
+  SCHED_NAME VARCHAR(120) NOT NULL,
+  TRIGGER_NAME VARCHAR(200) NOT NULL,
+  TRIGGER_GROUP VARCHAR(200) NOT NULL,
+  BLOB_DATA BLOB NULL,
+  PRIMARY KEY (SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP),
+  INDEX (SCHED_NAME,TRIGGER_NAME, TRIGGER_GROUP),
+  FOREIGN KEY (SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP)
+  REFERENCES QRTZ_TRIGGERS(SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP))
+  ENGINE=InnoDB;
+
+CREATE TABLE QRTZ_CALENDARS (
+  SCHED_NAME VARCHAR(120) NOT NULL,
+  CALENDAR_NAME VARCHAR(200) NOT NULL,
+  CALENDAR BLOB NOT NULL,
+  PRIMARY KEY (SCHED_NAME,CALENDAR_NAME))
+  ENGINE=InnoDB;
+
+CREATE TABLE QRTZ_PAUSED_TRIGGER_GRPS (
+  SCHED_NAME VARCHAR(120) NOT NULL,
+  TRIGGER_GROUP VARCHAR(200) NOT NULL,
+  PRIMARY KEY (SCHED_NAME,TRIGGER_GROUP))
+  ENGINE=InnoDB;
+
+CREATE TABLE QRTZ_FIRED_TRIGGERS (
+  SCHED_NAME VARCHAR(120) NOT NULL,
+  ENTRY_ID VARCHAR(95) NOT NULL,
+  TRIGGER_NAME VARCHAR(200) NOT NULL,
+  TRIGGER_GROUP VARCHAR(200) NOT NULL,
+  INSTANCE_NAME VARCHAR(200) NOT NULL,
+  FIRED_TIME BIGINT(13) NOT NULL,
+  SCHED_TIME BIGINT(13) NOT NULL,
+  PRIORITY INTEGER NOT NULL,
+  STATE VARCHAR(16) NOT NULL,
+  JOB_NAME VARCHAR(200) NULL,
+  JOB_GROUP VARCHAR(200) NULL,
+  IS_NONCONCURRENT VARCHAR(1) NULL,
+  REQUESTS_RECOVERY VARCHAR(1) NULL,
+  PRIMARY KEY (SCHED_NAME,ENTRY_ID))
+  ENGINE=InnoDB;
+
+CREATE TABLE QRTZ_SCHEDULER_STATE (
+  SCHED_NAME VARCHAR(120) NOT NULL,
+  INSTANCE_NAME VARCHAR(200) NOT NULL,
+  LAST_CHECKIN_TIME BIGINT(13) NOT NULL,
+  CHECKIN_INTERVAL BIGINT(13) NOT NULL,
+  PRIMARY KEY (SCHED_NAME,INSTANCE_NAME))
+  ENGINE=InnoDB;
+
+CREATE TABLE QRTZ_LOCKS (
+  SCHED_NAME VARCHAR(120) NOT NULL,
+  LOCK_NAME VARCHAR(40) NOT NULL,
+  PRIMARY KEY (SCHED_NAME,LOCK_NAME))
+  ENGINE=InnoDB;
+
+CREATE TABLE QRTZ_TASK_HISTORY (
+  SCHED_NAME VARCHAR(120) NOT NULL,
+  INSTANCE_ID VARCHAR(200) NOT NULL,
+  FIRE_ID VARCHAR(95) NOT NULL,
+  TASK_NAME VARCHAR(200) NULL,
+  TASK_GROUP VARCHAR(200) NULL,
+  FIRED_TIME BIGINT(13) NULL,
+  FIRED_WAY VARCHAR(8) NULL,
+  COMPLETE_TIME BIGINT(13) NULL,
+  EXPEND_TIME BIGINT(13) NULL,
+  REFIRED INT NULL,
+  EXEC_STATE VARCHAR(10) NULL,
+  LOG TEXT NULL,
+  PRIMARY KEY (FIRE_ID)
+)ENGINE=InnoDB;
+
+CREATE INDEX IDX_QRTZ_J_REQ_RECOVERY ON QRTZ_JOB_DETAILS(SCHED_NAME,REQUESTS_RECOVERY);
+CREATE INDEX IDX_QRTZ_J_GRP ON QRTZ_JOB_DETAILS(SCHED_NAME,JOB_GROUP);
+
+CREATE INDEX IDX_QRTZ_T_J ON QRTZ_TRIGGERS(SCHED_NAME,JOB_NAME,JOB_GROUP);
+CREATE INDEX IDX_QRTZ_T_JG ON QRTZ_TRIGGERS(SCHED_NAME,JOB_GROUP);
+CREATE INDEX IDX_QRTZ_T_C ON QRTZ_TRIGGERS(SCHED_NAME,CALENDAR_NAME);
+CREATE INDEX IDX_QRTZ_T_G ON QRTZ_TRIGGERS(SCHED_NAME,TRIGGER_GROUP);
+CREATE INDEX IDX_QRTZ_T_STATE ON QRTZ_TRIGGERS(SCHED_NAME,TRIGGER_STATE);
+CREATE INDEX IDX_QRTZ_T_N_STATE ON QRTZ_TRIGGERS(SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP,TRIGGER_STATE);
+CREATE INDEX IDX_QRTZ_T_N_G_STATE ON QRTZ_TRIGGERS(SCHED_NAME,TRIGGER_GROUP,TRIGGER_STATE);
+CREATE INDEX IDX_QRTZ_T_NEXT_FIRE_TIME ON QRTZ_TRIGGERS(SCHED_NAME,NEXT_FIRE_TIME);
+CREATE INDEX IDX_QRTZ_T_NFT_ST ON QRTZ_TRIGGERS(SCHED_NAME,TRIGGER_STATE,NEXT_FIRE_TIME);
+CREATE INDEX IDX_QRTZ_T_NFT_MISFIRE ON QRTZ_TRIGGERS(SCHED_NAME,MISFIRE_INSTR,NEXT_FIRE_TIME);
+CREATE INDEX IDX_QRTZ_T_NFT_ST_MISFIRE ON QRTZ_TRIGGERS(SCHED_NAME,MISFIRE_INSTR,NEXT_FIRE_TIME,TRIGGER_STATE);
+CREATE INDEX IDX_QRTZ_T_NFT_ST_MISFIRE_GRP ON QRTZ_TRIGGERS(SCHED_NAME,MISFIRE_INSTR,NEXT_FIRE_TIME,TRIGGER_GROUP,TRIGGER_STATE);
+
+CREATE INDEX IDX_QRTZ_FT_TRIG_INST_NAME ON QRTZ_FIRED_TRIGGERS(SCHED_NAME,INSTANCE_NAME);
+CREATE INDEX IDX_QRTZ_FT_INST_JOB_REQ_RCVRY ON QRTZ_FIRED_TRIGGERS(SCHED_NAME,INSTANCE_NAME,REQUESTS_RECOVERY);
+CREATE INDEX IDX_QRTZ_FT_J_G ON QRTZ_FIRED_TRIGGERS(SCHED_NAME,JOB_NAME,JOB_GROUP);
+CREATE INDEX IDX_QRTZ_FT_JG ON QRTZ_FIRED_TRIGGERS(SCHED_NAME,JOB_GROUP);
+CREATE INDEX IDX_QRTZ_FT_T_G ON QRTZ_FIRED_TRIGGERS(SCHED_NAME,TRIGGER_NAME,TRIGGER_GROUP);
+CREATE INDEX IDX_QRTZ_FT_TG ON QRTZ_FIRED_TRIGGERS(SCHED_NAME,TRIGGER_GROUP);
+
+CREATE INDEX IDX_QRTZ_TK_S ON QRTZ_TASK_HISTORY(SCHED_NAME);
+
+commit;
+```
+
+### 66.4.3 application.yml
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/quartz_jobs?useUnicode=true&useSSL=false
+    username: root
+    password: xxxxxxxx
+    driver-class-name: com.mysql.jdbc.Driver
+  quartz:
+    #相关属性配置
+    properties:
+      org:
+        quartz:
+          scheduler:
+            instanceName: clusteredScheduler
+            instanceId: AUTO
+          jobStore:
+            class: org.quartz.impl.jdbcjobstore.JobStoreTX
+            driverDelegateClass: org.quartz.impl.jdbcjobstore.StdJDBCDelegate
+            tablePrefix: QRTZ_
+            isClustered: true
+            clusterCheckinInterval: 10000
+            useProperties: false
+          threadPool:
+            class: org.quartz.simpl.SimpleThreadPool
+            threadCount: 10
+            threadPriority: 5
+            threadsInheritContextClassLoaderOfInitializingThread: true
+    #数据库方式
+    job-store-type: jdbc
+```
+
+### 66.4.4 定义JobDetails实体
+
+```java
+@Data
+public class JobDetails{
+    private String cronExpression;	
+    private String jobClassName;	
+    private String triggerGroupName;
+    private String triggerName;
+    private String jobGroupName;
+    private String jobName;
+    private Date nextFireTime;
+    private Date previousFireTime;
+    private Date startTime;
+    private String timeZone;
+    private String status;
+}
+```
+
+### 66.4.5 Job管理类
+
+```java
+package tech.pdai.springboot.quartz.cluster.manager;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import com.github.pagehelper.PageHelper;
+import com.github.pagehelper.PageInfo;
+import org.quartz.CronScheduleBuilder;
+import org.quartz.CronTrigger;
+import org.quartz.DateBuilder;
+import org.quartz.DateBuilder.IntervalUnit;
+import org.quartz.Job;
+import org.quartz.JobBuilder;
+import org.quartz.JobDetail;
+import org.quartz.JobExecutionContext;
+import org.quartz.JobKey;
+import org.quartz.Scheduler;
+import org.quartz.SchedulerException;
+import org.quartz.SimpleScheduleBuilder;
+import org.quartz.Trigger;
+import org.quartz.TriggerBuilder;
+import org.quartz.TriggerKey;
+import org.quartz.impl.matchers.GroupMatcher;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.quartz.QuartzJobBean;
+import org.springframework.stereotype.Component;
+import tech.pdai.springboot.quartz.cluster.entity.JobDetails;
+
+@Component
+public class QuartzManager {
+
+    @Autowired
+    private Scheduler sched;
+
+    /**
+     * 创建or更新任务，存在则更新不存在创建
+     *
+     * @param jobClass     任务类
+     * @param jobName      任务名称
+     * @param jobGroupName 任务组名称
+     * @param jobCron      cron表达式
+     */
+    public void addOrUpdateJob(Class<? extends QuartzJobBean> jobClass, String jobName, String jobGroupName, String jobCron) {
+        try {
+            TriggerKey triggerKey = TriggerKey.triggerKey(jobName, jobGroupName);
+            CronTrigger trigger = (CronTrigger) sched.getTrigger(triggerKey);
+            if (trigger==null) {
+                addJob(jobClass, jobName, jobGroupName, jobCron);
+            } else {
+                if (trigger.getCronExpression().equals(jobCron)) {
+                    return;
+                }
+                updateJob(jobName, jobGroupName, jobCron);
+            }
+        } catch (SchedulerException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 增加一个job
+     *
+     * @param jobClass     任务实现类
+     * @param jobName      任务名称
+     * @param jobGroupName 任务组名
+     * @param jobCron      cron表达式(如：0/5 * * * * ? )
+     */
+    public void addJob(Class<? extends QuartzJobBean> jobClass, String jobName, String jobGroupName, String jobCron) {
+        try {
+            JobDetail jobDetail = JobBuilder.newJob(jobClass).withIdentity(jobName, jobGroupName).build();
+            Trigger trigger = TriggerBuilder.newTrigger().withIdentity(jobName, jobGroupName)
+                    .startAt(DateBuilder.futureDate(1, IntervalUnit.SECOND))
+                    .withSchedule(CronScheduleBuilder.cronSchedule(jobCron)).startNow().build();
+
+            sched.scheduleJob(jobDetail, trigger);
+            if (!sched.isShutdown()) {
+                sched.start();
+            }
+        } catch (SchedulerException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * @param jobClass
+     * @param jobName
+     * @param jobGroupName
+     * @param jobTime
+     */
+    public void addJob(Class<? extends Job> jobClass, String jobName, String jobGroupName, int jobTime) {
+        addJob(jobClass, jobName, jobGroupName, jobTime, -1);
+    }
+
+    public void addJob(Class<? extends Job> jobClass, String jobName, String jobGroupName, int jobTime, int jobTimes) {
+        try {
+            JobDetail jobDetail = JobBuilder.newJob(jobClass).withIdentity(jobName, jobGroupName)// 任务名称和组构成任务key
+                    .build();
+            // 使用simpleTrigger规则
+            Trigger trigger;
+            if (jobTimes < 0) {
+                trigger = TriggerBuilder.newTrigger().withIdentity(jobName, jobGroupName)
+                        .withSchedule(SimpleScheduleBuilder.repeatSecondlyForever(1).withIntervalInSeconds(jobTime))
+                        .startNow().build();
+            } else {
+                trigger = TriggerBuilder
+                        .newTrigger().withIdentity(jobName, jobGroupName).withSchedule(SimpleScheduleBuilder
+                                .repeatSecondlyForever(1).withIntervalInSeconds(jobTime).withRepeatCount(jobTimes))
+                        .startNow().build();
+            }
+            sched.scheduleJob(jobDetail, trigger);
+            if (!sched.isShutdown()) {
+                sched.start();
+            }
+        } catch (SchedulerException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void updateJob(String jobName, String jobGroupName, String jobTime) {
+        try {
+            TriggerKey triggerKey = TriggerKey.triggerKey(jobName, jobGroupName);
+            CronTrigger trigger = (CronTrigger) sched.getTrigger(triggerKey);
+            trigger = trigger.getTriggerBuilder().withIdentity(triggerKey)
+                    .withSchedule(CronScheduleBuilder.cronSchedule(jobTime)).build();
+            // 重启触发器
+            sched.rescheduleJob(triggerKey, trigger);
+        } catch (SchedulerException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 删除任务一个job
+     *
+     * @param jobName      任务名称
+     * @param jobGroupName 任务组名
+     */
+    public void deleteJob(String jobName, String jobGroupName) {
+        try {
+            sched.pauseTrigger(TriggerKey.triggerKey(jobName, jobGroupName));
+            sched.unscheduleJob(TriggerKey.triggerKey(jobName, jobGroupName));
+            sched.deleteJob(new JobKey(jobName, jobGroupName));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 暂停一个job
+     *
+     * @param jobName
+     * @param jobGroupName
+     */
+    public void pauseJob(String jobName, String jobGroupName) {
+        try {
+            JobKey jobKey = JobKey.jobKey(jobName, jobGroupName);
+            sched.pauseJob(jobKey);
+        } catch (SchedulerException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 恢复一个job
+     *
+     * @param jobName
+     * @param jobGroupName
+     */
+    public void resumeJob(String jobName, String jobGroupName) {
+        try {
+            JobKey jobKey = JobKey.jobKey(jobName, jobGroupName);
+            sched.resumeJob(jobKey);
+        } catch (SchedulerException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 立即执行一个job
+     *
+     * @param jobName
+     * @param jobGroupName
+     */
+    public void runAJobNow(String jobName, String jobGroupName) {
+        try {
+            JobKey jobKey = JobKey.jobKey(jobName, jobGroupName);
+            sched.triggerJob(jobKey);
+        } catch (SchedulerException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public PageInfo<JobDetails> queryAllJobBean(int pageNum, int pageSize) {
+        PageHelper.startPage(pageNum, pageSize);
+        List<JobDetails> jobList = null;
+        try {
+            GroupMatcher<JobKey> matcher = GroupMatcher.anyJobGroup();
+            Set<JobKey> jobKeys = sched.getJobKeys(matcher);
+            jobList = new ArrayList<>();
+            for (JobKey jobKey : jobKeys) {
+                List<? extends Trigger> triggers = sched.getTriggersOfJob(jobKey);
+                for (Trigger trigger : triggers) {
+                    JobDetails jobDetails = new JobDetails();
+                    if (trigger instanceof CronTrigger) {
+                        CronTrigger cronTrigger = (CronTrigger) trigger;
+                        jobDetails.setCronExpression(cronTrigger.getCronExpression());
+                        jobDetails.setTimeZone(cronTrigger.getTimeZone().getDisplayName());
+                    }
+                    jobDetails.setTriggerGroupName(trigger.getKey().getName());
+                    jobDetails.setTriggerName(trigger.getKey().getGroup());
+                    jobDetails.setJobGroupName(jobKey.getGroup());
+                    jobDetails.setJobName(jobKey.getName());
+                    jobDetails.setStartTime(trigger.getStartTime());
+                    jobDetails.setJobClassName(sched.getJobDetail(jobKey).getJobClass().getName());
+                    jobDetails.setNextFireTime(trigger.getNextFireTime());
+                    jobDetails.setPreviousFireTime(trigger.getPreviousFireTime());
+                    jobDetails.setStatus(sched.getTriggerState(trigger.getKey()).name());
+                    jobList.add(jobDetails);
+                }
+            }
+        } catch (SchedulerException e) {
+            e.printStackTrace();
+        }
+        return new PageInfo<>(jobList);
+    }
+
+    /**
+     * 获取所有计划中的任务列表
+     *
+     * @return
+     */
+    public List<Map<String, Object>> queryAllJob() {
+        List<Map<String, Object>> jobList = null;
+        try {
+            GroupMatcher<JobKey> matcher = GroupMatcher.anyJobGroup();
+            Set<JobKey> jobKeys = sched.getJobKeys(matcher);
+            jobList = new ArrayList<>();
+            for (JobKey jobKey : jobKeys) {
+                List<? extends Trigger> triggers = sched.getTriggersOfJob(jobKey);
+                for (Trigger trigger : triggers) {
+                    Map<String, Object> map = new HashMap<>();
+                    map.put("jobName", jobKey.getName());
+                    map.put("jobGroupName", jobKey.getGroup());
+                    map.put("description", "trigger:" + trigger.getKey());
+                    Trigger.TriggerState triggerState = sched.getTriggerState(trigger.getKey());
+                    map.put("jobStatus", triggerState.name());
+                    if (trigger instanceof CronTrigger) {
+                        CronTrigger cronTrigger = (CronTrigger) trigger;
+                        String cronExpression = cronTrigger.getCronExpression();
+                        map.put("jobTime", cronExpression);
+                    }
+                    jobList.add(map);
+                }
+            }
+        } catch (SchedulerException e) {
+            e.printStackTrace();
+        }
+        return jobList;
+    }
+
+    /**
+     * 获取所有正在运行的job
+     *
+     * @return
+     */
+    public List<Map<String, Object>> queryRunJon() {
+        List<Map<String, Object>> jobList = null;
+        try {
+            List<JobExecutionContext> executingJobs = sched.getCurrentlyExecutingJobs();
+            jobList = new ArrayList<>(executingJobs.size());
+            for (JobExecutionContext executingJob : executingJobs) {
+                Map<String, Object> map = new HashMap<>();
+                JobDetail jobDetail = executingJob.getJobDetail();
+                JobKey jobKey = jobDetail.getKey();
+                Trigger trigger = executingJob.getTrigger();
+                map.put("jobName", jobKey.getName());
+                map.put("jobGroupName", jobKey.getGroup());
+                map.put("description", "trigger:" + trigger.getKey());
+                Trigger.TriggerState triggerState = sched.getTriggerState(trigger.getKey());
+                map.put("jobStatus", triggerState.name());
+                if (trigger instanceof CronTrigger) {
+                    CronTrigger cronTrigger = (CronTrigger) trigger;
+                    String cronExpression = cronTrigger.getCronExpression();
+                    map.put("jobTime", cronExpression);
+                }
+                jobList.add(map);
+            }
+        } catch (SchedulerException e) {
+            e.printStackTrace();
+        }
+        return jobList;
+    }
+}
+```
+
+### 66.4.6 Job控制器接口
+
+```java
+package tech.pdai.springboot.quartz.cluster.controller;
+
+import java.util.HashMap;
+import java.util.Map;
+
+import com.github.pagehelper.PageInfo;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.quartz.QuartzJobBean;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.quartz.cluster.entity.JobDetails;
+import tech.pdai.springboot.quartz.cluster.manager.QuartzManager;
+
+@RestController
+@RequestMapping(value = "/job")
+public class JobController {
+
+    @Autowired
+    private QuartzManager qtzManager;
+
+    @SuppressWarnings("unchecked")
+    private static Class<? extends QuartzJobBean> getClass(String classname) throws Exception {
+        Class<?> class1 = Class.forName(classname);
+        return (Class<? extends QuartzJobBean>) class1;
+    }
+
+    /**
+     * @param jobClassName
+     * @param jobGroupName
+     * @param cronExpression
+     * @throws Exception
+     */
+    @PostMapping(value = "/addjob")
+    public void addjob(@RequestParam(value = "jobClassName") String jobClassName,
+                       @RequestParam(value = "jobGroupName") String jobGroupName,
+                       @RequestParam(value = "cronExpression") String cronExpression) throws Exception {
+        qtzManager.addOrUpdateJob(getClass(jobClassName), jobClassName, jobGroupName, cronExpression);
+    }
+
+    /**
+     * @param jobClassName
+     * @param jobGroupName
+     * @throws Exception
+     */
+    @PostMapping(value = "/pausejob")
+    public void pausejob(@RequestParam(value = "jobClassName") String jobClassName,
+                         @RequestParam(value = "jobGroupName") String jobGroupName) throws Exception {
+        qtzManager.pauseJob(jobClassName, jobGroupName);
+    }
+
+    /**
+     * @param jobClassName
+     * @param jobGroupName
+     * @throws Exception
+     */
+    @PostMapping(value = "/resumejob")
+    public void resumejob(@RequestParam(value = "jobClassName") String jobClassName,
+                          @RequestParam(value = "jobGroupName") String jobGroupName) throws Exception {
+        qtzManager.resumeJob(jobClassName, jobGroupName);
+    }
+
+    /**
+     * @param jobClassName
+     * @param jobGroupName
+     * @param cronExpression
+     * @throws Exception
+     */
+    @PostMapping(value = "/reschedulejob")
+    public void rescheduleJob(@RequestParam(value = "jobClassName") String jobClassName,
+                              @RequestParam(value = "jobGroupName") String jobGroupName,
+                              @RequestParam(value = "cronExpression") String cronExpression) throws Exception {
+        qtzManager.addOrUpdateJob(getClass(jobClassName), jobClassName, jobGroupName, cronExpression);
+    }
+
+    /**
+     * @param jobClassName
+     * @param jobGroupName
+     * @throws Exception
+     */
+    @PostMapping(value = "/deletejob")
+    public void deletejob(@RequestParam(value = "jobClassName") String jobClassName,
+                          @RequestParam(value = "jobGroupName") String jobGroupName) throws Exception {
+        qtzManager.deleteJob(jobClassName, jobGroupName);
+    }
+
+    /**
+     * @param pageNum
+     * @param pageSize
+     * @return
+     */
+    @GetMapping(value = "/queryjob")
+    public Map<String, Object> queryjob(@RequestParam(value = "pageNum") Integer pageNum,
+                                        @RequestParam(value = "pageSize") Integer pageSize) {
+        PageInfo<JobDetails> jobAndTrigger = qtzManager.queryAllJobBean(pageNum, pageSize);
+        Map<String, Object> map = new HashMap<String, Object>();
+        map.put("JobAndTrigger", jobAndTrigger);
+        map.put("number", jobAndTrigger.getTotal());
+        return map;
+    }
+}
+```
+
+### 66.4.7 定义具体的Job
+
+```java
+package tech.pdai.springboot.quartz.cluster.job;
+
+import java.util.Date;
+
+import lombok.extern.slf4j.Slf4j;
+import org.quartz.JobExecutionContext;
+import org.quartz.JobExecutionException;
+import org.springframework.scheduling.quartz.QuartzJobBean;
+
+@Slf4j
+public class HelloJob extends QuartzJobBean {
+
+    @Override
+    protected void executeInternal(JobExecutionContext context) throws JobExecutionException {
+        // get parameters
+        context.getJobDetail().getJobDataMap().forEach(
+                (k, v) -> log.info("param, key:{}, value:{}", k, v)
+        );
+        // your logics
+        log.info("Hello Job执行时间: " + new Date());
+    }
+}
+```
+
+## 66.5 前端实现
+
+简单用VueJS 写个页面测试
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+    <title>QuartzDemo</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-ui@2.0.5/lib/theme-chalk/index.css">
+    <script src="https://unpkg.com/vue/dist/vue.js"></script>
+    <script src="http://cdn.bootcss.com/vue-resource/1.3.4/vue-resource.js"></script>
+    <script src="https://unpkg.com/element-ui@2.0.5/lib/index.js"></script>
+    
+    <style>      
+      #top {
+          background:#20A0FF;
+          padding:5px;
+          overflow:hidden
+      }
+    </style>
+    
+</head>
+<body>
+    <div id="test">		        
+
+        <div id="top">			
+                <el-button type="text" @click="search" style="color:white">查询</el-button>	
+                <el-button type="text" @click="handleadd" style="color:white">添加</el-button>	
+            </span>						
+        </div>	
+                
+        <br/>
+
+        <div style="margin-top:15px">	
+
+          <el-table
+            ref="testTable"		  
+            :data="tableData"
+            style="width:100%"
+            border
+            >
+            <el-table-column
+              prop="status"
+              label="任务状态"
+              sortable
+              show-overflow-tooltip>
+            </el-table-column>
+            
+            <el-table-column
+              prop="jobName"
+              label="任务名称"
+              sortable
+              show-overflow-tooltip>
+            </el-table-column>
+            
+            <el-table-column
+              prop="jobGroupName"
+              label="任务所在组"
+              sortable>
+            </el-table-column>
+            
+               <el-table-column
+              prop="jobClassName"
+              label="任务类名"
+              sortable>
+            </el-table-column>
+            
+               <el-table-column
+              prop="triggerName"
+              label="触发器名称"
+              sortable>
+            </el-table-column>
+            
+            <el-table-column
+              prop="triggerGroupName"
+              label="触发器所在组"
+              sortable>
+            </el-table-column>
+            
+            <el-table-column
+              prop="cronExpression"
+              label="表达式"
+              sortable>
+            </el-table-column>
+            
+            <el-table-column
+              prop="timeZone"
+              label="时区"
+              sortable>
+            </el-table-column>
+            
+            <el-table-column label="操作" width="300">
+              <template scope="scope">
+                  <el-button
+                  size="small"
+                  type="warning"
+                  @click="handlePause(scope.$index, scope.row)">暂停</el-button>
+                  
+                <el-button
+                  size="small"
+                  type="info"
+                  @click="handleResume(scope.$index, scope.row)">恢复</el-button>
+                  
+                <el-button
+                  size="small"
+                  type="danger"
+                  @click="handleDelete(scope.$index, scope.row)">删除</el-button>
+                  
+                <el-button
+                  size="small"
+                  type="success"
+                  @click="handleUpdate(scope.$index, scope.row)">修改</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          
+          <div align="center">
+              <el-pagination
+                  @size-change="handleSizeChange"
+                  @current-change="handleCurrentChange"
+                  :current-page="currentPage"
+                  :page-sizes="[10, 20, 30, 40]"
+                  :page-size="pagesize"
+                  layout="total, sizes, prev, pager, next, jumper"
+                  :total="totalCount">
+              </el-pagination>
+          </div>
+        </div> 
+        
+        <el-dialog title="添加任务" :visible.sync="dialogFormVisible">
+          <el-form :model="form">
+            <el-form-item label="任务名称" label-width="120px" style="width:35%">
+              <el-input v-model="form.jobName" auto-complete="off"></el-input>
+            </el-form-item>	    
+            <el-form-item label="任务分组" label-width="120px" style="width:35%">
+              <el-input v-model="form.jobGroup" auto-complete="off"></el-input>
+            </el-form-item>
+            <el-form-item label="表达式" label-width="120px" style="width:35%">
+              <el-input v-model="form.cronExpression" auto-complete="off"></el-input>
+            </el-form-item>
+          </el-form>
+          <div slot="footer" class="dialog-footer">
+            <el-button @click="dialogFormVisible = false">取 消</el-button>
+            <el-button type="primary" @click="add">确 定</el-button>
+          </div>
+        </el-dialog>
+        
+        <el-dialog title="修改任务" :visible.sync="updateFormVisible">
+          <el-form :model="updateform">
+            <el-form-item label="表达式" label-width="120px" style="width:35%">
+              <el-input v-model="updateform.cronExpression" auto-complete="off"></el-input>
+            </el-form-item>
+          </el-form>
+          <div slot="footer" class="dialog-footer">
+            <el-button @click="updateFormVisible = false">取 消</el-button>
+            <el-button type="primary" @click="update">确 定</el-button>
+          </div>
+        </el-dialog>
+        
+    </div>
+    
+    <footer align="center">
+        <p>&copy; Quartz 任务管理</p>
+    </footer>
+
+    <script>
+    var vue = new Vue({			
+            el:"#test",
+            data: {		  
+                //表格当前页数据
+                tableData: [],
+                
+                //请求的URL
+                url:'job/queryjob',
+                
+                //默认每页数据量
+                pagesize: 10,		        
+                
+                //当前页码
+                currentPage: 1,
+                
+                //查询的页码
+                start: 1,
+                
+                //默认数据总数
+                totalCount: 1000,
+                
+                //添加对话框默认可见性
+                dialogFormVisible: false,
+                
+                //修改对话框默认可见性
+                updateFormVisible: false,
+                
+                //提交的表单
+                form: {
+                    jobName: '',
+                    jobGroup: '',
+                    cronExpression: '',
+                  },
+                  
+                updateform: {
+                    jobName: '',
+                    jobGroup: '',
+                    cronExpression: '',
+                },
+            },
+
+            methods: {
+                
+                //从服务器读取数据
+                loadData: function(pageNum, pageSize){					
+                    this.$http.get('job/queryjob?' + 'pageNum=' +  pageNum + '&pageSize=' + pageSize).then(function(res){
+                        console.log(res)
+                        this.tableData = res.body.JobAndTrigger.list;
+                        this.totalCount = res.body.number;
+                    },function(){
+                          console.log('failed');
+                    });					
+                },			    		        
+                      
+                //单行删除
+                handleDelete: function(index, row) {
+                    this.$http.post('job/deletejob',{"jobClassName":row.jobName,"jobGroupName":row.jobGroupName},{emulateJSON: true}).then(function(res){
+                        this.loadData( this.currentPage, this.pagesize);
+                    },function(){
+                        console.log('failed');
+                    });
+                },
+                
+                //暂停任务
+                handlePause: function(index, row){
+                    this.$http.post('job/pausejob',{"jobClassName":row.jobName,"jobGroupName":row.jobGroupName},{emulateJSON: true}).then(function(res){
+                        this.loadData( this.currentPage, this.pagesize);
+                    },function(){
+                        console.log('failed');
+                    });
+                },
+                
+                //恢复任务
+                handleResume: function(index, row){
+                    this.$http.post('job/resumejob',{"jobClassName":row.jobName,"jobGroupName":row.jobGroupName},{emulateJSON: true}).then(function(res){
+                        this.loadData( this.currentPage, this.pagesize);
+                    },function(){
+                        console.log('failed');
+                    });
+                },
+                
+                //搜索
+                search: function(){
+                    this.loadData(this.currentPage, this.pagesize);
+                },
+                
+                //弹出对话框
+                handleadd: function(){		                
+                    this.dialogFormVisible = true;	              
+                },
+                
+                //添加
+                add: function(){
+                    this.$http.post('job/addjob',{"jobClassName":this.form.jobName,"jobGroupName":this.form.jobGroup,"cronExpression":this.form.cronExpression},{emulateJSON: true}).then(function(res){
+                        this.loadData(this.currentPage, this.pagesize);
+                        this.dialogFormVisible = false;
+                    },function(){
+                        console.log('failed');
+                    });
+                },
+                
+                //更新
+                handleUpdate: function(index, row){
+                    console.log(row)
+                    this.updateFormVisible = true;
+                    this.updateform.jobName = row.jobClassName;
+                    this.updateform.jobGroup = row.jobGroupName;
+                },
+                
+                //更新任务
+                update: function(){
+                    this.$http.post
+                    ('job/reschedulejob',
+                            {"jobClassName":this.updateform.jobName,
+                             "jobGroupName":this.updateform.jobGroup,
+                             "cronExpression":this.updateform.cronExpression
+                             },{emulateJSON: true}
+                    ).then(function(res){
+                        this.loadData(this.currentPage, this.pagesize);
+                        this.updateFormVisible = false;
+                    },function(){
+                        console.log('failed');
+                    });
+            
+                },
+              
+                //每页显示数据量变更
+                handleSizeChange: function(val) {
+                    this.pagesize = val;
+                    this.loadData(this.currentPage, this.pagesize);
+                },
+                
+                //页码变更
+                handleCurrentChange: function(val) {
+                    this.currentPage = val;
+                    this.loadData(this.currentPage, this.pagesize);
+                },	      
+                        
+            },	    
+            
+            
+          });
+    
+          //载入数据
+          vue.loadData(vue.currentPage, vue.pagesize);
+    </script>  
+    
+</body>
+</html>
+```
+
+## 66.6 测试效果
+
+(PS: 这里的任务名称需要改成你自己的完整类名称)
+
+展示正在运行的Jobs:
+![233.springboot-data-quartz-1.png](../../assets/images/04-主流框架/spring/233.springboot-data-quartz-1.png)
+
+增加新的Job:
+![234.springboot-data-quartz-2.png](../../assets/images/04-主流框架/spring/234.springboot-data-quartz-2.png)
+
+Jobs持久化在数据库:
+![235.springboot-data-quartz-3.png](../../assets/images/04-主流框架/spring/235.springboot-data-quartz-3.png)
+## 66.7 解读
+### 66.7.1. 任务定义方式 ✅
+
+**是的，您需要继承 `QuartzJobBean`：**
+
+```java
+@Component
+public class MyScheduledJob extends QuartzJobBean {
+    
+    @Autowired
+    private SomeService someService;  // 可以注入Spring Bean
+    
+    @Override
+    protected void executeInternal(JobExecutionContext context) {
+        // 您的业务逻辑
+        someService.processData();
+        log.info("任务执行时间: " + new Date());
+    }
+}
+```
+
+**QuartzJobBean 的优势：**
+- ✅ 支持 Spring Bean 注入
+- ✅ Spring 对 Quartz Job 的封装
+- ✅ 更好的异常处理机制
+
+### 66.7.2. 动态任务管理 ✅
+
+**是的，可以通过接口动态管理任务：**
+
+```java
+@RestController
+@RequestMapping("/api/jobs")
+public class JobController {
+    
+    @Autowired
+    private QuartzManager quartzManager;
+    
+    // 添加任务
+    @PostMapping("/add")
+    public void addJob(@RequestParam String jobName, 
+                      @RequestParam String jobGroup,
+                      @RequestParam String cronExpression) {
+        quartzManager.addJob(MyScheduledJob.class, jobName, jobGroup, cronExpression);
+    }
+    
+    // 暂停任务
+    @PostMapping("/pause")
+    public void pauseJob(@RequestParam String jobName, 
+                        @RequestParam String jobGroup) {
+        quartzManager.pauseJob(jobName, jobGroup);
+    }
+    
+    // 删除任务
+    @PostMapping("/delete")
+    public void deleteJob(@RequestParam String jobName, 
+                         @RequestParam String jobGroup) {
+        quartzManager.deleteJob(jobName, jobGroup);
+    }
+}
+```
+
+### 66.7.3. 数据库格式问题 ✅
+
+**是的，Quartz 的数据库表结构是固定的！**
+
+#### 66.7.3.1 核心表说明：
+
+| 表名 | 用途 |
+|------|------|
+| `QRTZ_JOB_DETAILS` | 存储 Job 详细信息 |
+| `QRTZ_TRIGGERS` | 存储触发器信息 |
+| `QRTZ_CRON_TRIGGERS` | 存储 Cron 表达式 |
+| `QRTZ_FIRED_TRIGGERS` | 存储正在执行的任务 |
+| `QRTZ_SCHEDULER_STATE` | 存储调度器节点状态（集群关键） |
+
+#### 66.7.3.2 为什么格式固定？
+
+1. **Quartz 标准规范**：这些表是 Quartz 框架设计的一部分
+2. **SQL 操作依赖**：Quartz 通过固定的 SQL 语句操作这些表
+3. **集群协调**：多节点通过数据库表进行任务协调和锁管理
+4. **数据一致性**：确保不同节点读取的数据格式一致
+
+#### 66.7.3.3 必须的表（最小集）：
+```sql
+-- 必须创建的核心表
+QRTZ_JOB_DETAILS
+QRTZ_TRIGGERS  
+QRTZ_CRON_TRIGGERS
+QRTZ_FIRED_TRIGGERS
+QRTZ_SCHEDULER_STATE
+QRTZ_LOCKS
+```
+
+### 66.7.4. 完整工作流程
+
+#### 66.7.4.1 定义任务类：
+```java
+public class DataSyncJob extends QuartzJobBean {
+    @Override
+    protected void executeInternal(JobExecutionContext context) {
+        // 您的业务代码
+        log.info("执行数据同步任务");
+    }
+}
+```
+
+#### 66.7.4.2 通过 API 动态创建任务：
+```http
+POST /api/jobs/add
+Content-Type: application/x-www-form-urlencoded
+
+jobName=dataSyncJob
+jobGroup=systemJobs
+cronExpression=0 0/5 * * * ?
+```
+
+#### 66.7.4.3 数据库中的效果：
+- `QRTZ_JOB_DETAILS` 表会插入一条记录
+- `QRTZ_TRIGGERS` 表会插入触发器记录
+- 任务会按照 Cron 表达式定时执行
+
+### 66.7.5. 集群配置关键点
+
+**application.yml 配置：**
+```yaml
+spring:
+  quartz:
+    properties:
+      org:
+        quartz:
+          scheduler:
+            instanceName: clusteredScheduler
+            instanceId: AUTO  # 自动生成实例ID
+          jobStore:
+            class: org.quartz.impl.jdbcjobstore.JobStoreTX
+            isClustered: true  # 开启集群
+            clusterCheckinInterval: 10000  # 集群检查间隔
+```
+
+### 66.7.6 总结
+
+- 任务类需要继承 `QuartzJobBean`
+- 可以通过 REST API 动态管理任务生命周期
+- Quartz 数据库表结构是固定的，必须按规范创建
+# 六十七、SpringBoot定时任务 - 分布式elastic-job方式
+> 前文展示quartz实现基于数据库的分布式任务管理和job生命周期的控制，那在分布式场景下如何解决弹性调度、资源管控、以及作业治理等呢？针对这些功能前当当团队开发了ElasticJob，2020 年 5 月 28 日ElasticJob成为 Apache ShardingSphere 的子项目；本文介绍ElasticJob以及SpringBoot的集成
+## 67.1 知识准备
+### 67.1.1 什么是ElasticJob
+> ElasticJob 是面向互联网生态和海量任务的分布式调度解决方案，由两个相互独立的子项目 ElasticJob-Lite 和 ElasticJob-Cloud 组成。 它通过弹性调度、资源管控、以及作业治理的功能，打造一个适用于互联网场景的分布式调度解决方案，并通过开放的架构设计，提供多元化的作业生态。 它的各个产品使用统一的作业 API，开发者仅需一次开发，即可随意部署。ElasticJob 已于 2020 年 5 月 28 日成为 Apache ShardingSphere 的子项目。
+
+使用 ElasticJob 能够让开发工程师不再担心任务的线性吞吐量提升等非功能需求，使他们能够更加专注于面向业务编码设计； 同时，它也能够解放运维工程师，使他们不必再担心任务的可用性和相关管理需求，只通过轻松的增加服务节点即可达到自动化运维的目的。
+- ElasticJob-Lite: 定位为轻量级无中心化解决方案，使用 jar 的形式提供分布式任务的协调服务。
+![236.springboot-elasticjob-lite-1.png](../../assets/images/04-主流框架/spring/236.springboot-elasticjob-lite-1.png)
+- ElasticJob-Cloud： 采用自研 Mesos Framework 的解决方案，额外提供资源治理、应用分发以及进程隔离等功能。
+![237.springboot-elasticjob-cloud-1.png](../../assets/images/04-主流框架/spring/237.springboot-elasticjob-cloud-1.png)
+- ElasticJob-Lite和ElasticJob-Cloud的区别
+
+| 特性       | ElasticJob-Lite | ElasticJob-Cloud   |
+|------------|----------------|-------------------|
+| 无中心化   | 是             | 否                |
+| 资源分配   | 不支持         | 支持              |
+| 作业模式   | 常驻           | 常驻 + 瞬时       |
+| 部署依赖   | ZooKeeper      | ZooKeeper + Mesos |
+## 67.2 实现案例
+
+> 本例将展示ElasticJob-Lite集成Springboot的案例，案例参考自ElasticJob的官网，同时做了一些调整和issue修复。
+
+### 67.2.1 POM依赖
+
+ElaticJob针对SpringBoot集成的starter依赖，针对错误通知的依赖elasticjob-error-handler-xxx（如果需要的话）。对任务的记录和追踪是存放在DB的，所以需要配置JPA和MySQL/H2等。
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+
+<dependency>
+    <groupId>org.apache.shardingsphere.elasticjob</groupId>
+    <artifactId>elasticjob-lite-spring-boot-starter</artifactId>
+    <version>3.0.1</version>
+</dependency>
+<dependency>
+    <groupId>org.apache.shardingsphere.elasticjob</groupId>
+    <artifactId>elasticjob-error-handler-dingtalk</artifactId>
+    <version>3.0.1</version>
+</dependency>
+<dependency>
+    <groupId>org.apache.shardingsphere.elasticjob</groupId>
+    <artifactId>elasticjob-error-handler-wechat</artifactId>
+    <version>3.0.1</version>
+</dependency>
+<dependency>
+    <groupId>org.apache.shardingsphere.elasticjob</groupId>
+    <artifactId>elasticjob-error-handler-email</artifactId>
+    <version>3.0.1</version>
+</dependency>
+<dependency>
+    <groupId>org.apache.curator</groupId>
+    <artifactId>curator-test</artifactId>
+    <version>5.2.0</version>
+</dependency>
+
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>5.1.42</version><!--$NO-MVN-MAN-VER$-->
+    <scope>runtime</scope>
+</dependency>
+<dependency>
+    <groupId>com.h2database</groupId>
+    <artifactId>h2</artifactId>
+    <scope>runtime</scope>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-test</artifactId>
+    <scope>test</scope>
+</dependency>
+```
+
+### 67.2.2 基础Entity和Dao
+
+#### Foo Entity
+```java
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package tech.pdai.springboot.elasticjob.lite.entity;
+
+import java.io.Serializable;
+
+public final class Foo implements Serializable {
+
+    private static final long serialVersionUID = 2706842871078949451L;
+
+    private final long id;
+
+    private final String location;
+
+    private Status status;
+
+    public Foo(final long id, final String location, final Status status) {
+        this.id = id;
+        this.location = location;
+        this.status = status;
+    }
+
+    public long getId() {
+        return id;
+    }
+
+    public String getLocation() {
+        return location;
+    }
+
+    public Status getStatus() {
+        return status;
+    }
+
+    public void setStatus(final Status status) {
+        this.status = status;
+    }
+
+    @Override
+    public String toString() {
+        return String.format("id: %s, location: %s, status: %s", id, location, status);
+    }
+
+    public enum Status {
+        TODO,
+        COMPLETED
+    }
+}
+```
+
+#### FooRepository Dao
+```java
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package tech.pdai.springboot.elasticjob.lite.repository;
+
+import org.springframework.stereotype.Repository;
+import tech.pdai.springboot.elasticjob.lite.entity.Foo;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Repository
+public class FooRepository {
+    
+    private final Map<Long, Foo> data = new ConcurrentHashMap<>(300, 1);
+    
+    public FooRepository() {
+        init();
+    }
+    
+    private void init() {
+        addData(0L, 100L, "Beijing");
+        addData(100L, 200L, "Shanghai");
+        addData(200L, 300L, "Guangzhou");
+    }
+    
+    private void addData(final long idFrom, final long idTo, final String location) {
+        for (long i = idFrom; i < idTo; i++) {
+            data.put(i, new Foo(i, location, Foo.Status.TODO));
+        }
+    }
+    
+    public List<Foo> findTodoData(final String location, final int limit) {
+        List<Foo> result = new ArrayList<>(limit);
+        int count = 0;
+        for (Map.Entry<Long, Foo> each : data.entrySet()) {
+            Foo foo = each.getValue();
+            if (foo.getLocation().equals(location) && foo.getStatus() == Foo.Status.TODO) {
+                result.add(foo);
+                count++;
+                if (count == limit) {
+                    break;
+                }
+            }
+        }
+        return result;
+    }
+    
+    public void setCompleted(final long id) {
+        data.get(id).setStatus(Foo.Status.COMPLETED);
+    }
+}
+```
+
+### 67.2.3 Job定义
+
+#### 基本Job（实现SimpleJob接口）
+```java
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package tech.pdai.springboot.elasticjob.lite.job;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+import org.apache.shardingsphere.elasticjob.api.ShardingContext;
+import org.apache.shardingsphere.elasticjob.simple.job.SimpleJob;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import tech.pdai.springboot.elasticjob.lite.entity.Foo;
+import tech.pdai.springboot.elasticjob.lite.repository.FooRepository;
+
+@Component
+public class SpringBootSimpleJob implements SimpleJob {
+
+    private final Logger logger = LoggerFactory.getLogger(SpringBootSimpleJob.class);
+
+    @Autowired
+    private FooRepository fooRepository;
+
+    @Override
+    public void execute(final ShardingContext shardingContext) {
+        logger.info("Item: {} | Time: {} | Thread: {} | {}",
+                shardingContext.getShardingItem(), LocalDateTime.now(), Thread.currentThread().getId(), "SIMPLE");
+        List<Foo> data = fooRepository.findTodoData(shardingContext.getShardingParameter(), 10);
+        for (Foo each : data) {
+            fooRepository.setCompleted(each.getId());
+        }
+    }
+}
+```
+
+#### 数据流处理Job（实现DataflowJob接口）
+包含两个主要方法：fetchData（获取数据）和processData（处理数据）。
+```java
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package tech.pdai.springboot.elasticjob.lite.job;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+import javax.annotation.Resource;
+
+import org.apache.shardingsphere.elasticjob.api.ShardingContext;
+import org.apache.shardingsphere.elasticjob.dataflow.job.DataflowJob;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+import tech.pdai.springboot.elasticjob.lite.entity.Foo;
+import tech.pdai.springboot.elasticjob.lite.repository.FooRepository;
+
+@Component
+public class SpringBootDataflowJob implements DataflowJob<Foo> {
+
+    private final Logger logger = LoggerFactory.getLogger(SpringBootDataflowJob.class);
+
+    @Resource
+    private FooRepository fooRepository;
+
+    @Override
+    public List<Foo> fetchData(final ShardingContext shardingContext) {
+        logger.info("Item: {} | Time: {} | Thread: {} | {}",
+                shardingContext.getShardingItem(), LocalDateTime.now(), Thread.currentThread().getId(), "DATAFLOW FETCH");
+        return fooRepository.findTodoData(shardingContext.getShardingParameter(), 10);
+    }
+
+    @Override
+    public void processData(final ShardingContext shardingContext, final List<Foo> data) {
+        logger.info("Item: {} | Time: {} | Thread: {} | {}",
+                shardingContext.getShardingItem(), LocalDateTime.now(), Thread.currentThread().getId(), "DATAFLOW PROCESS");
+        for (Foo each : data) {
+            fooRepository.setCompleted(each.getId());
+        }
+    }
+}
+```
+
+#### 错误通知处理Job - Email
+```java
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package tech.pdai.springboot.elasticjob.lite.job;
+
+import org.apache.shardingsphere.elasticjob.api.ShardingContext;
+import org.apache.shardingsphere.elasticjob.simple.job.SimpleJob;
+import org.springframework.stereotype.Component;
+
+@Component
+public class SpringBootOccurErrorNoticeEmailJob implements SimpleJob {
+    
+    @Override
+    public void execute(final ShardingContext shardingContext) {
+        throw new RuntimeException(String.format("An exception has occurred in Job, The parameter is %s", shardingContext.getShardingParameter()));
+    }
+}
+```
+
+#### 错误通知处理Job - Wechat
+```java
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package tech.pdai.springboot.elasticjob.lite.job;
+
+import org.apache.shardingsphere.elasticjob.api.ShardingContext;
+import org.apache.shardingsphere.elasticjob.simple.job.SimpleJob;
+import org.springframework.stereotype.Component;
+
+@Component
+public class SpringBootOccurErrorNoticeWechatJob implements SimpleJob {
+    
+    @Override
+    public void execute(final ShardingContext shardingContext) {
+        throw new RuntimeException(String.format("An exception has occurred in Job, The parameter is %s", shardingContext.getShardingParameter()));
+    }
+}
+```
+
+#### 错误通知处理Job - Dingtalk
+```java
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package tech.pdai.springboot.elasticjob.lite.job;
+
+import org.apache.shardingsphere.elasticjob.api.ShardingContext;
+import org.apache.shardingsphere.elasticjob.simple.job.SimpleJob;
+import org.springframework.stereotype.Component;
+
+@Component
+public class SpringBootOccurErrorNoticeDingtalkJob implements SimpleJob {
+    
+    @Override
+    public void execute(final ShardingContext shardingContext) {
+        throw new RuntimeException(String.format("An exception has occurred in Job, The parameter is %s", shardingContext.getShardingParameter()));
+    }
+}
+```
+
+### 67.2.4 装载配置
+
+Spring Boot配置文件（application.yml）示例：
+```yaml
+spring:
+  profiles:
+    active: dev
+
+elasticjob:
+  tracing:
+    type: RDB
+  regCenter:
+    serverLists: localhost:6181
+    namespace: elasticjob-lite-springboot
+  jobs:
+    simpleJob:
+      elasticJobClass: tech.pdai.springboot.elasticjob.lite.job.SpringBootSimpleJob
+      cron: 0/5 * * * * ?
+      shardingTotalCount: 3
+      shardingItemParameters: 0=Beijing,1=Shanghai,2=Guangzhou
+    dataflowJob:
+      elasticJobClass: tech.pdai.springboot.elasticjob.lite.job.SpringBootDataflowJob
+      cron: 0/5 * * * * ?
+      shardingTotalCount: 3
+      shardingItemParameters: 0=Beijing,1=Shanghai,2=Guangzhou
+    scriptJob:
+      elasticJobType: SCRIPT
+      cron: 0/10 * * * * ?
+      shardingTotalCount: 3
+      props:
+        script.command.line: "echo SCRIPT Job: "
+    occurErrorNoticeDingtalkJob:
+      elasticJobClass: tech.pdai.springboot.elasticjob.lite.job.SpringBootOccurErrorNoticeDingtalkJob
+      overwrite: true
+      shardingTotalCount: 3
+      shardingItemParameters: 0=Beijing,1=Shanghai,2=Guangzhou
+      jobErrorHandlerType: DINGTALK
+      jobBootstrapBeanName: occurErrorNoticeDingtalkBean
+      props:
+        dingtalk:
+          webhook: you_webhook
+          keyword: you_keyword
+          secret: you_secret
+          connectTimeout: 3000
+          readTimeout: 5000
+    occurErrorNoticeWechatJob:
+      elasticJobClass: tech.pdai.springboot.elasticjob.lite.job.SpringBootOccurErrorNoticeWechatJob
+      overwrite: true
+      shardingTotalCount: 3
+      shardingItemParameters: 0=Beijing,1=Shanghai,2=Guangzhou
+      jobErrorHandlerType: WECHAT
+      jobBootstrapBeanName: occurErrorNoticeWechatBean
+      props:
+        wechat:
+          webhook: you_webhook
+          connectTimeout: 3000
+          readTimeout: 5000
+    occurErrorNoticeEmailJob:
+      elasticJobClass: tech.pdai.springboot.elasticjob.lite.job.SpringBootOccurErrorNoticeEmailJob
+      overwrite: true
+      shardingTotalCount: 3
+      shardingItemParameters: 0=Beijing,1=Shanghai,2=Guangzhou
+      jobErrorHandlerType: EMAIL
+      jobBootstrapBeanName: occurErrorNoticeEmailBean
+      props:
+        email:
+          host: host
+          port: 465
+          username: username
+          password: password
+          useSsl: true
+          subject: ElasticJob error message
+          from: from@xxx.xx
+          to: to1@xxx.xx,to2@xxx.xx
+          cc: cc@xxx.xx
+          bcc: bcc@xxx.xx
+          debug: false
+  dump:
+    port: 9888
+
+knife4j:
+  enable: true
+  setting:
+    # default lang
+    language: en-US
+    # footer
+    enableFooter: false
+    enableFooterCustom: true
+    footerCustomContent: MIT | [Java 全栈]()
+    # models
+    enableSwaggerModels: true
+    swaggerModelName: My Models
+```
+
+### 67.2.5 注册中心
+
+注册中心主要依赖ZooKeeper，采用内置的ZK服务器（仅用于示例）。
+```java
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package tech.pdai.springboot.elasticjob.lite;
+
+import java.io.File;
+import java.io.IOException;
+
+import org.apache.curator.test.TestingServer;
+
+/**
+ * Embed ZooKeeper.
+ *
+ * <p>
+ * Only used for examples
+ * </p>
+ */
+public final class EmbedZookeeperServer {
+
+    private static TestingServer testingServer;
+
+    /**
+     * Embed ZooKeeper.
+     *
+     * @param port ZooKeeper port
+     */
+    public static void start(final int port) {
+        try {
+            testingServer = new TestingServer(port, new File(String.format("target/test_zk_data/%s/", System.nanoTime())));
+        } catch (final Exception ex) {
+            ex.printStackTrace();
+        } finally {
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                try {
+                    Thread.sleep(1000L);
+                    testingServer.close();
+                } catch (final InterruptedException | IOException ignore) {
+                }
+            }));
+        }
+    }
+}
+```
+
+### 67.2.6 任务持久化
+
+任务持久化在本地环境配置，使用H2内存数据库（如application.yml中配置的tracing.type: RDB）。
+
+### 67.2.7 测试触发
+
+通过Controller接口触发测试异常通知功能。注意：需要添加@Lazy注解以避免启动问题（参考issue: https://github.com/apache/shardingsphere-elasticjob/issues/2014）。
+```java
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package tech.pdai.springboot.elasticjob.lite.controller;
+
+import javax.annotation.Resource;
+
+import io.swagger.annotations.ApiOperation;
+import org.apache.shardingsphere.elasticjob.lite.api.bootstrap.impl.OneOffJobBootstrap;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.elasticjob.lite.entity.response.ResponseResult;
+
+/**
+ * 这里需要加上@Lazy, 请看这个issue:https://github.com/apache/shardingsphere-elasticjob/issues/2014
+ */
+@Lazy
+@RestController
+public class OneOffJobController {
+
+    @Resource(name = "occurErrorNoticeDingtalkBean")
+    private OneOffJobBootstrap occurErrorNoticeDingtalkJob;
+
+    @Resource(name = "occurErrorNoticeWechatBean")
+    private OneOffJobBootstrap occurErrorNoticeWechatJob;
+
+    @Resource(name = "occurErrorNoticeEmailBean")
+    private OneOffJobBootstrap occurErrorNoticeEmailJob;
+
+    @ApiOperation("Test occurErrorNoticeDingtalkJob")
+    @GetMapping("/execute/occurErrorNoticeDingtalkJob")
+    public ResponseResult<String> executeOneOffJob() {
+        occurErrorNoticeDingtalkJob.execute();
+        return ResponseResult.success();
+    }
+
+    @ApiOperation("Test executeOccurErrorNoticeWechatJob")
+    @GetMapping("/execute/occurErrorNoticeWechatJob")
+    public ResponseResult<String> executeOccurErrorNoticeWechatJob() {
+        occurErrorNoticeWechatJob.execute();
+        return ResponseResult.success();
+    }
+
+    @ApiOperation("Test executeOccurErrorNoticeEmailJob")
+    @GetMapping("/execute/occurErrorNoticeEmailJob")
+    public ResponseResult<String> executeOccurErrorNoticeEmailJob() {
+        occurErrorNoticeEmailJob.execute();
+        return ResponseResult.success();
+    }
+}
+```
+
+### 67.2.8 简单测试
+
+非OneOff的任务可以通过控制台查看日志。以下为示例日志输出（部分）：
+```
+[WARN ] 2022-06-06 20:03:49,828 --Thread-1-- [org.apache.zookeeper.server.ServerCnxnFactory] maxCnxns is not configured, using default value 0. 
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::                (v2.5.3)
+
+[INFO ] 2022-06-06 20:03:50,380 --main-- [tech.pdai.springboot.elasticjob.lite.SpringBootMain] Starting SpringBootMain using Java 1.8.0_181 on MacBook-Pro.local with PID 6275 (/Users/pdai/pdai/www/tech-pdai-spring-demos/424-springboot-demo-schedule-elastic-job-lite/target/classes started by pdai in /Users/pdai/pdai/www/tech-pdai-spring-demos) 
+[INFO ] 2022-06-06 20:03:50,380 --main-- [tech.pdai.springboot.elasticjob.lite.SpringBootMain] The following profiles are active: dev 
+... (日志继续，显示任务执行详情)
+```
+
+OneOff的任务通过Controller API访问。由于未配置正确的错误通知参数（如webhook），会报异常日志：
+```
+[INFO ] 2022-06-06 20:05:00,818 --Curator-SafeNotifyService-0-- [org.quartz.core.QuartzScheduler] Scheduler occurErrorNoticeDingtalkJob_$_NON_CLUSTERED started. 
+[ERROR] 2022-06-06 20:05:00,908 --elasticjob-occurErrorNoticeDingtalkJob-3-- [org.apache.shardingsphere.elasticjob.error.handler.dingtalk.DingtalkJobErrorHandler] An exception has occurred in Job 'occurErrorNoticeDingtalkJob', but failed to send dingtalk because of 
+java.lang.RuntimeException: An exception has occurred in Job, The parameter is Guangzhou
+	at tech.pdai.springboot.elasticjob.lite.job.SpringBootOccurErrorNoticeDingtalkJob.execute(SpringBootOccurErrorNoticeDingtalkJob.java:29)
+	... (异常堆栈跟踪)
+```
+OneOff的任务，通过controller api访问
+![238.springboot-elasticjob-lite-3.png](../../assets/images/04-主流框架/spring/238.springboot-elasticjob-lite-3.png)
+
+由于这里没有配置正确的，这里会报异常日志
+```sh
+[INFO ] 2022-06-06 20:05:00,818 --Curator-SafeNotifyService-0-- [org.quartz.core.QuartzScheduler] Scheduler occurErrorNoticeDingtalkJob_$_NON_CLUSTERED started. 
+[ERROR] 2022-06-06 20:05:00,908 --elasticjob-occurErrorNoticeDingtalkJob-3-- [org.apache.shardingsphere.elasticjob.error.handler.dingtalk.DingtalkJobErrorHandler] An exception has occurred in Job 'occurErrorNoticeDingtalkJob', but failed to send dingtalk because of 
+java.lang.RuntimeException: An exception has occurred in Job, The parameter is Guangzhou
+	at tech.pdai.springboot.elasticjob.lite.job.SpringBootOccurErrorNoticeDingtalkJob.execute(SpringBootOccurErrorNoticeDingtalkJob.java:29)
+	at org.apache.shardingsphere.elasticjob.simple.executor.SimpleJobExecutor.process(SimpleJobExecutor.java:33)
+	at org.apache.shardingsphere.elasticjob.simple.executor.SimpleJobExecutor.process(SimpleJobExecutor.java:29)
+	at org.apache.shardingsphere.elasticjob.executor.ElasticJobExecutor.process(ElasticJobExecutor.java:172)
+	at org.apache.shardingsphere.elasticjob.executor.ElasticJobExecutor.lambda$process$0(ElasticJobExecutor.java:153)
+	at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)
+	at com.google.common.util.concurrent.TrustedListenableFutureTask$TrustedFutureInterruptibleTask.runInterruptibly(TrustedListenableFutureTask.java:125)
+	at com.google.common.util.concurrent.InterruptibleTask.run(InterruptibleTask.java:57)
+	at com.google.common.util.concurrent.TrustedListenableFutureTask.run(TrustedListenableFutureTask.java:78)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+	Suppressed: org.apache.http.client.ClientProtocolException: null
+		at org.apache.http.impl.client.InternalHttpClient.doExecute(InternalHttpClient.java:187)
+		at org.apache.http.impl.client.CloseableHttpClient.execute(CloseableHttpClient.java:83)
+		at org.apache.http.impl.client.CloseableHttpClient.execute(CloseableHttpClient.java:108)
+		at org.apache.shardingsphere.elasticjob.error.handler.dingtalk.DingtalkJobErrorHandler.handleException(DingtalkJobErrorHandler.java:80)
+		at org.apache.shardingsphere.elasticjob.executor.ElasticJobExecutor.process(ElasticJobExecutor.java:183)
+		... 8 common frames omitted
+	Caused by: org.apache.http.ProtocolException: Target host is not specified
+		at org.apache.http.impl.conn.DefaultRoutePlanner.determineRoute(DefaultRoutePlanner.java:71)
+		at org.apache.http.impl.client.InternalHttpClient.determineRoute(InternalHttpClient.java:125)
+		at org.apache.http.impl.client.InternalHttpClient.doExecute(InternalHttpClient.java:184)
+		... 12 common frames omitted
+[ERROR] 2022-06-06 20:05:00,908 --elasticjob-occurErrorNoticeDingtalkJob-2-- [org.apache.shardingsphere.elasticjob.error.handler.dingtalk.DingtalkJobErrorHandler] An exception has occurred in Job 'occurErrorNoticeDingtalkJob', but failed to send dingtalk because of 
+java.lang.RuntimeException: An exception has occurred in Job, The parameter is Shanghai
+	at tech.pdai.springboot.elasticjob.lite.job.SpringBootOccurErrorNoticeDingtalkJob.execute(SpringBootOccurErrorNoticeDingtalkJob.java:29)
+	at org.apache.shardingsphere.elasticjob.simple.executor.SimpleJobExecutor.process(SimpleJobExecutor.java:33)
+	at org.apache.shardingsphere.elasticjob.simple.executor.SimpleJobExecutor.process(SimpleJobExecutor.java:29)
+	at org.apache.shardingsphere.elasticjob.executor.ElasticJobExecutor.process(ElasticJobExecutor.java:172)
+	at org.apache.shardingsphere.elasticjob.executor.ElasticJobExecutor.lambda$process$0(ElasticJobExecutor.java:153)
+	at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)
+	at com.google.common.util.concurrent.TrustedListenableFutureTask$TrustedFutureInterruptibleTask.runInterruptibly(TrustedListenableFutureTask.java:125)
+	at com.google.common.util.concurrent.InterruptibleTask.run(InterruptibleTask.java:57)
+	at com.google.common.util.concurrent.TrustedListenableFutureTask.run(TrustedListenableFutureTask.java:78)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+	Suppressed: org.apache.http.client.ClientProtocolException: null
+		at org.apache.http.impl.client.InternalHttpClient.doExecute(InternalHttpClient.java:187)
+		at org.apache.http.impl.client.CloseableHttpClient.execute(CloseableHttpClient.java:83)
+		at org.apache.http.impl.client.CloseableHttpClient.execute(CloseableHttpClient.java:108)
+		at org.apache.shardingsphere.elasticjob.error.handler.dingtalk.DingtalkJobErrorHandler.handleException(DingtalkJobErrorHandler.java:80)
+		at org.apache.shardingsphere.elasticjob.executor.ElasticJobExecutor.process(ElasticJobExecutor.java:183)
+		... 8 common frames omitted
+	Caused by: org.apache.http.ProtocolException: Target host is not specified
+		at org.apache.http.impl.conn.DefaultRoutePlanner.determineRoute(DefaultRoutePlanner.java:71)
+		at org.apache.http.impl.client.InternalHttpClient.determineRoute(InternalHttpClient.java:125)
+		at org.apache.http.impl.client.InternalHttpClient.doExecute(InternalHttpClient.java:184)
+		... 12 common frames omitted
+[ERROR] 2022-06-06 20:05:00,908 --elasticjob-occurErrorNoticeDingtalkJob-1-- [org.apache.shardingsphere.elasticjob.error.handler.dingtalk.DingtalkJobErrorHandler] An exception has occurred in Job 'occurErrorNoticeDingtalkJob', but failed to send dingtalk because of 
+java.lang.RuntimeException: An exception has occurred in Job, The parameter is Beijing
+	at tech.pdai.springboot.elasticjob.lite.job.SpringBootOccurErrorNoticeDingtalkJob.execute(SpringBootOccurErrorNoticeDingtalkJob.java:29)
+	at org.apache.shardingsphere.elasticjob.simple.executor.SimpleJobExecutor.process(SimpleJobExecutor.java:33)
+	at org.apache.shardingsphere.elasticjob.simple.executor.SimpleJobExecutor.process(SimpleJobExecutor.java:29)
+	at org.apache.shardingsphere.elasticjob.executor.ElasticJobExecutor.process(ElasticJobExecutor.java:172)
+	at org.apache.shardingsphere.elasticjob.executor.ElasticJobExecutor.lambda$process$0(ElasticJobExecutor.java:153)
+	at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)
+	at com.google.common.util.concurrent.TrustedListenableFutureTask$TrustedFutureInterruptibleTask.runInterruptibly(TrustedListenableFutureTask.java:125)
+	at com.google.common.util.concurrent.InterruptibleTask.run(InterruptibleTask.java:57)
+	at com.google.common.util.concurrent.TrustedListenableFutureTask.run(TrustedListenableFutureTask.java:78)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:748)
+	Suppressed: org.apache.http.client.ClientProtocolException: null
+		at org.apache.http.impl.client.InternalHttpClient.doExecute(InternalHttpClient.java:187)
+		at org.apache.http.impl.client.CloseableHttpClient.execute(CloseableHttpClient.java:83)
+		at org.apache.http.impl.client.CloseableHttpClient.execute(CloseableHttpClient.java:108)
+		at org.apache.shardingsphere.elasticjob.error.handler.dingtalk.DingtalkJobErrorHandler.handleException(DingtalkJobErrorHandler.java:80)
+		at org.apache.shardingsphere.elasticjob.executor.ElasticJobExecutor.process(ElasticJobExecutor.java:183)
+		... 8 common frames omitted
+	Caused by: org.apache.http.ProtocolException: Target host is not specified
+		at org.apache.http.impl.conn.DefaultRoutePlanner.determineRoute(DefaultRoutePlanner.java:71)
+		at org.apache.http.impl.client.InternalHttpClient.determineRoute(InternalHttpClient.java:125)
+		at org.apache.http.impl.client.InternalHttpClient.doExecute(InternalHttpClient.java:184)
+		... 12 common frames omitted
+```
+## 67.3 运维控制台
+> ElasticJob 也提供了UI控制台的功能，包括作业操作和作业历史。可以在<a href='https://dlcdn.apache.org/shardingsphere/'>这里</a>下载。
+
+### 67.3.1 启动运行
+比如这里，我下载了apache-shardingsphere-elasticjob-3.0.1-lite-ui-bin.tar.gz。需要通过如下工具解压，因为某些解压缩工具在解压ShardingSphere-ElasticJob-UI二进制包时可能将文件名截断，导致找不到某些类。
+```sh
+tar zxvf apache-shardingsphere-elasticjob-${RELEASE.VERSION}-lite-ui-bin.tar.gz
+```
+解压完以后，在conf目录配置JDBC（只需要与application-xx.yml中的datasource配置一致即可， 比如这里我们配置h2内存数据库）
+```sh
+server.port=8088
+
+auth.root_username=root
+auth.root_password=root
+auth.guest_username=guest
+auth.guest_password=guest
+auth.token_expires_after_seconds=3600
+
+spring.datasource.default.driver-class-name=org.h2.Driver
+spring.datasource.default.url=jdbc:h2:mem:job_event_storage # 看这里
+spring.datasource.default.username=sa
+spring.datasource.default.password=
+spring.jpa.show-sql=false
+```
+配置完后，启动
+```sh
+pdai@MacBook-Pro apache-shardingsphere-elasticjob-3.0.1-lite-ui-bin % vi bin/start.sh 
+pdai@MacBook-Pro apache-shardingsphere-elasticjob-3.0.1-lite-ui-bin % bin/start.sh       
+Starting the ShardingSphere-ElasticJob-UI ...
+Please check the STDOUT file: /Users/pdai/apache-shardingsphere-elasticjob-3.0.1-lite-ui-bin/logs/stdout.log
+pdai@MacBook-Pro apache-shardingsphere-elasticjob-3.0.1-lite-ui-bin % cat logs/stdout.log
+20:20:30,474 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback.groovy]
+20:20:30,475 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.xml]
+20:20:30,476 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Found resource [logback.xml] at [file:/Users/pdai/apache-shardingsphere-elasticjob-3.0.1-lite-ui-bin/conf/logback.xml]
+20:20:30,476 |-WARN in ch.qos.logback.classic.LoggerContext[default] - Resource [logback.xml] occurs multiple times on the classpath.
+20:20:30,476 |-WARN in ch.qos.logback.classic.LoggerContext[default] - Resource [logback.xml] occurs at [file:/Users/pdai/apache-shardingsphere-elasticjob-3.0.1-lite-ui-bin/conf/logback.xml]
+20:20:30,476 |-WARN in ch.qos.logback.classic.LoggerContext[default] - Resource [logback.xml] occurs at [jar:file:/Users/pdai/apache-shardingsphere-elasticjob-3.0.1-lite-ui-bin/lib/shardingsphere-elasticjob-lite-ui-bin-distribution-3.0.1.jar!/logback.xml]
+20:20:30,476 |-WARN in ch.qos.logback.classic.LoggerContext[default] - Resource [logback.xml] occurs at [jar:file:/Users/pdai/apache-shardingsphere-elasticjob-3.0.1-lite-ui-bin/lib/shardingsphere-elasticjob-lite-ui-backend-3.0.1.jar!/logback.xml]
+20:20:30,588 |-INFO in ch.qos.logback.classic.joran.action.ConfigurationAction - debug attribute not set
+20:20:30,588 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - About to instantiate appender of type [ch.qos.logback.core.ConsoleAppender]
+20:20:30,593 |-INFO in ch.qos.logback.core.joran.action.AppenderAction - Naming appender as [console]
+20:20:30,598 |-INFO in ch.qos.logback.core.joran.action.NestedComplexPropertyIA - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
+20:20:30,653 |-INFO in ch.qos.logback.classic.joran.action.LoggerAction - Setting level of logger [org.apache.shardingsphere] to INFO
+20:20:30,653 |-INFO in ch.qos.logback.classic.joran.action.LoggerAction - Setting additivity of logger [org.apache.shardingsphere] to false
+20:20:30,653 |-INFO in ch.qos.logback.core.joran.action.AppenderRefAction - Attaching appender named [console] to Logger[org.apache.shardingsphere]
+20:20:30,653 |-INFO in ch.qos.logback.classic.joran.action.LevelAction - ROOT level set to INFO
+20:20:30,653 |-INFO in ch.qos.logback.core.joran.action.AppenderRefAction - Attaching appender named [console] to Logger[ROOT]
+20:20:30,653 |-INFO in ch.qos.logback.classic.joran.action.ConfigurationAction - End of configuration.
+20:20:30,656 |-INFO in ch.qos.logback.classic.joran.JoranConfigurator@3835c46 - Registering current configuration as safe fallback point
+
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::       (v1.5.21.RELEASE)
+
+[INFO ] 20:20:31.061 [main] o.a.s.elasticjob.lite.ui.Bootstrap - Starting Bootstrap v3.0.1 on MacBook-Pro.local with PID 7642 (/Users/pdai/apache-shardingsphere-elasticjob-3.0.1-lite-ui-bin/lib/shardingsphere-elasticjob-lite-ui-backend-3.0.1.jar started by pdai in /Users/pdai/apache-shardingsphere-elasticjob-3.0.1-lite-ui-bin)
+[INFO ] 20:20:31.063 [main] o.a.s.elasticjob.lite.ui.Bootstrap - No active profile set, falling back to default profiles: default
+[INFO ] 20:20:31.105 [main] o.s.b.c.e.AnnotationConfigEmbeddedWebApplicationContext - Refreshing org.springframework.boot.context.embedded.AnnotationConfigEmbeddedWebApplicationContext@5454d35e: startup date [Mon Jun 06 20:20:31 CST 2022]; root of context hierarchy
+WARNING: An illegal reflective access operation has occurred
+WARNING: Illegal reflective access by org.springframework.cglib.core.ReflectUtils$1 (file:/Users/pdai/apache-shardingsphere-elasticjob-3.0.1-lite-ui-bin/lib/spring-core-4.3.24.RELEASE.jar) to method java.lang.ClassLoader.defineClass(java.lang.String,byte[],int,int,java.security.ProtectionDomain)
+WARNING: Please consider reporting this to the maintainers of org.springframework.cglib.core.ReflectUtils$1
+WARNING: Use --illegal-access=warn to enable warnings of further illegal reflective access operations
+WARNING: All illegal access operations will be denied in a future release
+[INFO ] 20:20:32.093 [main] o.s.c.s.PostProcessorRegistrationDelegate$BeanPostProcessorChecker - Bean 'org.springframework.transaction.annotation.ProxyTransactionManagementConfiguration' of type [org.springframework.transaction.annotation.ProxyTransactionManagementConfiguration$$EnhancerBySpringCGLIB$$89f6cb55] is not eligible for getting processed by all BeanPostProcessors (for example: not eligible for auto-proxying)
+[INFO ] 20:20:32.367 [main] o.s.b.c.e.t.TomcatEmbeddedServletContainer - Tomcat initialized with port(s): 8088 (http)
+[INFO ] 20:20:32.384 [main] o.a.coyote.http11.Http11NioProtocol - Initializing ProtocolHandler ["http-nio-8088"]
+[INFO ] 20:20:32.407 [main] o.a.catalina.core.StandardService - Starting service [Tomcat]
+[INFO ] 20:20:32.408 [main] o.a.catalina.core.StandardEngine - Starting Servlet Engine: Apache Tomcat/8.5.40
+[INFO ] 20:20:32.514 [localhost-startStop-1] o.a.c.c.C.[Tomcat].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+[INFO ] 20:20:32.515 [localhost-startStop-1] o.s.web.context.ContextLoader - Root WebApplicationContext: initialization completed in 1417 ms
+[INFO ] 20:20:32.657 [localhost-startStop-1] o.s.b.w.s.FilterRegistrationBean - Mapping filter: 'characterEncodingFilter' to: [/*]
+[INFO ] 20:20:32.657 [localhost-startStop-1] o.s.b.w.s.FilterRegistrationBean - Mapping filter: 'hiddenHttpMethodFilter' to: [/*]
+[INFO ] 20:20:32.657 [localhost-startStop-1] o.s.b.w.s.FilterRegistrationBean - Mapping filter: 'httpPutFormContentFilter' to: [/*]
+[INFO ] 20:20:32.658 [localhost-startStop-1] o.s.b.w.s.FilterRegistrationBean - Mapping filter: 'requestContextFilter' to: [/*]
+[INFO ] 20:20:32.658 [localhost-startStop-1] o.s.b.w.s.FilterRegistrationBean - Mapping filter: 'CORSFilter' to urls: [/api/*]
+[INFO ] 20:20:32.658 [localhost-startStop-1] o.s.b.w.s.FilterRegistrationBean - Mapping filter: 'authenticationFilter' to urls: [/api/*]
+[INFO ] 20:20:32.658 [localhost-startStop-1] o.s.b.w.s.ServletRegistrationBean - Mapping servlet: 'dispatcherServlet' to [/]
+[INFO ] 20:20:32.990 [main] o.s.o.j.LocalContainerEntityManagerFactoryBean - Building JPA container EntityManagerFactory for persistence unit 'default'
+[WARN ] 20:20:33.086 [main] openjpa.Runtime - The configuration property named "openjpa.ClassLoadEnhancement" was not recognized and will be ignored, although the name closely matches a valid property called "openjpa.PostLoadOnMerge".
+[WARN ] 20:20:33.164 [main] openjpa.Runtime - The configuration property named "openjpa.ClassLoadEnhancement" was not recognized and will be ignored, although the name closely matches a valid property called "openjpa.PostLoadOnMerge".
+[WARN ] 20:20:33.179 [main] openjpa.Runtime - An error occurred while registering a ClassTransformer with PersistenceUnitInfo: name 'default', root URL [file:/Users/pdai/apache-shardingsphere-elasticjob-3.0.1-lite-ui-bin/lib/shardingsphere-elasticjob-lite-ui-backend-3.0.1.jar]. The error has been consumed. To see it, set your openjpa.Runtime log level to TRACE. Load-time class transformation will not be available.
+[INFO ] 20:20:33.193 [main] o.s.o.j.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+[INFO ] 20:20:33.273 [main] openjpa.jdbc.JDBC - Using dictionary class "org.apache.openjpa.jdbc.sql.H2Dictionary" (H2 1.4.196 (2017-06-10) ,H2 JDBC Driver 1.4.196 (2017-06-10)).
+[INFO ] 20:20:33.322 [main] openjpa.jdbc.JDBC - Connected to H2 version 1.4 using JDBC driver H2 JDBC Driver version 1.4.196 (2017-06-10).
+[INFO ] 20:20:33.326 [main] openjpa.Runtime - Starting OpenJPA 3.1.2
+[WARN ] 20:20:33.531 [main] openjpa.Enhance - Creating subclass for "[class org.apache.shardingsphere.elasticjob.lite.ui.domain.TaskResultStatistics, class org.apache.shardingsphere.elasticjob.lite.ui.domain.JobRegisterStatistics, class org.apache.shardingsphere.elasticjob.lite.ui.domain.JobRunningStatistics, class org.apache.shardingsphere.elasticjob.lite.ui.domain.JobStatusTraceLog, class org.apache.shardingsphere.elasticjob.lite.ui.domain.JobExecutionLog, class org.apache.shardingsphere.elasticjob.lite.ui.domain.TaskRunningStatistics]". This means that your application will be less efficient and will consume more memory than it would if you ran the OpenJPA enhancer. Additionally, lazy loading will not be available for one-to-one and many-to-one persistent attributes in types using field access; they will be loaded eagerly instead.
+[INFO ] 20:20:34.321 [main] o.s.w.s.m.m.a.RequestMappingHandlerAdapter - Looking for @ControllerAdvice: org.springframework.boot.context.embedded.AnnotationConfigEmbeddedWebApplicationContext@5454d35e: startup date [Mon Jun 06 20:20:31 CST 2022]; root of context hierarchy
+[INFO ] 20:20:34.374 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/jobs/count],methods=[GET]}" onto public int org.apache.shardingsphere.elasticjob.lite.ui.web.controller.JobOperationController.getJobsTotalCount()
+[INFO ] 20:20:34.375 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/jobs/getAllJobsBriefInfo],methods=[GET]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.util.Collection<org.apache.shardingsphere.elasticjob.lite.lifecycle.domain.JobBriefInfo>> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.JobOperationController.getAllJobsBriefInfo()
+[INFO ] 20:20:34.375 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/jobs/{jobName}/shutdown],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.JobOperationController.shutdownJob(java.lang.String)
+[INFO ] 20:20:34.376 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/jobs/{jobName}/sharding],methods=[GET]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.util.Collection<org.apache.shardingsphere.elasticjob.lite.lifecycle.domain.ShardingInfo>> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.JobOperationController.getShardingInfo(java.lang.String)
+[INFO ] 20:20:34.376 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/jobs/{jobName}/sharding/{item}/disable],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.JobOperationController.disableSharding(java.lang.String,java.lang.String)
+[INFO ] 20:20:34.376 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/jobs/{jobName}/sharding/{item}/enable],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.JobOperationController.enableSharding(java.lang.String,java.lang.String)
+[INFO ] 20:20:34.376 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/jobs/{jobName}/trigger],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.JobOperationController.triggerJob(java.lang.String)
+[INFO ] 20:20:34.376 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/jobs/{jobName}/disable],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.JobOperationController.disableJob(java.lang.String)
+[INFO ] 20:20:34.376 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/jobs/{jobName}/enable],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.JobOperationController.enableJob(java.lang.String)
+[INFO ] 20:20:34.378 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/event-trace/status/jobNames || /api/event-trace/status/jobNames/{jobNamePrefix:.+}],methods=[GET]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.util.List<java.lang.String>> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.EventTraceHistoryController.findJobNamesByPrefixInStatusTraceLog(java.lang.String)
+[INFO ] 20:20:34.378 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/event-trace/execution],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<org.apache.shardingsphere.elasticjob.lite.ui.dto.response.BasePageResponse<org.apache.shardingsphere.elasticjob.tracing.event.JobExecutionEvent>> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.EventTraceHistoryController.findJobExecutionEvents(org.apache.shardingsphere.elasticjob.lite.ui.dto.request.FindJobExecutionEventsRequest)
+[INFO ] 20:20:34.378 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/event-trace/execution/jobNames || /api/event-trace/execution/jobNames/{jobNamePrefix:.+}],methods=[GET]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.util.List<java.lang.String>> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.EventTraceHistoryController.findJobNamesByPrefix(java.lang.String)
+[INFO ] 20:20:34.378 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/event-trace/execution/ip || /api/event-trace/execution/ip/{ipPrefix:.+}],methods=[GET]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.util.List<java.lang.String>> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.EventTraceHistoryController.findIpByPrefix(java.lang.String)
+[INFO ] 20:20:34.379 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/event-trace/status],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<org.apache.shardingsphere.elasticjob.lite.ui.dto.response.BasePageResponse<org.apache.shardingsphere.elasticjob.tracing.event.JobStatusTraceEvent>> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.EventTraceHistoryController.findJobStatusTraceEvents(org.apache.shardingsphere.elasticjob.lite.ui.dto.request.FindJobStatusTraceEventsRequest)
+[INFO ] 20:20:34.382 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/servers/count],methods=[GET]}" onto public int org.apache.shardingsphere.elasticjob.lite.ui.web.controller.ServerOperationController.getServersTotalCount()
+[INFO ] 20:20:34.382 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/servers/getAllServersBriefInfo],methods=[GET]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.util.Collection<org.apache.shardingsphere.elasticjob.lite.lifecycle.domain.ServerBriefInfo>> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.ServerOperationController.getAllServersBriefInfo()
+[INFO ] 20:20:34.382 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/servers/{serverIp}/disable],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.ServerOperationController.disableServer(java.lang.String)
+[INFO ] 20:20:34.382 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/servers/{serverIp}/enable],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.ServerOperationController.enableServer(java.lang.String)
+[INFO ] 20:20:34.383 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/servers/{serverIp}/shutdown],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.ServerOperationController.shutdownServer(java.lang.String)
+[INFO ] 20:20:34.383 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/servers/{serverIp:.+}],methods=[DELETE]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.ServerOperationController.removeServer(java.lang.String)
+[INFO ] 20:20:34.383 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/servers/{serverIp}/jobs/{jobName}/disable],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.ServerOperationController.disableServerJob(java.lang.String,java.lang.String)
+[INFO ] 20:20:34.383 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/servers/{serverIp}/jobs/{jobName}/enable],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.ServerOperationController.enableServerJob(java.lang.String,java.lang.String)
+[INFO ] 20:20:34.383 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/servers/{serverIp}/jobs/{jobName}/shutdown],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.ServerOperationController.shutdownServerJob(java.lang.String,java.lang.String)
+[INFO ] 20:20:34.383 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/servers/{serverIp}/jobs/{jobName:.+}],methods=[DELETE]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.ServerOperationController.removeServerJob(java.lang.String,java.lang.String)
+[INFO ] 20:20:34.384 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/servers/{serverIp}/jobs],methods=[GET]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.util.Collection<org.apache.shardingsphere.elasticjob.lite.lifecycle.domain.JobBriefInfo>> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.ServerOperationController.getJobs(java.lang.String)
+[INFO ] 20:20:34.387 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/registry-center/activated],methods=[GET]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<org.apache.shardingsphere.elasticjob.lite.ui.domain.RegistryCenterConfiguration> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.RegistryCenterController.activated()
+[INFO ] 20:20:34.387 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/registry-center/add],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.RegistryCenterController.add(org.apache.shardingsphere.elasticjob.lite.ui.domain.RegistryCenterConfiguration)
+[INFO ] 20:20:34.387 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/registry-center/load],methods=[GET]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.util.Collection<org.apache.shardingsphere.elasticjob.lite.ui.domain.RegistryCenterConfiguration>> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.RegistryCenterController.load(javax.servlet.http.HttpServletRequest)
+[INFO ] 20:20:34.387 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/registry-center],methods=[DELETE]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult org.apache.shardingsphere.elasticjob.lite.ui.web.controller.RegistryCenterController.delete(org.apache.shardingsphere.elasticjob.lite.ui.domain.RegistryCenterConfiguration)
+[INFO ] 20:20:34.387 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/registry-center/connect],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.RegistryCenterController.connect(org.apache.shardingsphere.elasticjob.lite.ui.domain.RegistryCenterConfiguration,javax.servlet.http.HttpServletRequest)
+[INFO ] 20:20:34.389 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/data-source/drivers],methods=[GET]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.util.Collection<java.lang.String>> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.EventTraceDataSourceController.availableDrivers()
+[INFO ] 20:20:34.389 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/data-source/connectTest],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.EventTraceDataSourceController.connectTest(org.apache.shardingsphere.elasticjob.lite.ui.domain.EventTraceDataSourceConfiguration,javax.servlet.http.HttpServletRequest)
+[INFO ] 20:20:34.389 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/data-source/activated],methods=[GET]}" onto public boolean org.apache.shardingsphere.elasticjob.lite.ui.web.controller.EventTraceDataSourceController.activated(javax.servlet.http.HttpServletRequest)
+[INFO ] 20:20:34.389 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/data-source/add],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.EventTraceDataSourceController.add(org.apache.shardingsphere.elasticjob.lite.ui.domain.EventTraceDataSourceConfiguration)
+[INFO ] 20:20:34.390 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/data-source/load],methods=[GET]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.util.Collection<org.apache.shardingsphere.elasticjob.lite.ui.domain.EventTraceDataSourceConfiguration>> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.EventTraceDataSourceController.load(javax.servlet.http.HttpServletRequest)
+[INFO ] 20:20:34.390 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/data-source],methods=[DELETE]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult org.apache.shardingsphere.elasticjob.lite.ui.web.controller.EventTraceDataSourceController.delete(org.apache.shardingsphere.elasticjob.lite.ui.domain.EventTraceDataSourceConfiguration)
+[INFO ] 20:20:34.390 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/data-source/connect],methods=[POST]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.EventTraceDataSourceController.connect(org.apache.shardingsphere.elasticjob.lite.ui.domain.EventTraceDataSourceConfiguration,javax.servlet.http.HttpServletRequest)
+[INFO ] 20:20:34.392 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/jobs/config/{jobName:.+}],methods=[GET]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<org.apache.shardingsphere.elasticjob.infra.pojo.JobConfigurationPOJO> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.JobConfigController.getJobConfig(java.lang.String)
+[INFO ] 20:20:34.392 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/jobs/config],methods=[PUT]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.JobConfigController.updateJobConfig(org.apache.shardingsphere.elasticjob.infra.pojo.JobConfigurationPOJO)
+[INFO ] 20:20:34.392 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/api/jobs/config/{jobName:.+}],methods=[DELETE]}" onto public org.apache.shardingsphere.elasticjob.lite.ui.web.response.ResponseResult<java.lang.Boolean> org.apache.shardingsphere.elasticjob.lite.ui.web.controller.JobConfigController.removeJob(java.lang.String)
+[INFO ] 20:20:34.393 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/error],produces=[text/html]}" onto public org.springframework.web.servlet.ModelAndView org.springframework.boot.autoconfigure.web.BasicErrorController.errorHtml(javax.servlet.http.HttpServletRequest,javax.servlet.http.HttpServletResponse)
+[INFO ] 20:20:34.393 [main] o.s.w.s.m.m.a.RequestMappingHandlerMapping - Mapped "{[/error]}" onto public org.springframework.http.ResponseEntity<java.util.Map<java.lang.String, java.lang.Object>> org.springframework.boot.autoconfigure.web.BasicErrorController.error(javax.servlet.http.HttpServletRequest)
+[INFO ] 20:20:34.412 [main] o.s.w.s.h.SimpleUrlHandlerMapping - Mapped URL path [/webjars/**] onto handler of type [class org.springframework.web.servlet.resource.ResourceHttpRequestHandler]
+[INFO ] 20:20:34.412 [main] o.s.w.s.h.SimpleUrlHandlerMapping - Mapped URL path [/**] onto handler of type [class org.springframework.web.servlet.resource.ResourceHttpRequestHandler]
+[INFO ] 20:20:34.422 [main] o.s.w.s.m.m.a.ExceptionHandlerExceptionResolver - Detected @ExceptionHandler methods in restExceptionHandler
+[INFO ] 20:20:34.438 [main] o.s.w.s.h.SimpleUrlHandlerMapping - Mapped URL path [/**/favicon.ico] onto handler of type [class org.springframework.web.servlet.resource.ResourceHttpRequestHandler]
+[INFO ] 20:20:34.453 [main] o.s.b.a.w.WebMvcAutoConfiguration$WelcomePageHandlerMapping - Adding welcome page: class path resource [public/index.html]
+[INFO ] 20:20:34.624 [main] o.s.j.e.a.AnnotationMBeanExporter - Registering beans for JMX exposure on startup
+[INFO ] 20:20:34.634 [main] o.a.coyote.http11.Http11NioProtocol - Starting ProtocolHandler ["http-nio-8088"]
+[INFO ] 20:20:34.655 [main] o.a.tomcat.util.net.NioSelectorPool - Using a shared selector for servlet write/read
+[INFO ] 20:20:34.666 [main] o.s.b.c.e.t.TomcatEmbeddedServletContainer - Tomcat started on port(s): 8088 (http)
+[INFO ] 20:20:34.670 [main] o.a.s.elasticjob.lite.ui.Bootstrap - Started Bootstrap in 3.898 seconds (JVM running for 4.52)
+```
+打开http://localhost:8088，输入我们配置的root/root账号
+![239.springboot-elasticjob-lite-4.png](../../assets/images/04-主流框架/spring/239.springboot-elasticjob-lite-4.png)
+### 67.3.2 全局配置
+- 配置zk
+![240.springboot-elasticjob-lite-5.png](../../assets/images/04-主流框架/spring/240.springboot-elasticjob-lite-5.png)
+- 配置数据源
+![241.springboot-elasticjob-lite-6.png](../../assets/images/04-主流框架/spring/241.springboot-elasticjob-lite-6.png)
+### 67.3.3 作业操作
+- 作业维度
+![242.springboot-elasticjob-lite-7.png](../../assets/images/04-主流框架/spring/242.springboot-elasticjob-lite-7.png)
+- 服务器维度
+![243.springboot-elasticjob-lite-8.png](../../assets/images/04-主流框架/spring/243.springboot-elasticjob-lite-8.png)
+
+### 67.3.4 作业历史
+作业历史本质上就是从H2中获取数据，你也可以访问H2-Console查看
+
+- 历史轨迹
+![244.springboot-elasticjob-lite-9.png](../../assets/images/04-主流框架/spring/244.springboot-elasticjob-lite-9.png)
+- 历史状态
+![245.springboot-elasticjob-lite-10.png](../../assets/images/04-主流框架/spring/245.springboot-elasticjob-lite-10.png)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
