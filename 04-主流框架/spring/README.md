@@ -37640,227 +37640,7095 @@ WARNING: All illegal access operations will be denied in a future release
 ![244.springboot-elasticjob-lite-9.png](../../assets/images/04-主流框架/spring/244.springboot-elasticjob-lite-9.png)
 - 历史状态
 ![245.springboot-elasticjob-lite-10.png](../../assets/images/04-主流框架/spring/245.springboot-elasticjob-lite-10.png)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# 六十八、SpringBoot定时任务 - 分布式xxl-job方式
+> 除了前文介绍的ElasticJob，xxl-job在很多中小公司有着应用（虽然其代码和设计等质量并不太高，License不够开放，有着个人主义色彩，但是其具体开箱使用的便捷性和功能相对完善性，这是中小团队采用的主要原因）；XXL-JOB是一个分布式任务调度平台，其核心设计目标是开发迅速、学习简单、轻量级、易扩展。本文介绍XXL-JOB以及SpringBoot的集成。
+## 68.1 知识准备
+### 68.1.1 什么是xxl-job
+> XXL-JOB是一个分布式任务调度平台，其核心设计目标是开发迅速、学习简单、轻量级、易扩展。现已开放源代码并接入多家公司线上产品线，开箱即用。如下内容来源于<a href='https://www.xuxueli.com/xxl-job/'>xxl-job官网</a>
+
+支持如下特性：
+- 1、简单：支持通过Web页面对任务进行CRUD操作，操作简单，一分钟上手；
+- 2、动态：支持动态修改任务状态、启动/停止任务，以及终止运行中任务，即时生效；
+- 3、调度中心HA（中心式）：调度采用中心式设计，“调度中心”自研调度组件并支持集群部署，可保证调度中心HA；
+- 4、执行器HA（分布式）：任务分布式执行，任务"执行器"支持集群部署，可保证任务执行HA；
+- 5、注册中心: 执行器会周期性自动注册任务, 调度中心将会自动发现注册的任务并触发执行。同时，也支持手动录入执行器地址；
+- 6、弹性扩容缩容：一旦有新执行器机器上线或者下线，下次调度时将会重新分配任务；
+- 7、触发策略：提供丰富的任务触发策略，包括：Cron触发、固定间隔触发、固定延时触发、API（事件）触发、人工触发、父子任务触发；
+- 8、调度过期策略：调度中心错过调度时间的补偿处理策略，包括：忽略、立即补偿触发一次等；
+- 9、阻塞处理策略：调度过于密集执行器来不及处理时的处理策略，策略包括：单机串行（默认）、丢弃后续调度、覆盖之前调度；
+- 10、任务超时控制：支持自定义任务超时时间，任务运行超时将会主动中断任务；
+- 11、任务失败重试：支持自定义任务失败重试次数，当任务失败时将会按照预设的失败重试次数主动进行重试；其中分片任务支持分片粒度的失败重试；
+- 12、任务失败告警；默认提供邮件方式失败告警，同时预留扩展接口，可方便的扩展短信、钉钉等告警方式；
+- 13、路由策略：执行器集群部署时提供丰富的路由策略，包括：第一个、最后一个、轮询、随机、一致性HASH、最不经常使用、最近最久未使用、故障转移、忙碌转移等；
+- 14、分片广播任务：执行器集群部署时，任务路由策略选择"分片广播"情况下，一次任务调度将会广播触发集群中所有执行器执行一次任务，可根据分片参数开发分片任务；
+- 15、动态分片：分片广播任务以执行器为维度进行分片，支持动态扩容执行器集群从而动态增加分片数量，协同进行业务处理；在进行大数据量业务操作时可显著提升任务处理能力和速度。
+- 16、故障转移：任务路由策略选择"故障转移"情况下，如果执行器集群中某一台机器故障，将会自动Failover切换到一台正常的执行器发送调度请求。
+- 17、任务进度监控：支持实时监控任务进度；
+- 18、Rolling实时日志：支持在线查看调度结果，并且支持以Rolling方式实时查看执行器输出的完整的执行日志；
+- 19、GLUE：提供Web IDE，支持在线开发任务逻辑代码，动态发布，实时编译生效，省略部署上线的过程。支持30个版本的历史版本回溯。
+- 20、脚本任务：支持以GLUE模式开发和运行脚本任务，包括Shell、Python、NodeJS、PHP、PowerShell等类型脚本;
+- 21、命令行任务：原生提供通用命令行任务Handler（Bean任务，"CommandJobHandler"）；业务方只需要提供命令行即可；
+- 22、任务依赖：支持配置子任务依赖，当父任务执行结束且执行成功后将会主动触发一次子任务的执行, 多个子任务用逗号分隔；
+- 23、一致性：“调度中心”通过DB锁保证集群分布式调度的一致性, 一次任务调度只会触发一次执行；
+- 24、自定义任务参数：支持在线配置调度任务入参，即时生效；
+- 25、调度线程池：调度系统多线程触发调度运行，确保调度精确执行，不被堵塞；
+- 26、数据加密：调度中心和执行器之间的通讯进行数据加密，提升调度信息安全性；
+- 27、邮件报警：任务失败时支持邮件报警，支持配置多邮件地址群发报警邮件；
+- 28、推送maven中央仓库: 将会把最新稳定版推送到maven中央仓库, 方便用户接入和使用;
+- 29、运行报表：支持实时查看运行数据，如任务数量、调度次数、执行器数量等；以及调度报表，如调度日期分布图，调度成功分布图等；
+- 30、全异步：任务调度流程全异步化设计实现，如异步调度、异步运行、异步回调等，有效对密集调度进行流量削峰，理论上支持任意时长任务的运行；
+- 31、跨语言：调度中心与执行器提供语言无关的 RESTful API 服务，第三方任意语言可据此对接调度中心或者实现执行器。除此之外，还提供了 “多任务模式”和“httpJobHandler”等其他跨语言方案；
+- 32、国际化：调度中心支持国际化设置，提供中文、英文两种可选语言，默认为中文；
+- 33、容器化：提供官方docker镜像，并实时更新推送dockerhub，进一步实现产品开箱即用；
+- 34、线程池隔离：调度线程池进行隔离拆分，慢任务自动降级进入"Slow"线程池，避免耗尽调度线程，提高系统稳定性；
+- 35、用户管理：支持在线管理系统用户，存在管理员、普通用户两种角色；
+- 36、权限控制：执行器维度进行权限控制，管理员拥有全量权限，普通用户需要分配执行器权限后才允许相关操作；
+### 68.1.2 xxl-job的架构设计
+#### 68.1.2.1 设计思想
+将调度行为抽象形成“调度中心”公共平台，而平台自身并不承担业务逻辑，“调度中心”负责发起调度请求。
+
+将任务抽象成分散的JobHandler，交由“执行器”统一管理，“执行器”负责接收调度请求并执行对应的JobHandler中业务逻辑。
+
+因此，“调度”和“任务”两部分可以相互解耦，提高系统整体稳定性和扩展性；
+#### 68.1.2.2 系统组成
+1. 调度模块（调度中心） 负责管理调度信息，按照调度配置发出调度请求，自身不承担业务代码。调度系统与任务解耦，提高了系统可用性和稳定性，同时调度系统性能不再受限于任务模块；支持可视化、简单且动态的管理调度信息，包括任务新建，更新，删除，GLUE开发和任务报警等，所有上述操作都会实时生效，同时支持监控调度结果以及执行日志，支持执行器Failover。
+2. 执行模块（执行器）： 负责接收调度请求并执行任务逻辑。任务模块专注于任务的执行等操作，开发和维护更加简单和高效；接收“调度中心”的执行请求、终止请求和日志请求等。
+#### 68.1.2.3 架构图 
+![246.springboot-xxl-job-8.png](../../assets/images/04-主流框架/spring/246.springboot-xxl-job-8.png)
+## 68.2 实现案例
+
+本文主要介绍SpringBoot集成xxl-job的方式：Bean模式（基于方法和基于类），以及基于在线配置代码/脚本的GLUE模式。
+
+### Bean模式（基于方法）
+
+Bean模式任务支持基于方法的开发方式，每个任务对应一个方法。基于方法开发的任务，底层会生成JobHandler代理，和基于类的方式一样，任务也会以JobHandler的形式存在于执行器任务容器中。
+
+**优点**：
+- 每个任务只需要开发一个方法，并添加`@XxlJob`注解即可，更加方便、快速。
+- 支持自动扫描任务并注入到执行器容器。
+
+**缺点**：
+- 要求Spring容器环境。
+
+#### Job的开发环境依赖
+
+**Maven依赖**：
+```xml
+<dependency>
+    <groupId>com.xuxueli</groupId>
+    <artifactId>xxl-job-core</artifactId>
+    <version>2.3.1</version>
+</dependency>
+```
+
+**application.properties配置**：
+```properties
+# web port
+server.port=8081
+# no web
+#spring.main.web-environment=false
+
+# log config
+logging.config=classpath:logback.xml
+
+### xxl-job admin address list, such as "http://address" or "http://address01,http://address02"
+xxl.job.admin.addresses=http://127.0.0.1:8080/xxl-job-admin
+
+### xxl-job, access token
+xxl.job.accessToken=default_token
+
+### xxl-job executor appname
+xxl.job.executor.appname=xxl-job-executor-sample
+### xxl-job executor registry-address: default use address to registry , otherwise use ip:port if address is null
+xxl.job.executor.address=
+### xxl-job executor server-info
+xxl.job.executor.ip=
+xxl.job.executor.port=9999
+### xxl-job executor log-path
+xxl.job.executor.logpath=/data/applogs/xxl-job/jobhandler
+### xxl-job executor log-retention-days
+xxl.job.executor.logretentiondays=30
+```
+
+**Config配置**（PS：这里直接使用xxl-job demo中的配置，实际开发中可以封装一个starter自动注入）：
+```java
+package tech.pdai.springboot.xxljob.config;
+
+import com.xxl.job.core.executor.impl.XxlJobSpringExecutor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * xxl-job config
+ */
+@Configuration
+public class XxlJobConfig {
+    private Logger logger = LoggerFactory.getLogger(XxlJobConfig.class);
+
+    @Value("${xxl.job.admin.addresses}")
+    private String adminAddresses;
+
+    @Value("${xxl.job.accessToken}")
+    private String accessToken;
+
+    @Value("${xxl.job.executor.appname}")
+    private String appname;
+
+    @Value("${xxl.job.executor.address}")
+    private String address;
+
+    @Value("${xxl.job.executor.ip}")
+    private String ip;
+
+    @Value("${xxl.job.executor.port}")
+    private int port;
+
+    @Value("${xxl.job.executor.logpath}")
+    private String logPath;
+
+    @Value("${xxl.job.executor.logretentiondays}")
+    private int logRetentionDays;
+
+    @Bean
+    public XxlJobSpringExecutor xxlJobExecutor() {
+        logger.info(">>>>>>>>>>> xxl-job config init.");
+        XxlJobSpringExecutor xxlJobSpringExecutor = new XxlJobSpringExecutor();
+        xxlJobSpringExecutor.setAdminAddresses(adminAddresses);
+        xxlJobSpringExecutor.setAppname(appname);
+        xxlJobSpringExecutor.setAddress(address);
+        xxlJobSpringExecutor.setIp(ip);
+        xxlJobSpringExecutor.setPort(port);
+        xxlJobSpringExecutor.setAccessToken(accessToken);
+        xxlJobSpringExecutor.setLogPath(logPath);
+        xxlJobSpringExecutor.setLogRetentionDays(logRetentionDays);
+        return xxlJobSpringExecutor;
+    }
+}
+```
+
+#### Job的开发
+
+**开发步骤**：
+1. **任务开发**：在Spring Bean实例中，开发Job方法。
+2. **注解配置**：为Job方法添加注解`@XxlJob(value="自定义jobhandler名称", init = "JobHandler初始化方法", destroy = "JobHandler销毁方法")`，注解value值对应调度中心新建任务的JobHandler属性的值。
+3. **执行日志**：需要通过`XxlJobHelper.log`打印执行日志。
+4. **任务结果**：默认任务结果为"成功"状态，不需要主动设置；如有诉求，可通过`XxlJobHelper.handleFail/handleSuccess`自主设置任务结果。
+
+**Job开发示例**：
+```java
+package tech.pdai.springboot.xxljob.job;
+
+import java.io.BufferedInputStream;
+import java.io.BufferedReader;
+import java.io.DataOutputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.Arrays;
+
+import com.xxl.job.core.context.XxlJobHelper;
+import com.xxl.job.core.handler.annotation.XxlJob;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+/**
+ * XxlJob开发示例（Bean模式 - 方法）
+ */
+@Slf4j
+@Component
+public class BeanMethodDemoJob {
+
+    /**
+     * 1、简单任务示例（Bean模式）
+     */
+    @XxlJob("demoJobHandler")
+    public void demoJobHandler() {
+        XxlJobHelper.log("demoJobHandler execute...");
+    }
+
+    /**
+     * 2、分片广播任务
+     */
+    @XxlJob("shardingJobHandler")
+    public void shardingJobHandler() throws Exception {
+        log.info("shardingJobHandler execute...");
+        XxlJobHelper.log("shardingJobHandler execute...");
+        int shardIndex = XxlJobHelper.getShardIndex();
+        int shardTotal = XxlJobHelper.getShardTotal();
+        XxlJobHelper.log("分片参数：当前分片序号 = {}, 总分片数 = {}", shardIndex, shardTotal);
+        for (int i = 0; i < shardTotal; i++) {
+            if (i == shardIndex) {
+                XxlJobHelper.log("第 {} 片, 命中分片开始处理", i);
+            } else {
+                XxlJobHelper.log("第 {} 片, 忽略", i);
+            }
+        }
+    }
+
+    /**
+     * 3、命令行任务
+     */
+    @XxlJob("commandJobHandler")
+    public void commandJobHandler() throws Exception {
+        XxlJobHelper.log("commandJobHandler execute...");
+        String command = XxlJobHelper.getJobParam();
+        int exitValue = -1;
+        BufferedReader bufferedReader = null;
+        try {
+            ProcessBuilder processBuilder = new ProcessBuilder();
+            processBuilder.command(command);
+            processBuilder.redirectErrorStream(true);
+            Process process = processBuilder.start();
+            BufferedInputStream bufferedInputStream = new BufferedInputStream(process.getInputStream());
+            bufferedReader = new BufferedReader(new InputStreamReader(bufferedInputStream));
+            String line;
+            while ((line = bufferedReader.readLine()) != null) {
+                XxlJobHelper.log(line);
+            }
+            process.waitFor();
+            exitValue = process.exitValue();
+        } catch (Exception e) {
+            XxlJobHelper.log(e);
+        } finally {
+            if (bufferedReader != null) {
+                bufferedReader.close();
+            }
+        }
+        if (exitValue != 0) {
+            XxlJobHelper.handleFail("command exit value(" + exitValue + ") is failed");
+        }
+    }
+
+    /**
+     * 4、跨平台Http任务
+     * 参数示例：
+     * "url: http://www.baidu.com\n" +
+     * "method: get\n" +
+     * "data: content\n";
+     */
+    @XxlJob("httpJobHandler")
+    public void httpJobHandler() throws Exception {
+        XxlJobHelper.log("httpJobHandler execute...");
+        String param = XxlJobHelper.getJobParam();
+        if (param == null || param.trim().length() == 0) {
+            XxlJobHelper.log("param[" + param + "] invalid.");
+            XxlJobHelper.handleFail();
+            return;
+        }
+        String[] httpParams = param.split("\n");
+        String url = null;
+        String method = null;
+        String data = null;
+        for (String httpParam : httpParams) {
+            if (httpParam.startsWith("url:")) {
+                url = httpParam.substring(httpParam.indexOf("url:") + 4).trim();
+            }
+            if (httpParam.startsWith("method:")) {
+                method = httpParam.substring(httpParam.indexOf("method:") + 7).trim().toUpperCase();
+            }
+            if (httpParam.startsWith("data:")) {
+                data = httpParam.substring(httpParam.indexOf("data:") + 5).trim();
+            }
+        }
+        if (url == null || url.trim().length() == 0) {
+            XxlJobHelper.log("url[" + url + "] invalid.");
+            XxlJobHelper.handleFail();
+            return;
+        }
+        if (method == null || !Arrays.asList("GET", "POST").contains(method)) {
+            XxlJobHelper.log("method[" + method + "] invalid.");
+            XxlJobHelper.handleFail();
+            return;
+        }
+        boolean isPostMethod = method.equals("POST");
+        HttpURLConnection connection = null;
+        BufferedReader bufferedReader = null;
+        try {
+            URL realUrl = new URL(url);
+            connection = (HttpURLConnection) realUrl.openConnection();
+            connection.setRequestMethod(method);
+            connection.setDoOutput(isPostMethod);
+            connection.setDoInput(true);
+            connection.setUseCaches(false);
+            connection.setReadTimeout(5 * 1000);
+            connection.setConnectTimeout(3 * 1000);
+            connection.setRequestProperty("connection", "Keep-Alive");
+            connection.setRequestProperty("Content-Type", "application/json;charset=UTF-8");
+            connection.setRequestProperty("Accept-Charset", "application/json;charset=UTF-8");
+            connection.connect();
+            if (isPostMethod && data != null && data.trim().length() > 0) {
+                DataOutputStream dataOutputStream = new DataOutputStream(connection.getOutputStream());
+                dataOutputStream.write(data.getBytes("UTF-8"));
+                dataOutputStream.flush();
+                dataOutputStream.close();
+            }
+            int statusCode = connection.getResponseCode();
+            if (statusCode != 200) {
+                throw new RuntimeException("Http Request StatusCode(" + statusCode + ") Invalid.");
+            }
+            bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream(), "UTF-8"));
+            StringBuilder result = new StringBuilder();
+            String line;
+            while ((line = bufferedReader.readLine()) != null) {
+                result.append(line);
+            }
+            String responseMsg = result.toString();
+            XxlJobHelper.log(responseMsg);
+        } catch (Exception e) {
+            XxlJobHelper.log(e);
+            XxlJobHelper.handleFail();
+        } finally {
+            try {
+                if (bufferedReader != null) {
+                    bufferedReader.close();
+                }
+                if (connection != null) {
+                    connection.disconnect();
+                }
+            } catch (Exception e2) {
+                XxlJobHelper.log(e2);
+            }
+        }
+    }
+
+    /**
+     * 5、生命周期任务示例
+     */
+    @XxlJob(value = "demoJobHandler2", init = "init", destroy = "destroy")
+    public void demoJobHandler2() throws Exception {
+        XxlJobHelper.log("demoJobHandler2, execute...");
+    }
+
+    public void init() {
+        log.info("init");
+    }
+
+    public void destroy() {
+        log.info("destroy");
+    }
+}
+```
+
+（@pdai: 从设计的角度，xxl-job可以对上述不同类型进行细分）
+
+#### Job的调度配置和执行
+
+新增Job, 并把上述的@XxlJob(value="自定义jobhandler名称", init = "JobHandler初始化方法", destroy = "JobHandler销毁方法")中 自定义jobhandler名称 填写到JobHandler中。
+
+其它配置如下：
+![247.springboot-xxl-job-1.png](../../assets/images/04-主流框架/spring/247.springboot-xxl-job-1.png)
+
+可以选择操作中执行一次任务，或者启动(按照Cron执行)
+![248.springboot-xxl-job-2.png](../../assets/images/04-主流框架/spring/248.springboot-xxl-job-2.png)
+
+可以查看执行的记录
+![249.springboot-xxl-job-3.png](../../assets/images/04-主流框架/spring/249.springboot-xxl-job-3.png)
+
+进一步可以看每个执行记录的执行日志
+![250.springboot-xxl-job-4.png](../../assets/images/04-主流框架/spring/****250.springboot-xxl-job-4.png)
+
+### Bean模式（基于类）
+
+Bean模式任务支持基于类的开发方式，每个任务对应一个Java类。
+
+**优点**：
+- 不限制项目环境，兼容性好。即使是无框架项目，如main方法直接启动的项目也可以提供支持。
+
+**缺点**：
+- 每个任务需要占用一个Java类，造成类的浪费。
+- 不支持自动扫描任务并注入到执行器容器，需要手动注入。
+
+#### Job的开发环境依赖
+
+同Bean模式（基于方法）。
+
+#### Job的开发
+
+**开发步骤**：
+1. 开发一个继承自`com.xxl.job.core.handler.IJobHandler`的JobHandler类，实现`execute`方法。
+2. 手动注入到执行器容器：`XxlJobExecutor.registJobHandler("自定义名称", new JobHandler实例)`。
+
+**Job开发示例**：
+```java
+package tech.pdai.springboot.xxljob.job;
+
+import com.xxl.job.core.handler.IJobHandler;
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * Bean类模式示例
+ */
+@Slf4j
+public class BeanClassDemoJob extends IJobHandler {
+
+    @Override
+    public void execute() throws Exception {
+        log.info("BeanClassDemoJob, execute...");
+    }
+}
+```
+
+**注册JobHandler**（@pdai: 这里xxl-job设计的不好，是可以通过IJobHandler来自动注册的）：
+在配置类中添加注册代码：
+```java
+// 注册Bean类模式
+XxlJobExecutor.registJobHandler("beanClassDemoJobHandler", new BeanClassDemoJob());
+```
+
+启动SpringBoot应用后，日志显示注册成功：
+```
+20:34:15.385 logback [main] INFO  c.x.job.core.executor.XxlJobExecutor - >>>>>>>>>>> xxl-job register jobhandler success, name:beanClassDemoJobHandler, jobHandler:tech.pdai.springboot.xxljob.job.BeanClassDemoJob@640ab13c
+```
+
+#### Job的调度配置和执行
+
+同Bean模式（基于方法）。在调度中心配置后，执行日志如下：
+```
+20:41:00.021 logback [xxl-job, EmbedServer bizThreadPool-1023773196] INFO  c.x.job.core.executor.XxlJobExecutor - >>>>>>>>>>> xxl-job regist JobThread success, jobId:5, handler:tech.pdai.springboot.xxljob.job.BeanClassDemoJob@640ab13c
+20:41:00.022 logback [xxl-job, JobThread-5-1654681260021] INFO  t.p.s.xxljob.job.BeanClassDemoJob - BeanClassDemoJob, execute...
+```
+
+### GLUE模式
+
+任务以源码方式维护在调度中心，支持通过Web IDE在线更新，实时编译和生效，因此不需要指定JobHandler。
+
+#### 配置和启动流程
+
+1. 在调度中心创建GLUE类型的Job（以Java为例）。
+![251.springboot-xxl-job-5.png](../../assets/images/04-主流框架/spring/251.springboot-xxl-job-5.png)
+2. 选中指定任务，点击该任务右侧“GLUE”按钮，将会前往GLUE任务的Web IDE界面，在该界面支持对任务代码进行开发（也可以在IDE中开发完成后，复制粘贴到编辑中）。
+3. 版本回溯功能（支持30个版本的版本回溯）：在GLUE任务的Web IDE界面，选择右上角下拉框“版本回溯”，会列出该GLUE的更新历史，选择相应版本即可显示该版本代码，保存后GLUE代码即回退到对应的历史版本；
+![252.springboot-xxl-job-6.png](../../assets/images/04-主流框架/spring/252.springboot-xxl-job-6.png)
+4. 执行后查看记录。
+![253.springboot-xxl-job-7.png](../../assets/images/04-主流框架/spring/253.springboot-xxl-job-7.png)
+
+#### 支持的GLUE模式
+
+xxl-job支持多种GLUE模式：
+- **GLUE模式(Java)**：任务是一段继承自`IJobHandler`的Java类代码，以"groovy"源码方式维护。
+- **GLUE模式(Shell)**：任务是一段Shell脚本。
+- **GLUE模式(Python)**：任务是一段Python脚本。
+- **GLUE模式(PHP)**：任务是一段PHP脚本。
+- **GLUE模式(NodeJS)**：任务是一段NodeJS脚本。
+- **GLUE模式(PowerShell)**：任务是一段PowerShell脚本。
+
+### 更多配置的说明
+
+#### 基础配置
+- **执行器**：任务绑定的执行器，实现任务自动发现功能。
+- **任务描述**：任务的描述信息。
+- **负责人**：任务的负责人。
+- **报警邮件**：任务失败时通知的邮箱地址，支持多邮箱。
+
+#### 触发配置
+- **调度类型**：
+  - 无：不主动触发。
+  - CRON：通过CRON表达式触发。
+  - 固定速度：按固定间隔时间周期性触发。
+  - 固定延迟：从上次调度结束后计算延迟时间触发。
+- **CRON**：Cron表达式。
+- **固定速度**：间隔时间（秒）。
+- **固定延迟**：延迟时间（秒）。
+
+#### 高级配置
+- **路由策略**：
+  - FIRST（第一个）
+  - LAST（最后一个）
+  - ROUND（轮询）
+  - RANDOM（随机）
+  - CONSISTENT_HASH（一致性HASH）
+  - LEAST_FREQUENTLY_USED（最不经常使用）
+  - LEAST_RECENTLY_USED（最近最久未使用）
+  - FAILOVER（故障转移）
+  - BUSYOVER（忙碌转移）
+  - SHARDING_BROADCAST（分片广播）
+- **子任务**：任务成功时触发子任务ID对应的任务。
+- **调度过期策略**：
+  - 忽略：重新计算下次触发时间。
+  - 立即执行一次：立即执行并重新计算。
+- **阻塞处理策略**：
+  - 单机串行（默认）：FIFO队列串行运行。
+  - 丢弃后续调度：丢弃并标记失败。
+  - 覆盖之前调度：终止运行中的任务并运行新任务。
+- **任务超时时间**：自定义超时时间，超时中断任务。
+- **失败重试次数**：自定义失败重试次数。
+# 六十九、▶SpringBoot集成文件 - 基础的文件上传和下载
+> 项目中常见的功能是需要将数据文件(比如Excel,csv)上传到服务器端进行处理，亦或是将服务器端的数据以某种文件形式(比如excel,pdf,csv,word)下载到客户端。本文主要介绍基于SpringBoot的对常规文件的上传和下载，以及常见的问题等。
+## 69.1 知识准备
+> 需要理解文件上传和下载的常见场景和技术手段。
+### 69.1.1 哪些场景需要文件上传和下
+载项目中常见的功能是需要将数据文件(比如Excel,csv)上传到服务器端进行处理，亦或是将服务器端的数据以某种文件形式(比如excel,pdf,csv,word)下载到客户端。
+## 69.2 实现案例
+本例子主要展示文件的上传和文件的下载。
+### 69.2.1 Pom依赖
+引入spring-boot-starter-web即可
+```pom
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+```
+### 69.2.2 文件上传
+上传一个文件，并保存到本地文件夹中
+```java
+@PostMapping("/upload")
+public ResponseResult<String> upload(@RequestParam(value = "file", required = true) MultipartFile file) {
+    try {
+        // 本地文件保存位置
+        String uploadPath = "/Users/pdai/uploadFile"; // 改这里
+        File uploadDir = new File(uploadPath);
+        if (!uploadDir.exists()) {
+            uploadDir.mkdir();
+        }
+        log.info(uploadDir.getAbsolutePath());
+
+        // 本地文件
+        File localFile = new File(uploadPath + File.separator + file.getOriginalFilename());
+
+        // transfer to local
+        file.transferTo(localFile);
+    } catch (Exception e) {
+        e.printStackTrace();
+        return ResponseResult.fail(e.getMessage());
+    }
+    return ResponseResult.success();
+}
+```
+通过postman，模拟上传的请求
+![254.springboot-file-updownload-2.png](../../assets/images/04-主流框架/spring/254.springboot-file-updownload-2.png)
+
+上传文件结果：
+![255.springboot-file-updownload-1.png](../../assets/images/04-主流框架/spring/255.springboot-file-updownload-1.png)
+### 69.2.3 文件下载
+从本地文件夹中读取文件，并通过http下载
+```java
+@GetMapping("/download")
+public void download(HttpServletResponse response) {
+    response.reset();
+    response.setContentType("application/octet-stream");
+    response.setHeader("Content-disposition",
+            "attachment;filename=file_" + System.currentTimeMillis() + ".hprof");
+
+    // 从文件读到servlet response输出流中
+    File file = new File("/Users/pdai/pdai_heap_dump_test.hprof"); // 改这里
+    try (FileInputStream inputStream = new FileInputStream(file);) { // try-with-resources
+        byte[] b = new byte[1024];
+        int len;
+        while ((len = inputStream.read(b)) > 0) {
+            response.getOutputStream().write(b, 0, len);
+        }
+    } catch (IOException e) {
+        e.printStackTrace();
+    }
+}
+```
+下载文件
+![256.springboot-file-updownload-3.png](../../assets/images/04-主流框架/spring/256.springboot-file-updownload-3.png)
+注：
+
+如果使用postman下载文件，默认的response大小是50MB，下载大于50MB的文件需要在这里自行设置。
+![257.springboot-file-updownload-4.png](../../assets/images/04-主流框架/spring/257.springboot-file-updownload-4.png)
+## 69.3 进一步理解
+## 69.3.1 SpringBoot文件上传大小参数？
+SpringBoot对上传的文件大小有限制，默认的最大每个文件配置最大为1MB，默认多个文件上传（上传目标文件夹）总大小是10MB。
+```yml
+spring:
+  servlet:
+    multipart:
+      max-file-size: 1024MB # 单个文件大小
+      max-request-size: 10240MB # 总文件大小（允许存储文件的文件夹大小）
+```
+更多其它的参数可以参看MultipartProperties类
+```java
+@ConfigurationProperties(prefix = "spring.servlet.multipart", ignoreUnknownFields = false)
+public class MultipartProperties {
+
+	/**
+	 * Whether to enable support of multipart uploads.
+	 */
+	private boolean enabled = true;
+
+	/**
+	 * Intermediate location of uploaded files.
+	 */
+	private String location;
+
+	/**
+	 * Max file size.
+	 */
+	private DataSize maxFileSize = DataSize.ofMegabytes(1);
+
+	/**
+	 * Max request size.
+	 */
+	private DataSize maxRequestSize = DataSize.ofMegabytes(10);
+
+	/**
+	 * Threshold after which files are written to disk.
+	 */
+	private DataSize fileSizeThreshold = DataSize.ofBytes(0);
+
+	/**
+	 * Whether to resolve the multipart request lazily at the time of file or parameter
+	 * access.
+	 */
+	private boolean resolveLazily = false;
+
+}
+```
+### 69.3.2 多个文件上传？
+Spring支持接收多个文件的，只需要用MultipartFile接收即可
+```java
+@PostMapping("/upload")
+public ResponseResult<String> upload(MultipartFile[] files) {
+
+}
+```
+# 七十、SpringBoot集成文件 - 大文件的上传(异步，分片，断点续传和秒传)
+> 上文中介绍的是常规文件的上传和下载，而超大文件的上传技术手段和普通文件上传是有差异的，主要通过基于分片的断点续传和秒传和异步上传等技术手段解决。本文主要介绍SpringBoot集成大文件上传的案例。
+## 70.1 知识准备
+### 70.1.1 基于分片的断点续传和秒传
+> 当我们上传的文件很大时，对大文件的处理通常通过`分片上传、断点续传和秒传`技术手段实现。
+- 分片上传
+
+分片上传就是将一个大文件分成若干份大小相等的小块文件，等所有小块文件上传成功后，再将文件进行合并成完整的原始文件。
+- 断点续传
+
+断点续传就是重新上传文件时先判断哪些文件块已经上传过了(比如将分片的chuck md5等信息保存在DB中)，如果上传过了则跳过这些块，否则上传没有上传的块。
+- 秒传
+  
+当用户选择上传一个文件时，服务端检测该文件之前是否已经被上传过，如果服务器已经存有该文件（完全一样），就立马返回前端 “文件已上传成功”。前端随即将进度条更新至100%。 这样给用户的感觉就是 “秒传” 的感觉。
+
+
+对于分片上传，前后端分别需要怎么做呢？
+
+1. 前端：需要将文件file.slice()成多个文件块，并计算每一块的md5值，每次请求上传都是传一个小文件块。
+2. 后端：需要接收每次上传的文件块并保存文件块的信息(比如md5), 如果已经上传则跳过；最后等所有文件上传完成之后，将所有的文件块合并成一个大文件。
+### 70.1.2 异步上传
+> 当我们上传的文件很大，后台需要处理的时间很长，用户期望切换到其它页面继续工作，而不需要等待完成。这时候我们可以采用异步上传的方式。
+
+在SpringBoot中将一个方法声明为异步方法非常简单，只需两个注解即可@EnableAsync和@Async。
+1. @EnableAsync用于开启SpringBoot支持异步的功能，用在SpringBoot的启动类上。
+```java
+@SpringBootApplication
+@EnableAsync // 这里
+public class App {
+ 
+    public static void main(String[] args) {
+        SpringApplication.run(App.class, args);
+    }
+}
+```
+2. @Async用于方法上，标记该方法为异步处理方法。
+```java
+@Service
+public class UserServiceImpl {
+ 
+    @Async // 这里带@Async的方法，会被当成一个子线程
+    public void processFile(InputStream inputStream) {
+        
+    }
+}
+```
+## 70.3 实现案例
+
+### 70.3.1 分片
+
+#### 前端实现（Vue2 + Element UI）
+
+```vue
+<template>
+  <div class="upload-container">
+    <el-upload
+      class="upload-demo"
+      drag
+      :auto-upload="false"
+      :on-change="handleFileChange"
+      :file-list="fileList">
+      <i class="el-icon-upload"></i>
+      <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+    </el-upload>
+    
+    <el-progress 
+      :percentage="uploadProgress" 
+      :status="uploadStatus"
+      v-if="uploadProgress > 0">
+    </el-progress>
+    
+    <el-button 
+      type="primary" 
+      @click="startUpload" 
+      :disabled="!currentFile">
+      开始上传
+    </el-button>
+  </div>
+</template>
+
+<script>
+import SparkMD5 from 'spark-md5'
+
+export default {
+  name: 'BigFileUpload',
+  data() {
+    return {
+      fileList: [],
+      currentFile: null,
+      chunkSize: 2 * 1024 * 1024, // 2MB每片
+      uploadedChunks: new Set(),
+      uploadProgress: 0,
+      uploadStatus: ''
+    }
+  },
+  methods: {
+    handleFileChange(file) {
+      this.currentFile = file.raw
+    },
+    
+    // 计算文件MD5（用于秒传和分片标识）
+    async calculateFileMD5(file) {
+      return new Promise((resolve, reject) => {
+        const spark = new SparkMD5.ArrayBuffer()
+        const fileReader = new FileReader()
+        const chunkSize = 2 * 1024 * 1024
+        const chunks = Math.ceil(file.size / chunkSize)
+        let currentChunk = 0
+        
+        fileReader.onload = e => {
+          spark.append(e.target.result)
+          currentChunk++
+          
+          if (currentChunk < chunks) {
+            loadNext()
+          } else {
+            resolve(spark.end())
+          }
+        }
+        
+        fileReader.onerror = reject
+        
+        const loadNext = () => {
+          const start = currentChunk * chunkSize
+          const end = Math.min(start + chunkSize, file.size)
+          fileReader.readAsArrayBuffer(file.slice(start, end))
+        }
+        
+        loadNext()
+      })
+    },
+    
+    // 文件分片
+    createFileChunks(file, chunkSize) {
+      const chunks = []
+      let cur = 0
+      let index = 0
+      
+      while (cur < file.size) {
+        chunks.push({
+          index: index++,
+          file: file.slice(cur, cur + chunkSize),
+          start: cur,
+          end: Math.min(cur + chunkSize, file.size)
+        })
+        cur += chunkSize
+      }
+      return chunks
+    },
+    
+    async startUpload() {
+      if (!this.currentFile) return
+      
+      try {
+        // 1. 计算文件MD5
+        const fileMD5 = await this.calculateFileMD5(this.currentFile)
+        
+        // 2. 检查秒传
+        const quickUpload = await this.checkQuickUpload(fileMD5, this.currentFile.name)
+        if (quickUpload) {
+          this.uploadProgress = 100
+          this.uploadStatus = 'success'
+          this.$message.success('秒传成功！')
+          return
+        }
+        
+        // 3. 检查已上传分片
+        await this.checkUploadedChunks(fileMD5)
+        
+        // 4. 分片上传
+        const chunks = this.createFileChunks(this.currentFile, this.chunkSize)
+        await this.uploadChunks(chunks, fileMD5)
+        
+        // 5. 合并文件
+        await this.mergeChunks(fileMD5, this.currentFile.name)
+        
+        this.uploadStatus = 'success'
+        this.$message.success('文件上传成功！')
+      } catch (error) {
+        this.uploadStatus = 'exception'
+        this.$message.error('上传失败：' + error.message)
+      }
+    },
+    
+    async uploadChunks(chunks, fileMD5) {
+      for (const chunk of chunks) {
+        // 跳过已上传的分片
+        if (this.uploadedChunks.has(chunk.index)) continue
+        
+        const formData = new FormData()
+        formData.append('file', chunk.file)
+        formData.append('chunkIndex', chunk.index)
+        formData.append('chunkSize', this.chunkSize)
+        formData.append('fileMD5', fileMD5)
+        formData.append('totalChunks', chunks.length)
+        formData.append('fileName', this.currentFile.name)
+        
+        try {
+          await this.$http.post('/api/upload/chunk', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 30000
+          })
+          
+          this.uploadedChunks.add(chunk.index)
+          this.uploadProgress = Math.round((this.uploadedChunks.size / chunks.length) * 100)
+        } catch (error) {
+          throw new Error(`分片${chunk.index}上传失败`)
+        }
+      }
+    }
+  }
+}
+</script>
+```
+
+#### 后端实现（SpringBoot）
+
+```java
+// 分片上传请求DTO
+@Data
+public class ChunkUploadDTO {
+    private MultipartFile file;
+    private Integer chunkIndex;
+    private Long chunkSize;
+    private String fileMD5;
+    private Integer totalChunks;
+    private String fileName;
+}
+
+// 分片上传服务
+@Service
+@Slf4j
+public class ChunkUploadService {
+    
+    @Value("${file.upload.path}")
+    private String uploadPath;
+    
+    @Value("${file.upload.temp-path}")
+    private String tempPath;
+    
+    // 保存分片文件
+    public void saveChunk(ChunkUploadDTO chunkDTO) throws IOException {
+        String chunkDir = getChunkDir(chunkDTO.getFileMD5());
+        File dir = new File(chunkDir);
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+        
+        // 分片文件名格式：chunkIndex.fileMD5.chunk
+        String chunkFilename = String.format("%d.%s.chunk", 
+            chunkDTO.getChunkIndex(), chunkDTO.getFileMD5());
+        File chunkFile = new File(dir, chunkFilename);
+        
+        // 保存分片
+        chunkDTO.getFile().transferTo(chunkFile);
+        
+        log.info("分片保存成功：{}", chunkFilename);
+    }
+    
+    // 获取分片目录
+    private String getChunkDir(String fileMD5) {
+        return tempPath + File.separator + "chunks" + File.separator + fileMD5;
+    }
+}
+
+// 分片上传控制器
+@RestController
+@RequestMapping("/api/upload")
+@Slf4j
+public class ChunkUploadController {
+    
+    @Autowired
+    private ChunkUploadService chunkUploadService;
+    
+    @PostMapping("/chunk")
+    public ResponseEntity<Map<String, Object>> uploadChunk(ChunkUploadDTO chunkDTO) {
+        try {
+            chunkUploadService.saveChunk(chunkDTO);
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("chunkIndex", chunkDTO.getChunkIndex());
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("分片上传失败", e);
+            return ResponseEntity.status(500).body(
+                Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+}
+```
+
+### 70.3.2 断点续传
+
+#### 前端实现
+
+```javascript
+// 在Vue组件中添加断点续传相关方法
+methods: {
+    // 检查已上传的分片
+    async checkUploadedChunks(fileMD5) {
+        try {
+            const response = await this.$http.post('/api/upload/check-chunks', {
+                fileMD5: fileMD5
+            })
+            
+            if (response.data.success) {
+                this.uploadedChunks = new Set(response.data.uploadedChunks)
+                this.$message.info(`发现${this.uploadedChunks.size}个分片已上传，继续上传剩余分片`)
+            }
+        } catch (error) {
+            console.error('检查已上传分片失败:', error)
+        }
+    },
+    
+    // 暂停上传
+    pauseUpload() {
+        this.isPaused = true
+        this.$message.info('上传已暂停')
+    },
+    
+    // 继续上传
+    async resumeUpload() {
+        if (!this.currentFile || this.uploadProgress === 100) return
+        
+        this.isPaused = false
+        await this.startUpload()
+    }
+}
+```
+
+#### 后端实现
+
+```java
+// 文件分片信息实体
+@Entity
+@Table(name = "file_chunk_info")
+@Data
+public class FileChunkInfo {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false)
+    private String fileMD5;
+    
+    @Column(nullable = false)
+    private Integer chunkIndex;
+    
+    @Column(nullable = false)
+    private String chunkMD5;
+    
+    @Column(nullable = false)
+    private Long chunkSize;
+    
+    @Column(nullable = false)
+    private String chunkPath;
+    
+    @Column(nullable = false)
+    private Boolean uploaded = false;
+    
+    @CreationTimestamp
+    private LocalDateTime createTime;
+}
+
+// 断点续传服务
+@Service
+@Slf4j
+public class ResumeUploadService {
+    
+    @Autowired
+    private FileChunkInfoRepository chunkInfoRepository;
+    
+    // 检查已上传的分片
+    public List<Integer> getUploadedChunks(String fileMD5) {
+        return chunkInfoRepository.findByFileMD5AndUploadedTrue(fileMD5)
+            .stream()
+            .map(FileChunkInfo::getChunkIndex)
+            .collect(Collectors.toList());
+    }
+    
+    // 记录分片上传信息
+    @Transactional
+    public void recordChunkUpload(ChunkUploadDTO chunkDTO, String chunkPath) {
+        FileChunkInfo chunkInfo = chunkInfoRepository
+            .findByFileMD5AndChunkIndex(chunkDTO.getFileMD5(), chunkDTO.getChunkIndex())
+            .orElse(new FileChunkInfo());
+        
+        chunkInfo.setFileMD5(chunkDTO.getFileMD5());
+        chunkInfo.setChunkIndex(chunkDTO.getChunkIndex());
+        chunkInfo.setChunkSize(chunkDTO.getChunkSize());
+        chunkInfo.setChunkPath(chunkPath);
+        chunkInfo.setUploaded(true);
+        
+        try {
+            chunkInfo.setChunkMD5(calculateChunkMD5(chunkDTO.getFile()));
+        } catch (IOException e) {
+            log.error("计算分片MD5失败", e);
+        }
+        
+        chunkInfoRepository.save(chunkInfo);
+    }
+    
+    private String calculateChunkMD5(MultipartFile file) throws IOException {
+        return DigestUtils.md5DigestAsHex(file.getInputStream());
+    }
+}
+
+// 断点续传控制器
+@RestController
+@RequestMapping("/api/upload")
+@Slf4j
+public class ResumeUploadController {
+    
+    @Autowired
+    private ResumeUploadService resumeUploadService;
+    
+    @PostMapping("/check-chunks")
+    public ResponseEntity<Map<String, Object>> checkUploadedChunks(
+            @RequestBody CheckChunksRequest request) {
+        
+        try {
+            List<Integer> uploadedChunks = resumeUploadService.getUploadedChunks(request.getFileMD5());
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("uploadedChunks", uploadedChunks);
+            result.put("uploadedCount", uploadedChunks.size());
+            
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("检查已上传分片失败", e);
+            return ResponseEntity.status(500).body(
+                Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+}
+```
+
+### 70.3.3 秒传
+
+#### 前端实现
+
+```javascript
+methods: {
+    // 检查秒传
+    async checkQuickUpload(fileMD5, fileName) {
+        try {
+            const response = await this.$http.post('/api/upload/quick-upload', {
+                fileMD5: fileMD5,
+                fileName: fileName,
+                fileSize: this.currentFile.size
+            })
+            
+            if (response.data.exists) {
+                return true
+            }
+        } catch (error) {
+            console.error('秒传检查失败:', error)
+        }
+        return false
+    }
+}
+```
+
+#### 后端实现
+
+```java
+// 文件信息实体
+@Entity
+@Table(name = "file_info")
+@Data
+public class FileInfo {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false, unique = true)
+    private String fileMD5;
+    
+    @Column(nullable = false)
+    private String fileName;
+    
+    @Column(nullable = false)
+    private Long fileSize;
+    
+    @Column(nullable = false)
+    private String filePath;
+    
+    @Column(nullable = false)
+    private Boolean uploaded = false;
+    
+    @Column(nullable = false)
+    private Integer chunkCount;
+    
+    @CreationTimestamp
+    private LocalDateTime createTime;
+    
+    @UpdateTimestamp
+    private LocalDateTime updateTime;
+}
+
+// 秒传服务
+@Service
+@Slf4j
+public class QuickUploadService {
+    
+    @Autowired
+    private FileInfoRepository fileInfoRepository;
+    
+    @Value("${file.upload.path}")
+    private String uploadPath;
+    
+    // 检查文件是否已存在（秒传）
+    public boolean checkFileExists(String fileMD5, String fileName, Long fileSize) {
+        // 1. 检查数据库记录
+        Optional<FileInfo> fileInfoOpt = fileInfoRepository.findByFileMD5AndUploadedTrue(fileMD5);
+        if (fileInfoOpt.isPresent()) {
+            log.info("文件已存在（数据库记录），可秒传：{}", fileName);
+            return true;
+        }
+        
+        // 2. 检查实际文件是否存在
+        File file = new File(uploadPath, fileName);
+        if (file.exists() && file.length() == fileSize) {
+            // 验证文件完整性
+            if (validateFileMD5(file, fileMD5)) {
+                log.info("文件已存在（物理文件），可秒传：{}", fileName);
+                // 创建数据库记录
+                createFileRecord(fileMD5, fileName, fileSize, file.getAbsolutePath());
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    // 验证文件MD5
+    private boolean validateFileMD5(File file, String expectedMD5) {
+        try (FileInputStream fis = new FileInputStream(file)) {
+            String actualMD5 = DigestUtils.md5DigestAsHex(fis);
+            return expectedMD5.equals(actualMD5);
+        } catch (IOException e) {
+            log.error("验证文件MD5失败", e);
+            return false;
+        }
+    }
+    
+    // 创建文件记录
+    private void createFileRecord(String fileMD5, String fileName, Long fileSize, String filePath) {
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setFileMD5(fileMD5);
+        fileInfo.setFileName(fileName);
+        fileInfo.setFileSize(fileSize);
+        fileInfo.setFilePath(filePath);
+        fileInfo.setUploaded(true);
+        fileInfo.setChunkCount(1); // 秒传文件视为一个完整分片
+        
+        fileInfoRepository.save(fileInfo);
+    }
+}
+
+// 秒传控制器
+@RestController
+@RequestMapping("/api/upload")
+@Slf4j
+public class QuickUploadController {
+    
+    @Autowired
+    private QuickUploadService quickUploadService;
+    
+    @PostMapping("/quick-upload")
+    public ResponseEntity<Map<String, Object>> checkQuickUpload(
+            @RequestBody QuickUploadRequest request) {
+        
+        try {
+            boolean exists = quickUploadService.checkFileExists(
+                request.getFileMD5(), 
+                request.getFileName(), 
+                request.getFileSize()
+            );
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("exists", exists);
+            result.put("success", true);
+            
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("秒传检查失败", e);
+            return ResponseEntity.status(500).body(
+                Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+}
+```
+
+## 实现原理总结
+
+### 分片上传原理
+1. **前端分片**：使用File API的slice方法将大文件切割成小分片
+2. **并发控制**：通过Promise.all或循环控制分片上传顺序
+3. **后端存储**：每个分片单独存储，记录分片索引和文件标识
+
+### 断点续传原理
+1. **状态记录**：数据库记录每个分片的上传状态
+2. **断点检测**：上传前检查哪些分片已经上传完成
+3. **续传机制**：只上传未完成的分片，跳过已上传分片
+
+### 秒传原理
+1. **文件指纹**：通过MD5等哈希算法生成文件唯一标识
+2. **快速比对**：上传前先比对服务器是否已有相同文件
+3. **跳过上传**：如果文件已存在，直接创建文件引用而不实际传输
+
+这种方案能够有效解决大文件上传的网络不稳定、服务器压力大、用户体验差等问题。
+# 七十一、SpringBoot集成文件 - 集成POI之Excel导入导出
+## 71.1 知识准备
+> 需要了解POI工具，以及POI对Excel中的对象的封装对应关系。
+### 71.1.1 什么是POI
+> Apache POI 是用Java编写的免费开源的跨平台的 Java API，Apache POI提供API给Java程序对Microsoft Office格式档案读和写的功能。POI为“Poor Obfuscation Implementation”的首字母缩写，意为“简洁版的模糊实现”。
+
+Apache POI 是创建和维护操作各种符合Office Open XML（OOXML）标准和微软的OLE 2复合文档格式（OLE2）的Java API。用它可以使用Java读取和创建,修改MS Excel文件.而且,还可以使用Java读取和创建MS Word和MSPowerPoint文件。更多请参考<a href='https://poi.apache.org/index.html'>官方文档</a>
+
+### 71.1.2 POI中基础概念
+> 生成xls和xlsx有什么区别？POI对Excel中的对象的封装对应关系？
+
+生成xls和xlsx有什么区别呢？
+![258.Image20251201103112130.png](../../assets/images/04-主流框架/spring/258.Image20251201103112130.png)
+
+POI对Excel中的对象的封装对应关系如下：
+![259.Image20251201103143306.png](../../assets/images/04-主流框架/spring/259.Image20251201103143306.png)
+### 71.2.3 OOXML/OLE2协议
+
+#### 71.2.3.1 核心摘要
+
+-   **OLE2 (旧时代)：** 这是微软 Office 97 到 Office 2003 使用的默认二进制格式（如 `.doc`, `.xls`, `.ppt`）。它的核心是一个**复杂的“文件系统”**。
+-   **OOXML (新时代)：** 这是微软 Office 2007 及之后版本使用的默认格式（如 `.docx`, `.xlsx`, `.pptx`）。它的核心是**一组基于 ZIP 和 XML 的规范**。
+
+---
+
+##### 71.2.3.1.1 OLE 2 复合文档格式 (OLE2)
+
+OLE2 是一种**二进制复合文档格式**，可以理解为一个微型且复杂的“文件系统”存储在一个文件里。
+
+-   **设计理念：** 模拟一个文件系统，用于存储和关联多种类型的数据（如文本、表格、图片、嵌入对象）。
+-   **技术基础：**
+    - **二进制结构：** 它不是人类可读的，必须用专门的解析器来读写。
+    - **存储（Storages）和流（Streams）：** 类似于文件系统中的“目录”和“文件”。一个 OLE2 文件包含一个根存储，里面可以包含多个子存储和流。
+    - **FAT（文件分配表）：** 内部使用一种类似 FAT 文件系统的机制来管理存储空间中数据块的位置，这使得其结构相当复杂。
+-   **文件扩展名：** `.doc`, `.xls`, `.ppt` (Office 2003 及更早版本)。
+-   **优缺点：**
+    - **优点：** 在当时的硬件条件下，二进制格式处理效率较高。
+    - **缺点：**
+        - **格式封闭复杂：** 解析和生成非常困难，第三方兼容性差。
+        - **安全性问题：** 复杂的二进制结构容易隐藏恶意代码（宏病毒等）。
+        - **不易互操作：** 很难被其他非微软的办公软件完美支持。
+
+##### 71.2.3.1.2 Office Open XML (OOXML)
+
+OOXML 是微软为了响应开放标准趋势（特别是竞争对手的 OpenDocument Format, ODF）而推出的新一代格式。它本质上是一个**开放标准**（ECMA-376, ISO/IEC 29500）。
+
+-   **设计理念：** 使用广泛支持的、现代的技术（ZIP, XML）来构建文档格式，提高互操作性和透明度。
+-   **技术基础：**
+    - **ZIP 压缩包：** 一个 `.docx` 文件实际上就是一个 ZIP 压缩包。你可以将其后缀改为 `.zip`，然后直接用解压软件打开，会看到里面清晰的目录和文件结构。
+    - **XML 描述：** 包内的内容（文档结构、样式、设置、文本内容等）都是用良构的 XML 文件来描述的。
+    - **分离关注点：** 不同的内容被分离到不同的 XML 文件中。例如，一个典型的 `.xlsx` 文件包含：
+        - `[Content_Types].xml` (定义包内部件的类型)
+        - `xl/workbook.xml` (工作簿结构)
+        - `xl/worksheets/sheet1.xml` (工作表数据)
+        - `xl/styles.xml` (样式信息)
+        - `xl/sharedStrings.xml` (共享字符串池)
+        - `_rels/` 目录 (定义部件之间的关系)
+-   **文件扩展名：** `.docx`, `.xlsx`, `.pptx`。
+-   **优缺点：**
+    - **优点：**
+        - **开放与可互操作：** 标准公开，任何开发者都可以依据标准实现读写功能，极大地改善了跨平台、跨应用的支持（如 LibreOffice, Google Docs, Apple Numbers 等）。
+        - **人类可读（部分）：** 虽然压缩后不是直接可读，但解压后的 XML 内容是可读、可调试的。
+        - **文件体积更小：** 得益于 ZIP 压缩。
+        - **更安全：** XML 结构不易隐藏恶意代码，宏等内容被隔离存储。
+        - **模块化：** 损坏的文件有更高几率被修复，因为可以单独替换损坏的部件。
+    - **缺点：**
+        - **处理开销：** 相对于直接读写二进制，需要解压/压缩和解析/生成 XML，对性能有一定影响（但现代硬件已基本无感）。
+        - **复杂度：** 标准文档极其庞大，实现完整的兼容性依然是一项艰巨的任务。
+
+---
+
+#### 71.2.3.3 对比表格
+
+| 特性 | OLE2 复合文档格式 | Office Open XML (OOXML) |
+| :--- | :--- | :--- |
+| **本质** | 二进制“文件系统” | 基于 ZIP 和 XML 的开放标准 |
+| **文件扩展名** | `.doc`, `.xls`, `.ppt` | `.docx`, `.xlsx`, `.pptx` |
+| **可读性** | 二进制，不可读 | 压缩包内为 XML，可读性强 |
+| **标准状态** | 微软私有格式 | ECMA 和 ISO 国际标准 |
+| **第三方支持** | 困难，兼容性差 | 容易，已成为事实标准 |
+| **文件大小** | 相对较大 | 经 ZIP 压缩，相对较小 |
+| **安全性** | 较低，易藏匿病毒 | 较高，结构清晰 |
+| **复杂度** | 解析复杂 | 标准庞大，但结构清晰 |
+
+#### 71.2.3.4 在 EasyPOI 中的体现
+
+当你使用 EasyPOI 时，你会直接感受到这两种格式的区别：
+
+-   当你导出文件为 **`.xlsx`** 格式时，EasyPOI 底层使用的是 **Apache POI 的 XSSF** 实现，该实现就是遵循 **OOXML** 标准来生成 ZIP 包和内部的 XML 文件。
+-   当你导出文件为 **`.xls`** 格式时，EasyPOI 底层使用的是 **Apache POI 的 HSSF** 实现，该实现就是用于处理旧的 **OLE2** 二进制格式。
+
+#### 71.2.3.5 结论
+
+从 OLE2 到 OOXML 的转变，是文档格式从**封闭、复杂、私有**走向**开放、模块化、标准化**的标志。OOXML 凭借其技术优势和完善的生态系统，已经成为当今办公文档交换的**事实标准**。虽然 OLE2 格式正在逐渐退出历史舞台，但出于兼容旧系统的需求，像 POI 这样的库仍然需要同时支持这两种格式。
+## 71.2 实现案例
+### 71.2.1 Pom依赖
+```xml
+<dependency>
+    <groupId>org.apache.poi</groupId>
+    <artifactId>poi</artifactId>
+    <version>5.2.2</version>
+</dependency>
+<dependency>
+    <groupId>org.apache.poi</groupId>
+    <artifactId>poi-ooxml</artifactId>
+    <version>5.2.2</version>
+</dependency>
+```
+### 71.2.2 导出Excel
+UserController中导出的方法
+```java
+@ApiOperation("Download Excel")
+@GetMapping("/excel/download")
+public void download(HttpServletResponse response) {
+    try {
+        SXSSFWorkbook workbook = userService.generateExcelWorkbook();
+        response.reset();
+        response.setContentType("application/vnd.ms-excel");
+        response.setHeader("Content-disposition",
+                "attachment;filename=user_excel_" + System.currentTimeMillis() + ".xlsx");
+        OutputStream os = response.getOutputStream();
+        workbook.write(os);
+        workbook.dispose();
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}
+```
+UserServiceImple中导出Excel的主方法
+```java
+private static final int POSITION_ROW = 1;
+private static final int POSITION_COL = 1;
+
+/**
+  * @return SXSSFWorkbook
+  */
+@Override
+public SXSSFWorkbook generateExcelWorkbook() {
+    SXSSFWorkbook workbook = new SXSSFWorkbook();
+    Sheet sheet = workbook.createSheet();
+
+    int rows = POSITION_ROW;
+    int cols = POSITION_COL;
+
+    // 表头
+    Row head = sheet.createRow(rows++);
+    String[] columns = new String[]{"ID", "Name", "Email", "Phone", "Description"};
+    int[] colWidths = new int[]{2000, 3000, 5000, 5000, 8000};
+    CellStyle headStyle = getHeadCellStyle(workbook);
+    for (int i = 0; i < columns.length; ++i) {
+        sheet.setColumnWidth(cols, colWidths[i]);
+        addCellWithStyle(head, cols++, headStyle).setCellValue(columns[i]);
+    }
+
+    // 表内容
+    CellStyle bodyStyle = getBodyCellStyle(workbook);
+    for (User user : getUserList()) {
+        cols = POSITION_COL;
+        Row row = sheet.createRow(rows++);
+        addCellWithStyle(row, cols++, bodyStyle).setCellValue(user.getId());
+        addCellWithStyle(row, cols++, bodyStyle).setCellValue(user.getUserName());
+        addCellWithStyle(row, cols++, bodyStyle).setCellValue(user.getEmail());
+        addCellWithStyle(row, cols++, bodyStyle).setCellValue(String.valueOf(user.getPhoneNumber()));
+        addCellWithStyle(row, cols++, bodyStyle).setCellValue(user.getDescription());
+    }
+    return workbook;
+}
+
+private Cell addCellWithStyle(Row row, int colPosition, CellStyle cellStyle) {
+    Cell cell = row.createCell(colPosition);
+    cell.setCellStyle(cellStyle);
+    return cell;
+}
+
+private List<User> getUserList() {
+    return Collections.singletonList(User.builder()
+            .id(1L).userName("pdai").email("pdai@pdai.tech").phoneNumber(121231231231L)
+            .description("hello world")
+            .build());
+}
+
+private CellStyle getHeadCellStyle(Workbook workbook) {
+    CellStyle style = getBaseCellStyle(workbook);
+
+    // fill
+    style.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+    style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+    return style;
+}
+
+private CellStyle getBodyCellStyle(Workbook workbook) {
+    return getBaseCellStyle(workbook);
+}
+
+private CellStyle getBaseCellStyle(Workbook workbook) {
+    CellStyle style = workbook.createCellStyle();
+
+    // font
+    Font font = workbook.createFont();
+    font.setBold(true);
+    style.setFont(font);
+
+    // align
+    style.setAlignment(HorizontalAlignment.CENTER);
+    style.setVerticalAlignment(VerticalAlignment.TOP);
+
+    // border
+    style.setBorderBottom(BorderStyle.THIN);
+    style.setBottomBorderColor(IndexedColors.BLACK.getIndex());
+    style.setBorderLeft(BorderStyle.THIN);
+    style.setLeftBorderColor(IndexedColors.BLACK.getIndex());
+    style.setBorderRight(BorderStyle.THIN);
+    style.setRightBorderColor(IndexedColors.BLACK.getIndex());
+    style.setBorderTop(BorderStyle.THIN);
+    style.setTopBorderColor(IndexedColors.BLACK.getIndex());
+
+    return style;
+}
+```
+导出后的excel如下
+![260.springboot-file-excel-poi-2.png](../../assets/images/04-主流框架/spring/260.springboot-file-excel-poi-2.png)
+### 71.2.3 导入Excel
+UserController中导入的方法
+```java
+@ApiOperation("Upload Excel")
+@PostMapping("/excel/upload")
+public ResponseResult<String> upload(@RequestParam(value = "file", required = true) MultipartFile file) {
+    try {
+        userService.upload(file.getInputStream());
+    } catch (Exception e) {
+        e.printStackTrace();
+        return ResponseResult.fail(e.getMessage());
+    }
+    return ResponseResult.success();
+}
+```
+UserServiceImple中导入Excel的主方法
+```java
+@Override
+public void upload(InputStream inputStream) throws IOException {
+    XSSFWorkbook book = new XSSFWorkbook(inputStream);
+    XSSFSheet sheet = book.getSheetAt(0);
+    // add some validation here
+
+    // parse data
+    int cols;
+    for (int i = POSITION_ROW; i < sheet.getLastRowNum(); i++) {
+        XSSFRow row = sheet.getRow(i + 1); // 表头不算
+        cols = POSITION_COL;
+        User user = User.builder()
+                .id(getCellLongValue(row.getCell(cols++)))
+                .userName(getCellStringValue(row.getCell(cols++)))
+                .email(getCellStringValue(row.getCell(cols++)))
+                .phoneNumber(Long.parseLong(getCellStringValue(row.getCell(cols++))))
+                .description(getCellStringValue(row.getCell(cols++)))
+                .build();
+        log.info(user.toString());
+    }
+
+    book.close();
+}
+
+private String getCellStringValue(XSSFCell cell) {
+    try {
+        if (null!=cell) {
+            return String.valueOf(cell.getStringCellValue());
+        }
+    } catch (Exception e) {
+        return String.valueOf(getCellIntValue(cell));
+    }
+    return "";
+}
+
+private long getCellLongValue(XSSFCell cell) {
+    try {
+        if (null!=cell) {
+            return Long.parseLong("" + (long) cell.getNumericCellValue());
+        }
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+    return 0L;
+}
+
+private int getCellIntValue(XSSFCell cell) {
+    try {
+        if (null!=cell) {
+            return Integer.parseInt("" + (int) cell.getNumericCellValue());
+        }
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+    return 0;
+}
+```
+通过PostMan进行接口测试
+![261.springboot-file-excel-poi-1.png](../../assets/images/04-主流框架/spring/261.springboot-file-excel-poi-1.png)
+
+执行接口后，后台的日志如下
+```sh
+2022-06-10 21:36:01.720  INFO 15100 --- [nio-8080-exec-2] t.p.s.f.e.p.s.impl.UserServiceImpl       : User(id=1, userName=pdai, email=pdai@pdai.tech, phoneNumber=121231231231, description=hello world)
+```
+# 七十二、SpringBoot集成文件 - 集成EasyExcel之Excel导入导出
+> EasyExcel是一个基于Java的、快速、简洁、解决大文件内存溢出的Excel处理工具。它能让你在不用考虑性能、内存的等因素的情况下，快速完成Excel的读、写等功能。它是基于POI来封装实现的，主要解决其易用性，封装性和性能问题。本文主要介绍通过SpringBoot集成Excel实现Excel的导入，导出和填充模板等功能。
+## 72.1 知识准备
+> 需要了解EasyExcel，以及这个工具设计的初衷(为什么有了POI，还会需要EasyExcel?)。
+
+### 72.1.1 什么是EasyExcel
+> EasyExcel是阿里开源的基于POI封装的Excel处理工具，更多请参考<a href='https://easyexcel.opensource.alibaba.com/expert/question-history-14638'>官方文档</a>。
+
+EasyExcel是一个基于Java的、快速、简洁、解决大文件内存溢出的Excel处理工具。它能让你在不用考虑性能、内存的等因素的情况下，快速完成Excel的读、写等功能。
+### 72.1.2 EasyExcel要解决POI什么问题？
+> 因为EasyExcel是基于POI封装的，主要考虑的是易用性，封装性和性能问题。
+
+Java解析、生成Excel比较有名的框架有Apache poi、jxl。但他们都存在一个严重的问题就是非常的耗内存，poi有一套SAX模式的API可以一定程度的解决一些内存溢出的问题，但POI还是有一些缺陷，比如07版Excel解压缩以及解压后存储都是在内存中完成的，内存消耗依然很大。easyexcel重写了poi对07版Excel的解析，一个3M的excel用POI sax解析依然需要100M左右内存，改用easyexcel可以降低到几M，并且再大的excel也不会出现内存溢出；03版依赖POI的sax模式，在上层做了模型转换的封装，让使用者更加简单方便。
+## 72.3 实现案例
+### 72.3.1 Pom依赖
+```xml
+<dependency>
+    <groupId>com.alibaba</groupId>
+    <artifactId>easyexcel</artifactId>
+    <version>3.1.1</version>
+</dependency>
+```
+### 72.3.2 导出Excel
+User类
+```java
+package tech.pdai.springboot.file.excel.easyexcel.entity;
+
+import com.alibaba.excel.annotation.ExcelProperty;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+/**
+ * @author pdai
+ */
+@Builder
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class User implements BaseEntity {
+
+    /**
+     * user id.
+     */
+    @ExcelProperty("ID")
+    private Long id;
+
+    /**
+     * username.
+     */
+    @ExcelProperty("Name")
+    private String userName;
+
+    /**
+     * email.
+     */
+    @ExcelProperty("Email")
+    private String email;
+
+    /**
+     * phoneNumber.
+     */
+    @ExcelProperty("Phone")
+    private long phoneNumber;
+
+    /**
+     * description.
+     */
+    @ExcelProperty("Description")
+    private String description;
+
+}
+```
+UserController中导出的方法
+```java
+@ApiOperation("Download Excel")
+@GetMapping("/excel/download")
+public void download(HttpServletResponse response) {
+    try {
+        response.reset();
+        response.setContentType("application/vnd.ms-excel");
+        response.setHeader("Content-disposition",
+                "attachment;filename=user_excel_" + System.currentTimeMillis() + ".xlsx");
+        userService.downloadExcel(response.getOutputStream());
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}
+```
+UserServiceImple中导出Excel的主方法(是不是很简洁)
+```java
+@Override
+public void downloadExcel(ServletOutputStream outputStream) {
+    EasyExcelFactory.write(outputStream, User.class).sheet("User").doWrite(this::getUserList);
+}
+private List<User> getUserList() {
+    return Collections.singletonList(User.builder()
+            .id(1L).userName("pdai").email("pdai@pdai.tech").phoneNumber(121231231231L)
+            .description("hello world")
+            .build());
+}
+```
+导出后的excel如下
+![262.springboot-file-excel-easyexcel-1.png](../../assets/images/04-主流框架/spring/262.springboot-file-excel-easyexcel-1.png)
+### 72.3.3 导入Excel
+UserController中导入的方法
+
+```java
+@ApiOperation("Upload Excel")
+@PostMapping("/excel/upload")
+public ResponseResult<String> upload(@RequestParam(value = "file", required = true) MultipartFile file) {
+    try {
+        userService.upload(file.getInputStream());
+    } catch (Exception e) {
+        e.printStackTrace();
+        return ResponseResult.fail(e.getMessage());
+    }
+    return ResponseResult.success();
+}
+```
+UserServiceImple中导入Excel的主方法
+```java
+@Override
+public void upload(InputStream inputStream) throws IOException {
+    // ReadListener不是必须的，它主要的设计是读取excel数据的后置处理(并考虑一次性读取到内存潜在的内存泄漏问题)
+    EasyExcelFactory.read(inputStream, User.class, new ReadListener<User>() {
+
+        @Override
+        public void invoke(User user, AnalysisContext analysisContext) {
+            cachedDataList.add(user);
+        }
+
+        @Override
+        public void doAfterAllAnalysed(AnalysisContext analysisContext) {
+            cachedDataList.forEach(user -> log.info(user.toString()));
+        }
+    }).sheet().doRead();
+}
+```
+通过PostMan进行接口测试
+![263.springboot-file-excel-easyexcel-2.png](../../assets/images/04-主流框架/spring/263.springboot-file-excel-easyexcel-2.png)
+
+这里注意下，需要有字体的支持，比如如果没有字体支撑将会报如下告警：
+```sh
+Warning: the font "Times" is not available, so "Lucida Bright" has been substituted, but may have unexpected appearance or behavor. Re-enable the "Times" font to remove this warning.
+```
+### 72.3.4 填充Excel模板
+我们先来准备一个excel模板，考虑了横向表和纵向列表，以及单一信息等，基本上能满足多数的应用场景。
+![264.springboot-file-excel-easyexcel-4.png](../../assets/images/04-主流框架/spring/264.springboot-file-excel-easyexcel-4.png)
+
+UserController中下载填充后的Excel方法
+```java
+@ApiOperation("Fill Excel Template")
+@GetMapping("/excel/fill")
+public void fillTemplate(HttpServletResponse response) {
+    try {
+        response.reset();
+        response.setContentType("application/vnd.ms-excel");
+        response.setHeader("Content-disposition",
+                "attachment;filename=user_excel_template_" + System.currentTimeMillis() + ".xlsx");
+        userService.fillExcelTemplate(response.getOutputStream());
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}
+```
+UserServiceImpl中填充excel模板的方法
+```java
+// 模板注意 用{} 来表示你要用的变量 如果本来就有"{","}" 特殊字符 用"\{","\}"代替
+// {} 代表普通变量 {.} 代表是list的变量 {前缀.} 前缀可以区分不同的list
+@Override
+public void fillExcelTemplate(ServletOutputStream outputStream) {
+
+    // 确保文件可访问，这个例子的excel模板，放在根目录下面
+    String templateFileName = "/Users/pdai/Downloads/user_excel_template.xlsx";
+
+    // 方案1
+    try (ExcelWriter excelWriter = EasyExcelFactory.write(outputStream).withTemplate(templateFileName).build()) {
+        WriteSheet writeSheet = EasyExcelFactory.writerSheet().build();
+        FillConfig fillConfig = FillConfig.builder().direction(WriteDirectionEnum.HORIZONTAL).build();
+        // 如果有多个list 模板上必须有{前缀.} 这里的前缀就是 userList，然后多个list必须用 FillWrapper包裹
+        excelWriter.fill(new FillWrapper("userList", getUserList()), fillConfig, writeSheet);
+        excelWriter.fill(new FillWrapper("userList", getUserList()), fillConfig, writeSheet);
+
+        excelWriter.fill(new FillWrapper("userList2", getUserList()), writeSheet);
+        excelWriter.fill(new FillWrapper("userList2", getUserList()), writeSheet);
+
+        Map<String, Object> map = new HashMap<>();
+        map.put("user", "pdai");
+        map.put("date", new Date());
+
+        excelWriter.fill(map, writeSheet);
+    }
+}
+```
+访问http://localhost:8080/user/excel/fill 下载
+![265.springboot-file-excel-easyexcel-3.png](../../assets/images/04-主流框架/spring/265.springboot-file-excel-easyexcel-3.png)
+# 七十三、SpringBoot集成文件 - 集成EasyPOI之Excel导入导出
+> 除了POI和EasyExcel，国内还有一个EasyPOI框架较为常见，适用于没有使用过POI并希望快速操作Excel的入门项目，在中大型项目中并不推荐使用(为了保证知识体系的完整性，把EasyPOI也加了进来)。本文主要介绍SpringBoot集成EasyPOI实现Excel的导入，导出和填充模板等功能。
+## 73.1 知识准备
+### 73.1.1 什么是EasyPOI
+独特的功能：
+- 基于注解的导入导出,修改注解就可以修改Excel
+- 支持常用的样式自定义
+- 基于map可以灵活定义的表头字段
+- 支持一堆多的导出,导入
+- 支持模板的导出,一些常见的标签,自定义标签
+- 支持HTML/Excel转换,如果模板还不能满足用户的变态需求,请用这个功能支持word的导出,
+- 支持图片,Excel
+### 73.1.2 如何看待EasyPOI
+> 不建议在稍复杂的项目中使用EasyPOI。
+- 简单的功能通过对POI的封装成本也不高，复杂的一点的适配性差；有点像为了做某件事方便，引入了一个工具，最后发现大量的时间都在迎合/修理这个工具
+- 个人色彩，缺少稳定维护团队，潜在风险远大于节约的这点时间；同时个人开源又期望寻求盈利点，对开发者选择而言是要很慎重的。
+- 封装的思路可以借鉴下，在自行根据业务封装时可以参考下
+## 73.2 实现案例
+### 73.2.1 Pom依赖
+```xml
+<dependency>
+    <groupId>cn.afterturn</groupId>
+    <artifactId>easypoi-spring-boot-starter</artifactId>
+    <version>4.4.0</version>
+</dependency>
+```
+### 73.2.2 导出Excel
+User 类
+```java
+package tech.pdai.springboot.file.excel.easypoi.entity;
+
+import cn.afterturn.easypoi.excel.annotation.Excel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+/**
+ * @author pdai
+ */
+@Builder
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class User implements BaseEntity {
+
+    /**
+     * user id.
+     */
+    @Excel(name = "ID")
+    private Long id;
+
+    /**
+     * username.
+     */
+    @Excel(name = "Name")
+    private String userName;
+
+    /**
+     * email.
+     */
+    @Excel(name = "Email")
+    private String email;
+
+    /**
+     * phoneNumber.
+     */
+    @Excel(name = "Phone")
+    private long phoneNumber;
+
+    /**
+     * description.
+     */
+    @Excel(name = "Description")
+    private String description;
+
+
+}
+```
+UserController中导出的方法
+```java
+@ApiOperation("Download Excel")
+@GetMapping("/excel/download")
+public void download(HttpServletResponse response) {
+    try {
+        response.reset();
+        response.setContentType("application/vnd.ms-excel");
+        response.setHeader("Content-disposition",
+                "attachment;filename=user_excel_" + System.currentTimeMillis() + ".xlsx");
+        userService.downloadExcel(response.getOutputStream());
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}
+```
+UserServiceImple中导出Excel的主方法
+```java
+@Override
+public void downloadExcel(ServletOutputStream outputStream) throws IOException {
+    ExportParams exportParams = new ExportParams();
+    exportParams.setTitle("User Table");
+    exportParams.setSheetName("User Sheet");
+    Workbook workbook = ExcelExportUtil.exportExcel(exportParams, User.class, getUserList());
+    workbook.write(outputStream);
+    workbook.close();
+}
+```
+导出后的excel如下
+![266.springboot-file-excel-easypoi-1.png](../../assets/images/04-主流框架/spring/266.springboot-file-excel-easypoi-1.png)
+
+当getUserList用 Collections.singletonList时是直接报错，看了下源码~
+```java
+private List<User> getUserList() {
+    return Collections.singletonList(User.builder()
+            .id(1L).userName("pdai").email("pdai@pdai.tech").phoneNumber(121231231231L)
+            .description("hello world")
+            .build());
+}
+```
+默默改成ArrayList, 因为源代码是通过remove来迭代的，且只对Unmodified Collection做了处理，而没有对singletonList... 只能说不建议在稍复杂的项目中使用EasyPOI...
+1. Collections.singletonList()
+- **特点**：创建**单元素不可变集合**
+- **内存**：最节省内存，专门为单个元素优化
+- **修改操作**：**不支持**任何修改操作（add/remove/set等）
+- **使用场景**：返回固定单元素集合，确保不被修改
+
+```java
+List<String> list = Collections.singletonList("single");
+list.add("another");    // 抛出 UnsupportedOperationException
+list.remove(0);         // 抛出 UnsupportedOperationException
+```
+
+2. new ArrayList()
+- **特点**：标准的**可变数组列表**
+- **内存**：初始容量10，动态扩容
+- **修改操作**：**支持**所有修改操作
+- **使用场景**：需要动态增删改的集合
+
+```java
+List<String> list = new ArrayList<>();
+list.add("first");      // 正常
+list.remove(0);         // 正常
+```
+
+3. Collections.unmodifiableList()
+- **特点**：创建**不可变视图包装器**
+- **内存**：额外包装层，轻微开销
+- **修改操作**：**不支持**修改，但底层集合可变时，变化会反映到视图
+- **使用场景**：返回只读视图，保护集合不被外部修改
+
+```java
+List<String> original = new ArrayList<>();
+original.add("hello");
+List<String> unmodifiable = Collections.unmodifiableList(original);
+
+unmodifiable.add("world");  // 抛出 UnsupportedOperationException
+original.add("world");      // 正常，unmodifiable也会看到这个变化
+```
+
+🔍 问题根源分析
+
+EasyPOI内部代码可能类似：
+```java
+// EasyPOI内部可能这样处理
+while (!list.isEmpty()) {
+    Object item = list.remove(0);  // 这里调用了remove()
+    // 处理item...
+}
+```
+
+**Collections.singletonList()的remove()方法：**
+```java
+public E remove(int index) {
+    throw new UnsupportedOperationException();
+}
+```
+
+💡 解决方案
+
+1. **使用ArrayList**（目前的方案）：
+```java
+private List<User> getUserList() {
+    return new ArrayList<>(Collections.singletonList(User.builder()
+            .id(1L).userName("pdai").build()));
+}
+```
+
+2. **避免在工具类中使用破坏性迭代**：
+```java
+// 更好的做法 - 使用普通迭代
+for (User user : list) {
+    // 处理user...
+}
+// 或者
+list.forEach(user -> { /* 处理 */ });
+```
+
+📌 总结对比
+
+| 集合类型 | 可变性 | 内存效率 | 线程安全 | 使用场景 |
+|---------|--------|----------|----------|----------|
+| singletonList | 完全不可变 | 最优 | 是 | 单元素固定集合 |
+| ArrayList | 完全可变 | 良好 | 否 | 需要增删改的动态集合 |
+| unmodifiableList | 视图不可变 | 轻微开销 | 依赖底层 | 返回只读视图 |
+### 73.2.3 导入Excel
+UserController中导入的方法，（导入的文件在项目根目录）
+```java
+@ApiOperation("Upload Excel")
+@PostMapping("/excel/upload")
+public ResponseResult<String> upload(@RequestParam(value = "file", required = true) MultipartFile file) {
+    try {
+        userService.upload(file.getInputStream());
+    } catch (Exception e) {
+        e.printStackTrace();
+        return ResponseResult.fail(e.getMessage());
+    }
+    return ResponseResult.success();
+}
+```
+UserServiceImple中导入Excel的主方法
+```java
+@Override
+public void upload(InputStream inputStream) throws Exception {
+    ImportParams importParams = new ImportParams();
+    List<User> userList = ExcelImportUtil.importExcel(inputStream, User.class, importParams);
+    userList.stream().forEach(user -> log.info(user.toString()));
+}
+```
+通过PostMan进行接口测试
+![267.springboot-file-excel-easypoi-2.png](../../assets/images/04-主流框架/spring/267.springboot-file-excel-easypoi-2.png)
+
+日志如下
+```sh
+2022-06-15 22:20:48.145  INFO 52348 --- [nio-8080-exec-2] t.p.s.f.e.e.s.impl.UserServiceImpl       : User(id=1, userName=pdai, email=pdai@pdai.tech, phoneNumber=121231231231, description=hello world)
+```
+### 73.2.4 填充Excel模板
+准备如下Excel模板
+![268.springboot-file-excel-easypoi-3.png](../../assets/images/04-主流框架/spring/268.springboot-file-excel-easypoi-3.png)
+
+UserController中下载填充后的Excel方法
+```java
+@ApiOperation("Fill Excel Template")
+@GetMapping("/excel/fill")
+public void fillTemplate(HttpServletResponse response) {
+    try {
+        response.reset();
+        response.setContentType("application/vnd.ms-excel");
+        response.setHeader("Content-disposition",
+                "attachment;filename=user_excel_template_" + System.currentTimeMillis() + ".xlsx");
+        userService.fillExcelTemplate(response.getOutputStream());
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}
+```
+UserServiceImpl中填充excel模板的方法
+```java
+@Override
+public void fillExcelTemplate(ServletOutputStream outputStream) throws IOException {
+    // 确保文件可访问，这个例子的excel模板，放在根目录下面
+    String templateFileName = "/Users/pdai/Downloads/user_excel_template_easypoi.xlsx";
+    TemplateExportParams params = new TemplateExportParams(templateFileName);
+
+    Map<String, Object> map = new HashMap<>();
+    map.put("user", "pdai");
+    map.put("date", new Date());
+    map.put("userList", getUserList());
+    Workbook workbook = ExcelExportUtil.exportExcel(params, map);
+    workbook.write(outputStream);
+    workbook.close();
+}
+
+private List<User> getUserList() {
+    List<User> userList = new ArrayList<>();
+    userList.add(User.builder()
+            .id(1L).userName("pdai").email("pdai@pdai.tech").phoneNumber(121231231231L)
+            .description("hello world")
+            .build());
+    userList.add(User.builder()
+            .id(2L).userName("pdai2").email("pdai2@pdai.tech").phoneNumber(1212312312312L)
+            .description("hello world2")
+            .build());
+    return userList;
+}
+```
+访问http://localhost:8080/user/excel/fill 下载
+![269.springboot-file-excel-easypoi-4.png](../../assets/images/04-主流框架/spring/269.springboot-file-excel-easypoi-4.png)
+# 七十四、SpringBoot集成文件 - 集成POI之Word导出
+> 前文我们介绍了通过Apache POI导出excel，而Apache POI包含是操作Office Open XML（OOXML）标准和微软的OLE 2复合文档格式（OLE2）的Java API。所以也是可以通过POI来导出word的。本文主要介绍通过SpringBoot集成POI工具实现Word的导出功能。
+## 74.1 知识准备
+> 需要理解Apache POI遵循的标准（Office Open XML（OOXML）标准和微软的OLE 2复合文档格式（OLE2））， 这将对应着API的依赖包。
+### 74.1.1 什么是POI
+> Apache POI 是用Java编写的免费开源的跨平台的 Java API，Apache POI提供API给Java程序对Microsoft Office格式档案读和写的功能。POI为“Poor Obfuscation Implementation”的首字母缩写，意为“简洁版的模糊实现”。
+
+Apache POI 是创建和维护操作各种符合Office Open XML（OOXML）标准和微软的OLE 2复合文档格式（OLE2）的Java API。更多请参考<a href='https://poi.apache.org/index.html'>官方文档</a>。
+![270.springboot-file-word-poi-1.png](../../assets/images/04-主流框架/spring/270.springboot-file-word-poi-1.png)
+## 74.2 实现案例
+### 74.2.1 Pom依赖
+```xml
+<dependency>
+    <groupId>org.apache.poi</groupId>
+    <artifactId>poi</artifactId>
+    <version>5.2.2</version>
+</dependency>
+<dependency>
+    <groupId>org.apache.poi</groupId>
+    <artifactId>poi-ooxml</artifactId>
+    <version>5.2.2</version>
+</dependency>
+```
+### 74.2.2 导出Word
+UserController中导出的方法
+```java
+package tech.pdai.springboot.file.word.poi.controller;
+
+
+import java.io.OutputStream;
+
+import javax.servlet.http.HttpServletResponse;
+
+import io.swagger.annotations.ApiOperation;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.file.word.poi.service.IUserService;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @Autowired
+    private IUserService userService;
+
+    @ApiOperation("Download Word")
+    @GetMapping("/word/download")
+    public void download(HttpServletResponse response) {
+        try {
+            XWPFDocument document = userService.generateWordXWPFDocument();
+            response.reset();
+            response.setContentType("application/vnd.ms-excel");
+            response.setHeader("Content-disposition",
+                    "attachment;filename=user_world_" + System.currentTimeMillis() + ".docx");
+            OutputStream os = response.getOutputStream();
+            document.write(os);
+            os.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+}
+```
+UserServiceImple中导出Word方法
+```java
+package tech.pdai.springboot.file.word.poi.service.impl;
+
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.List;
+
+import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
+import org.apache.poi.util.Units;
+import org.apache.poi.xwpf.usermodel.BreakType;
+import org.apache.poi.xwpf.usermodel.Document;
+import org.apache.poi.xwpf.usermodel.ParagraphAlignment;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.apache.poi.xwpf.usermodel.XWPFRun;
+import org.apache.poi.xwpf.usermodel.XWPFTable;
+import org.apache.poi.xwpf.usermodel.XWPFTableCell;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTblPr;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTblWidth;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
+import org.springframework.stereotype.Service;
+import tech.pdai.springboot.file.word.poi.entity.User;
+import tech.pdai.springboot.file.word.poi.service.IUserService;
+
+/**
+ * @author pdai
+ */
+@Slf4j
+@Service
+public class UserServiceImpl implements IUserService {
+
+    @Override
+    public XWPFDocument generateWordXWPFDocument() {
+        XWPFDocument doc = new XWPFDocument();
+
+        // Title
+        createTitle(doc, "Java 全栈知识体系");
+
+        // Chapter 1
+        createChapterH1(doc, "1. 知识准备");
+        createChapterH2(doc, "1.1 什么是POI");
+        createParagraph(doc, "Apache POI 是创建和维护操作各种符合Office Open XML（OOXML）标准和微软的OLE 2复合文档格式（OLE2）的Java API。用它可以使用Java读取和创建,修改MS Excel文件.而且,还可以使用Java读取和创建MS Word和MSPowerPoint文件。更多请参考[官方文档](https://poi.apache.org/index.html)");
+        createChapterH2(doc, "1.2 POI中基础概念");
+        createParagraph(doc, "生成xls和xlsx有什么区别？POI对Excel中的对象的封装对应关系？");
+
+        // Chapter 2
+        createChapterH1(doc, "2. 实现案例");
+        createChapterH2(doc, "2.1 用户列表示例");
+        createParagraph(doc, "以导出用户列表为例");
+
+        // 表格
+        List<User> userList = getUserList();
+        XWPFParagraph paragraph = doc.createParagraph();
+        XWPFTable table = paragraph.getDocument().createTable(userList.size(), 5);
+        table.setWidth(500);
+        table.setCellMargins(20, 20, 20, 20);
+
+        //表格属性
+        CTTblPr tablePr = table.getCTTbl().addNewTblPr();
+        //表格宽度
+        CTTblWidth width = tablePr.addNewTblW();
+        width.setW(BigInteger.valueOf(8000));
+
+        for(int i = 0; i< userList.size(); i++) {
+            List<XWPFTableCell> tableCells = table.getRow(i).getTableCells();
+            tableCells.get(0).setText(userList.get(i).getId()+"");
+            tableCells.get(1).setText(userList.get(i).getUserName());
+            tableCells.get(2).setText(userList.get(i).getEmail());
+            tableCells.get(3).setText(userList.get(i).getPhoneNumber()+"");
+            tableCells.get(4).setText(userList.get(i).getDescription());
+        }
+
+        createChapterH2(doc, "2.2 图片导出示例");
+        createParagraph(doc, "以导出图片为例");
+        // 图片
+        InputStream stream = null;
+        try {
+            XWPFParagraph paragraph2 = doc.createParagraph();
+            Resource resource = new ClassPathResource("pdai-guli.png");
+            stream = new FileInputStream(resource.getFile());
+            XWPFRun run = paragraph2.createRun();
+            run.addPicture(stream, Document.PICTURE_TYPE_PNG, "Generated", Units.toEMU(256), Units.toEMU(256));
+        } catch (IOException | InvalidFormatException e) {
+            e.printStackTrace();
+        }
+
+        return doc;
+    }
+
+    private void createTitle(XWPFDocument doc, String content) {
+        XWPFParagraph title = doc.createParagraph();
+        title.setAlignment(ParagraphAlignment.CENTER);
+        XWPFRun r1 = title.createRun();
+        r1.setBold(true);
+        r1.setFontFamily("宋体");
+        r1.setText(content);
+        r1.setFontSize(22);
+    }
+
+    private void createChapterH1(XWPFDocument doc, String content) {
+        XWPFParagraph actTheme = doc.createParagraph();
+        actTheme.setAlignment(ParagraphAlignment.LEFT);
+        XWPFRun runText1 = actTheme.createRun();
+        runText1.setBold(true);
+        runText1.setText(content);
+        runText1.setFontSize(18);
+    }
+
+    private void createChapterH2(XWPFDocument doc, String content) {
+        XWPFParagraph actType = doc.createParagraph();
+        XWPFRun runText2 = actType.createRun();
+        runText2.setBold(true);
+        runText2.setText(content);
+        runText2.setFontSize(15);
+    }
+
+    private void createParagraph(XWPFDocument doc, String content) {
+        XWPFParagraph actType = doc.createParagraph();
+        XWPFRun runText2 = actType.createRun();
+        runText2.setText(content);
+        runText2.setFontSize(11);
+    }
+
+    private List<User> getUserList() {
+        List<User> userList = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            userList.add(User.builder()
+                    .id(Long.parseLong(i + "")).userName("pdai" + i).email("pdai@pdai.tech" + i).phoneNumber(121231231231L)
+                    .description("hello world" + i)
+                    .build());
+        }
+        return userList;
+    }
+
+}
+```
+导出后的word
+![271.springboot-file-word-poi-3.png](../../assets/images/04-主流框架/spring/271.springboot-file-word-poi-3.png)
+# 七十五、SpringBoot集成文件 - 集成POI-tl之基于模板的Word导出
+> 前文我们介绍了通过Apache POI通过来导出word的例子；那如果是word模板方式，有没有开源库通过模板方式导出word呢？poi-tl是一个基于Apache POI的Word模板引擎，也是一个免费开源的Java类库，你可以非常方便的加入到你的项目中，并且拥有着让人喜悦的特性。本文主要介绍通过SpringBoot集成poi-tl实现模板方式的Word导出功能。
+## 75.1 知识准备
+### 75.1.1 什么是poi-tl
+> <a href='http://deepoove.com/poi-tl'>官网</a>
+
+poi-tl（poi template language）是Word模板引擎，使用Word模板和数据创建很棒的Word文档。
+![272.springboot-file-word-poi-tl-5.png](../../assets/images/04-主流框架/spring/272.springboot-file-word-poi-tl-5.png)
+它还支持自定义插件，如下是<a href='https://github.com/Sayi/poi-tl'>官网代码仓库</a>支持的特性
+> poi-tl supports custom functions (plug-ins), functions can be executed anywhere in the Word template, do anything anywhere in the document is the goal of poi-tl.
+
+|Feature |Description|
+| ------------- |-------------|
+|✅ Text |Render the tag as text|
+|✅ Picture |Render the tag as a picture|
+|✅ Table |Render the tag as a table|
+|✅ Numbering |Render the tag as a numbering|
+|✅ Chart|Bar chart (3D bar chart), column chart (3D column chart), area chart (3D area chart), line chart (3D line chart), radar chart, pie chart (3D pie Figure) and other chart rendering |
+|✅ If Condition |Hide or display certain document content (including text, paragraphs, pictures, tables, lists, charts, etc.) according to conditions|
+|✅ Foreach Loop | Loop through certain document content (including text, paragraphs, pictures, tables, lists, charts, etc.) according to the collection|
+|✅ Loop table row | Loop to copy a row of the rendered table|
+|✅ Loop table column | Loop copy and render a column of the table|
+|✅ Loop ordered list |Support the loop of ordered list, and support multi-level list at the same time|
+|✅ Highlight code |Word highlighting of code blocks, supporting 26 languages ​​and hundreds of coloring styles|
+|✅ Markdown |Convert Markdown to a word document|
+|✅ Word attachment |Insert attachment in Word|
+|✅ Word Comments |Complete support comment, create comment, modify comment, etc.|
+|✅ Word SDT |Complete support structured document tag |
+|✅ Textbox |Tag support in text box|
+|✅ Picture replacement |Replace the original picture with another picture|
+|✅ bookmarks, anchors, hyperlinks |Support setting bookmarks, anchors and hyperlinks in documents|
+|✅ Expression Language |Fully supports SpringEL expressions and can extend more expressions: OGNL, MVEL...|
+|✅ Style |The template is the style, and the code can also set the style|
+|✅ Template nesting |The template contains sub-templates, and the sub-templates then contain sub-templates|
+|✅ Merge |Word merge Merge, you can also merge in the specified position|
+|✅ custom functions (plug-ins) | Plug-in design, execute function anywhere in the document|
+### 75.1.2 poi-tl的TDO模式
+> TDO模式：Template + data-model = output
+
+TDO模式：Template + data-model = output
+```java
+XWPFTemplate template = XWPFTemplate.compile("template.docx").render(
+  new HashMap<String, Object>(){{
+    put("title", "Hi, poi-tl Word模板引擎");
+}});  
+template.writeAndClose(new FileOutputStream("output.docx")); 
+```
+- compile 编译模板 - Template
+- render 渲染数据 - data-model
+- write 输出到流 - output
+#### 75.1.2.1 Template：模板
+模板是Docx格式的Word文档，你可以使用Microsoft office、WPS Office、Pages等任何你喜欢的软件制作模板，也可以使用Apache POI代码来生成模板。
+
+所有的标签都是以`{{`开头，以`}}`结尾，标签可以出现在任何位置，包括页眉，页脚，表格内部，文本框等，表格布局可以设计出很多优秀专业的文档，推荐使用表格布局。
+
+
+poi-tl模板遵循“所见即所得”的设计，模板和标签的样式会被完全保留。
+
+#### 75.1.2.2 Data-model：数据
+数据类似于哈希或者字典，可以是Map结构（key是标签名称）：
+```java
+Map<String, Object> data = new HashMap<>();
+data.put("name", "Sayi");
+data.put("start_time", "2019-08-04");
+```
+可以是对象（属性名是标签名称）：
+```java
+public class Data {
+  private String name;
+  private String startTime;
+  private Author author;
+}
+```
+数据可以是树结构，每级之间用点来分隔开，比如`{ {author.name} }`标签对应的数据是author对象的name属性值。
+
+Word模板不是由简单的文本表示，所以在渲染图片、表格等元素时提供了数据模型，它们都实现了接口RenderData，比如图片数据模型PictureRenderData包含图片路径、宽、高三个属性。
+#### 75.1.2.3 Output：输出
+以流的方式进行输出：
+```java
+template.write(OutputStream stream);
+```
+可以写到任意输出流中，比如文件流：
+```java
+template.write(new FileOutputStream("output.docx"));
+```
+比如网络流：
+```java
+response.setContentType("application/octet-stream");
+response.setHeader("Content-disposition","attachment;filename=\""+"out_template.docx"+"\"");
+
+// HttpServletResponse response
+OutputStream out = response.getOutputStream();
+BufferedOutputStream bos = new BufferedOutputStream(out);
+template.write(bos);
+bos.flush();
+out.flush();
+PoitlIOUtils.closeQuietlyMulti(template, bos, out); // 最后不要忘记关闭这些流。
+```
+## 75.2 实现案例
+这里展示SpringBoot集成poi-tl基于word模板导出Word， 以及导出markdown为word的例子。
+### 75.2.1 Pom依赖
+引入poi的依赖包
+
+基础的包：
+```xml
+<dependency>
+    <groupId>com.deepoove</groupId>
+    <artifactId>poi-tl</artifactId>
+    <version>1.12.0</version>
+</dependency>
+```
+插件的包如下，比如highlight,markdown包
+```xml
+<dependency>
+    <groupId>com.deepoove</groupId>
+    <artifactId>poi-tl-plugin-highlight</artifactId>
+    <version>1.0.0</version>
+</dependency>
+<dependency>
+    <groupId>com.deepoove</groupId>
+    <artifactId>poi-tl-plugin-markdown</artifactId>
+    <version>1.0.3</version>
+</dependency>
+```
+### 75.2.2 导出基于template的word
+controller中的方法
+```java
+@ApiOperation("Download Word")
+@GetMapping("/word/download")
+public void download(HttpServletResponse response) {
+    try {
+        XWPFTemplate document = userService.generateWordXWPFTemplate();
+        response.reset();
+        response.setContentType("application/octet-stream");
+        response.setHeader("Content-disposition",
+                "attachment;filename=user_word_" + System.currentTimeMillis() + ".docx");
+        OutputStream os = response.getOutputStream();
+        document.write(os);
+        os.close();
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}
+```
+Service中的实际方法
+```java
+@Override
+public XWPFTemplate generateWordXWPFTemplate() throws IOException {
+    Map<String, Object> content = new HashMap<>();
+    content.put("title", "Java 全栈知识体系");
+    content.put("author", "pdai");
+    content.put("site", new HyperlinkTextRenderData("", ""));
+
+    content.put("poiText", "Apache POI 是创建和维护操作各种符合Office Open XML（OOXML）标准和微软的OLE 2复合文档格式（OLE2）的Java API。用它可以使用Java读取和创建,修改MS Excel文件.而且,还可以使用Java读取和创建MS Word和MSPowerPoint文件。更多请参考[官方文档](https://poi.apache.org/index.html)");
+
+    content.put("poiText2", "生成xls和xlsx有什么区别？POI对Excel中的对象的封装对应关系？");
+    content.put("poiList", Numberings.create("excel03只能打开xls格式，无法直接打开xlsx格式",
+            "xls只有65536行、256列; xlsx可以有1048576行、16384列",
+            "xls占用空间大, xlsx占用空间小，运算速度也会快一点"));
+
+    RowRenderData headRow = Rows.of("ID", "Name", "Email", "TEL", "Description").textColor("FFFFFF")
+            .bgColor("4472C4").center().create();
+    TableRenderData table = Tables.create(headRow);
+    getUserList()
+            .forEach(a -> table.addRow(Rows.create(a.getId() + "", a.getUserName(), a.getEmail(), a.getPhoneNumber() + "", a.getDescription())));
+    content.put("poiTable", table);
+
+    Resource resource = new ClassPathResource("pdai-guli.png");
+    content.put("poiImage", Pictures.ofStream(new FileInputStream(resource.getFile())).create());
+
+    return XWPFTemplate.compile(new ClassPathResource("poi-tl-template.docx").getFile()).render(content);
+}
+
+private List<User> getUserList() {
+    List<User> userList = new ArrayList<>();
+    for (int i = 0; i < 5; i++) {
+        userList.add(User.builder()
+                .id(Long.parseLong(i + "")).userName("pdai" + i).email("pdai@pdai.tech" + i).phoneNumber(121231231231L)
+                .description("hello world" + i)
+                .build());
+    }
+    return userList;
+}
+```
+准备模板
+![273.springboot-file-word-poi-tl-3.png](../../assets/images/04-主流框架/spring/273.springboot-file-word-poi-tl-3.png)
+
+导出word
+![274.springboot-file-word-poi-tl-1.png](../../assets/images/04-主流框架/spring/274.springboot-file-word-poi-tl-1.png)
+### 75.2.3 导出markdown为word
+controller中的方法
+```java
+@ApiOperation("Download Word based on markdown")
+@GetMapping("/word/downloadMD")
+public void downloadMD(HttpServletResponse response) {
+    try {
+        XWPFTemplate document = userService.generateWordXWPFTemplateMD();
+        response.reset();
+        response.setContentType("application/octet-stream");
+        response.setHeader("Content-disposition",
+                "attachment;filename=user_word_" + System.currentTimeMillis() + ".docx");
+        OutputStream os = response.getOutputStream();
+        document.write(os);
+        os.close();
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}
+```
+Service中实现的方法
+```java
+
+@Override
+public XWPFTemplate generateWordXWPFTemplateMD() throws IOException {
+    MarkdownRenderData code = new MarkdownRenderData();
+
+    Resource resource = new ClassPathResource("test.md");
+    code.setMarkdown(new String(Files.readAllBytes(resource.getFile().toPath())));
+    code.setStyle(MarkdownStyle.newStyle());
+
+    Map<String, Object> data = new HashMap<>();
+    data.put("md", code);
+
+    Configure config = Configure.builder().bind("md", new MarkdownRenderPolicy()).build();
+
+    return XWPFTemplate.compile(new ClassPathResource("markdown_template.docx").getFile(), config).render(data);
+}
+```
+test.md
+![275.Image20251201170349950.png](../../assets/images/04-主流框架/spring/275.Image20251201170349950.png)
+
+准备模板
+![276.Image20251201170457996.png](../../assets/images/04-主流框架/spring/276.Image20251201170457996.png)
+
+导出word
+![277.springboot-file-word-poi-tl-2.png](../../assets/images/04-主流框架/spring/277.springboot-file-word-poi-tl-2.png)
+# 七十六、SpringBoot集成文件 - 集成itextpdf之导出PDF
+> 除了处理word, excel等文件外，最为常见的就是PDF的导出了。在java技术栈中，PDF创建和操作最为常用的itext了，但是使用itext一定要了解其版本历史和License问题，在早前版本使用的是MPL和LGPL双许可协议，在5.x以上版本中使用的是AGPLv3(这个协议意味着，只有个人用途和开源的项目才能使用itext这个库，否则是需要收费的)。本文主要介绍通过SpringBoot集成itextpdf实现PDF导出功能。
+## 76.1 知识准备
+### 76.1.1 什么是itext
+> 来源于百度百科：iText是著名的开放源码的站点sourceforge一个项目(由Bruno Lowagie编写)，是一个用Java和.NET语言写的库，用来创建和修改PDF文件。通过iText不仅可以生成PDF或rtf的文档，而且可以将XML、Html文件转化为PDF文件。 iText的安装非常方便，下载iText.jar文件后，只需要在系统的CLASSPATH中加入iText.jar的路径，在程序中就可以使用iText类库了。
+
+iText提供除了基本的创建、修改PDF文件外的其他高级的PDF特性，例如基于PKI的签名，40位和128位加密，颜色校正，带标签的PDF，PDF表单(AcroForms)，PDF/X,通过ICC配置文件和条形码进行颜色管理。这些特性被一些产品和服务中使用，包括Eclipse BIRT，Jasper Reports，JBoss Seam，Windward Reports和pdftk。
+
+一般情况下，iText使用在有以下一个要求的项目中：
+- 内容无法提前利用：取决于用户的输入或实时的数据库信息。
+- 由于内容，页面过多，PDF文档不能手动生成。
+- 文档需在无人参与，批处理模式下自动创建。
+- 内容被定制或个性化；例如，终端客户的名字需要标记在大量的页面上。
+### 76.1.2 itext的历史版本和License问题
+> 使用itext一定要了解其版本历史，和License问题，在早前版本使用的是MPL和LGPL双许可协议，在5.x以上版本中使用的是AGPLv3(这个协议意味着，只有个人用途和开源的项目才能使用itext这个库，否则是需要收费的)
+- iText 0.x-2.x/iTextSharp 3.x-4.x
+  - 更新时间是2000-2009
+  - 使用的是MPL和LGPL双许可协议
+  - 最近的更新是2009年，版本号是iText 2.1.7/iTextSharp 4.1.6.0
+  - 此时引入包的GAV版本如下：
+```xml
+<dependency>
+  <groupId>com.lowagie</groupId>
+  <artifactId>itext</artifactId>
+  <version>2.1.7</version>
+</dependency>
+```
+- iText 5.x和iTextSharp 5.x
+  - 更新时间是2009-2016, 公司化运作，并标准化和提高性能开始使用 <a href='https://github.com/itext/itextpdf/blob/develop/LICENSE.md'>**AGPLv3协议**</a> 
+    - 只有个人用途和开源的项目才能使用itext这个库，否则是需要收费的
+  - iTextSharp被设计成iText库的.NET版本，并且与iText版本号同步，iText 5.0.0和iTextSharp5.0.0同时发布
+  - 新功能不在这里面增加，但是官方会修复重要的bug
+  - 此时引入包的GAV版本如下：
+```xml
+<dependency>
+  <groupId>com.itextpdf</groupId>
+  <artifactId>itextpdf</artifactId>
+  <version>5.5.13.3</version>
+</dependency>
+```
+- iText 7.x
+  - 更新时间是2016到现在
+  - AGPLv3协议
+  - 完全重写，重点关注可扩展性和模块化
+  - 不适用iTextSharp这个名称，都统称为iText,有Java和.Net版本
+  - JDK 1.7+
+  - 此时引入包的GAV版本如下：
+```xml
+<dependency>
+  <groupId>com.itextpdf</groupId>
+  <artifactId>itext7-core</artifactId>
+  <version>7.2.2</version>
+</dependency>
+```
+注：iText变化后，GitHub上有团队基于4.x版本（MPL和LGPL双许可协议）fork了一个分支成为<a href='https://github.com/LibrePDF/OpenPDF/'>OpenPDF</a>，并继续维护该项目。
+
+### 76.1.3 标准的itextpdf导出的步骤
+itextpdf导出pdf主要包含如下几步：
+```java
+@Override
+public Document generateItextPdfDocument(OutputStream os) throws Exception {
+    // 1. 创建文档
+    Document document = new Document(PageSize.A4);
+
+    // 2. 绑定输出流（通过pdfwriter)
+    PdfWriter.getInstance(document, os);
+
+    // 3. 打开文档
+    document.open();
+
+    // 4. 往文档中添加内容
+    document.add(xxx);
+
+    // 5. 关闭文档
+    document.close();
+    return document;
+}
+```
+document中添加的Element有哪些呢？
+![278.springboot-file-pdf-itext-2.png](../../assets/images/04-主流框架/spring/278.springboot-file-pdf-itext-2.png)
+
+需要说明下如下概念之前的差别：
+- Chunk：文档的文本的最小块单位
+- Phrase：一系列以特定间距（两行之间的距离）作为参数的块
+- Paragraph：段落是一系列块和（或）短句。同短句一样，段落有确定的间距。用户还可以指定缩排；在边和（或）右边保留一定空白，段落可以左对齐、右对齐和居中对齐。添加到文档中的每一个段落将自动另起一行。
+## 76.2 实现案例
+### 76.2.1 Pom依赖
+```xml
+<dependency>
+    <groupId>com.itextpdf</groupId>
+    <artifactId>itextpdf</artifactId>
+    <version>5.5.13.3</version>
+</dependency>
+<dependency>
+    <groupId>com.itextpdf</groupId>
+    <artifactId>itext-asian</artifactId>
+    <version>5.2.0</version>
+</dependency>
+```
+### 76.2.2 导出PDF
+UserController中导出的方法
+```java
+package tech.pdai.springboot.file.word.poi.controller;
+
+
+import java.io.OutputStream;
+
+import javax.servlet.http.HttpServletResponse;
+
+import io.swagger.annotations.ApiOperation;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import tech.pdai.springboot.file.word.poi.service.IUserService;
+
+/**
+ * @author pdai
+ */
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @Autowired
+    private IUserService userService;
+
+    @ApiOperation("Download Word")
+    @GetMapping("/word/download")
+    public void download(HttpServletResponse response) {
+        try {
+            XWPFDocument document = userService.generateWordXWPFDocument();
+            response.reset();
+            response.setContentType("application/vnd.ms-excel");
+            response.setHeader("Content-disposition",
+                    "attachment;filename=user_world_" + System.currentTimeMillis() + ".docx");
+            OutputStream os = response.getOutputStream();
+            document.write(os);
+            os.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+}
+```
+UserServiceImple中导出PDF方法
+```java
+@Override
+public Document generateItextPdfDocument(OutputStream os) throws Exception {
+    // document
+    Document document = new Document(PageSize.A4);
+    PdfWriter.getInstance(document, os);
+
+    // open
+    document.open();
+
+    // add content - pdf meta information
+    document.addAuthor("pdai");
+    document.addCreationDate();
+    document.addTitle("pdai-pdf-itextpdf");
+    document.addKeywords("pdf-pdai-keyword");
+    document.addCreator("pdai");
+
+    // add content -  page content
+
+    // Title
+    document.add(createTitle("Java 全栈知识体系"));
+
+    // Chapter 1
+    document.add(createChapterH1("1. 知识准备"));
+    document.add(createChapterH2("1.1 什么是POI"));
+    document.add(createParagraph("Apache POI 是创建和维护操作各种符合Office Open XML（OOXML）标准和微软的OLE 2复合文档格式（OLE2）的Java API。用它可以使用Java读取和创建,修改MS Excel文件.而且,还可以使用Java读取和创建MS Word和MSPowerPoint文件。更多请参考[官方文档](https://poi.apache.org/index.html)"));
+    document.add(createChapterH2("1.2 POI中基础概念"));
+    document.add(createParagraph("生成xls和xlsx有什么区别？POI对Excel中的对象的封装对应关系？"));
+
+    // Chapter 2
+    document.add(createChapterH1("2. 实现案例"));
+    document.add(createChapterH2("2.1 用户列表示例"));
+    document.add(createParagraph("以导出用户列表为例"));
+
+    // 表格
+    List<User> userList = getUserList();
+    PdfPTable table = new PdfPTable(new float[]{20, 40, 50, 40, 40});
+    table.setTotalWidth(500);
+    table.setLockedWidth(true);
+    table.setHorizontalAlignment(Element.ALIGN_CENTER);
+    table.getDefaultCell().setBorder(1);
+
+    for (int i = 0; i < userList.size(); i++) {
+        table.addCell(createCell(userList.get(i).getId() + ""));
+        table.addCell(createCell(userList.get(i).getUserName()));
+        table.addCell(createCell(userList.get(i).getEmail()));
+        table.addCell(createCell(userList.get(i).getPhoneNumber() + ""));
+        table.addCell(createCell(userList.get(i).getDescription()));
+    }
+    document.add(table);
+
+    document.add(createChapterH2("2.2 图片导出示例"));
+    document.add(createParagraph("以导出图片为例"));
+    // 图片
+    Resource resource = new ClassPathResource("pdai-guli.png");
+    Image image = Image.getInstance(resource.getURL());
+    // Image image = Image.getInstance("/Users/pdai/pdai/www/tech-pdai-spring-demos/481-springboot-demo-file-pdf-itextpdf/src/main/resources/pdai-guli.png");
+    image.setAlignment(Element.ALIGN_CENTER);
+    image.scalePercent(60); // 缩放
+    document.add(image);
+
+    // close
+    document.close();
+    return document;
+}
+
+private List<User> getUserList() {
+    List<User> userList = new ArrayList<>();
+    for (int i = 0; i < 5; i++) {
+        userList.add(User.builder()
+                .id(Long.parseLong(i + "")).userName("pdai" + i).email("pdai@pdai.tech" + i).phoneNumber(121231231231L)
+                .description("hello world" + i)
+                .build());
+    }
+    return userList;
+}
+```
+在实现时可以将如下创建文档内容的方法封装到Util工具类中
+```java
+private Paragraph createTitle(String content) throws IOException, DocumentException {
+    Font font = new Font(getBaseFont(), 24, Font.BOLD);
+    Paragraph paragraph = new Paragraph(content, font);
+    paragraph.setAlignment(Element.ALIGN_CENTER);
+    return paragraph;
+}
+
+
+private Paragraph createChapterH1(String content) throws IOException, DocumentException {
+    Font font = new Font(getBaseFont(), 22, Font.BOLD);
+    Paragraph paragraph = new Paragraph(content, font);
+    paragraph.setAlignment(Element.ALIGN_LEFT);
+    return paragraph;
+}
+
+private Paragraph createChapterH2(String content) throws IOException, DocumentException {
+    Font font = new Font(getBaseFont(), 18, Font.BOLD);
+    Paragraph paragraph = new Paragraph(content, font);
+    paragraph.setAlignment(Element.ALIGN_LEFT);
+    return paragraph;
+}
+
+private Paragraph createParagraph(String content) throws IOException, DocumentException {
+    Font font = new Font(getBaseFont(), 12, Font.NORMAL);
+    Paragraph paragraph = new Paragraph(content, font);
+    paragraph.setAlignment(Element.ALIGN_LEFT);
+    paragraph.setIndentationLeft(12); //设置左缩进
+    paragraph.setIndentationRight(12); //设置右缩进
+    paragraph.setFirstLineIndent(24); //设置首行缩进
+    paragraph.setLeading(20f); //行间距
+    paragraph.setSpacingBefore(5f); //设置段落上空白
+    paragraph.setSpacingAfter(10f); //设置段落下空白
+    return paragraph;
+}
+
+public PdfPCell createCell(String content) throws IOException, DocumentException {
+    PdfPCell cell = new PdfPCell();
+    cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+    cell.setHorizontalAlignment(Element.ALIGN_CENTER);
+    Font font = new Font(getBaseFont(), 12, Font.NORMAL);
+    cell.setPhrase(new Phrase(content, font));
+    return cell;
+}
+
+private BaseFont getBaseFont() throws IOException, DocumentException {
+    return BaseFont.createFont("STSong-Light", "UniGB-UCS2-H", BaseFont.NOT_EMBEDDED);
+}
+```
+导出后的PDF
+![279.springboot-file-pdf-itext-1.png](../../assets/images/04-主流框架/spring/279.springboot-file-pdf-itext-1.png)
+### 76.2.3 添加页眉页脚和水印
+> 在itextpdf 5.x 中可以利用PdfPageEvent来完成页眉页脚和水印。
+```java
+package tech.pdai.springboot.file.pdf.itextpdf.pdf;
+
+import com.itextpdf.text.BaseColor;
+import com.itextpdf.text.Document;
+import com.itextpdf.text.Element;
+import com.itextpdf.text.Phrase;
+import com.itextpdf.text.pdf.BaseFont;
+import com.itextpdf.text.pdf.ColumnText;
+import com.itextpdf.text.pdf.PdfContentByte;
+import com.itextpdf.text.pdf.PdfGState;
+import com.itextpdf.text.pdf.PdfPageEventHelper;
+import com.itextpdf.text.pdf.PdfTemplate;
+import com.itextpdf.text.pdf.PdfWriter;
+
+/**
+ * @author pdai
+ */
+public class MyHeaderFooterPageEventHelper extends PdfPageEventHelper {
+
+    private String headLeftTitle;
+
+    private String headRightTitle;
+
+    private String footerLeft;
+
+    private String waterMark;
+
+    private PdfTemplate total;
+
+    public MyHeaderFooterPageEventHelper(String headLeftTitle, String headRightTitle, String footerLeft, String waterMark) {
+        this.headLeftTitle = headLeftTitle;
+        this.headRightTitle = headRightTitle;
+        this.footerLeft = footerLeft;
+        this.waterMark = waterMark;
+    }
+
+    @Override
+    public void onOpenDocument(PdfWriter writer, Document document) {
+        total = writer.getDirectContent().createTemplate(30, 16);
+    }
+
+    @Override
+    public void onEndPage(PdfWriter writer, Document document) {
+        BaseFont bf = null;
+        try {
+            bf = BaseFont.createFont("STSong-Light", "UniGB-UCS2-H", BaseFont.NOT_EMBEDDED);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        // page header and footer
+        addPageHeaderAndFooter(writer, document, bf);
+
+        // watermark
+        if (waterMark!=null) {
+            addWaterMark(writer, document, bf);
+        }
+    }
+
+    private void addPageHeaderAndFooter(PdfWriter writer, Document document, BaseFont bf) {
+        PdfContentByte cb = writer.getDirectContent();
+        cb.saveState();
+
+        cb.beginText();
+
+        cb.setColorFill(BaseColor.GRAY);
+        cb.setFontAndSize(bf, 10);
+
+
+        // header
+        float x = document.top(-10);
+        cb.showTextAligned(PdfContentByte.ALIGN_LEFT,
+                headLeftTitle,
+                document.left(), x, 0);
+        cb.showTextAligned(PdfContentByte.ALIGN_RIGHT,
+                headRightTitle,
+                document.right(), x, 0);
+
+        // footer
+        float y = document.bottom(-10);
+        cb.showTextAligned(PdfContentByte.ALIGN_LEFT,
+                footerLeft,
+                document.left(), y, 0);
+        cb.showTextAligned(PdfContentByte.ALIGN_CENTER,
+                String.format("- %d -", writer.getPageNumber()),
+                (document.right() + document.left()) / 2,
+                y, 0);
+
+        cb.endText();
+
+        cb.restoreState();
+    }
+
+    private void addWaterMark(PdfWriter writer, Document document, BaseFont bf) {
+        for (int i = 1; i < 7; i++) {
+            for (int j = 1; j < 10; j++) {
+                PdfContentByte cb = writer.getDirectContent();
+                cb.saveState();
+                cb.beginText();
+                cb.setColorFill(BaseColor.GRAY);
+                PdfGState gs = new PdfGState();
+                gs.setFillOpacity(0.1f);
+                cb.setGState(gs);
+                cb.setFontAndSize(bf, 12);
+                cb.showTextAligned(Element.ALIGN_MIDDLE, waterMark, 75 * i,
+                        80 * j, 30);
+                cb.endText();
+                cb.restoreState();
+            }
+        }
+    }
+
+    @Override
+    public void onCloseDocument(PdfWriter writer, Document document) {
+        ColumnText.showTextAligned(total, Element.ALIGN_LEFT, new Phrase(String.valueOf(writer.getPageNumber() - 1)), 2,
+                2, 0);
+    }
+}
+```
+添加水印后导出后的PDF
+![280.springboot-file-pdf-itext-3.png](../../assets/images/04-主流框架/spring/280.springboot-file-pdf-itext-3.png)
+## 76.3 进一步理解
+### 76.3.1 为何添加页眉页脚和水印是通过PdfPageEvent来完成
+> 为何添加页眉页脚和水印是通过PdfPageEvent来完成？
+
+举个例子，如果我们在上述例子中需要在页脚中显示 “Page 1 of 3", 即总页数怎么办呢？而itext是流模式的写入内容，只有写到最后，才能知道有多少页，那么显示总页数必须在内容写完之后（或者关闭之前）确定；这就是为什么在onEndPage方法时才会写每页的页眉页脚。
+
+iText仅在调用释放模板方法后才将PdfTemplate写入到OutputStream中，否则对象将一直保存在内存中，直到关闭文档。所以我们可以在最后关闭文档前，使用PdfTemplate写入总页码。可以理解成先写个占位符，然后统一替换。
+# 七十七、▶SpringBoot后端视图 - 基于Thymeleaf视图解析
+
+Thymeleaf是SpringBoot中默认推荐的后端模板引擎，它允许开发者通过自然模板语法将动态数据渲染到HTML页面中。本部分将详细介绍Thymeleaf的基础知识、实现案例和深入理解，帮助您掌握其在SpringBoot中的应用。
+
+## 77.1 知识准备
+在使用Thymeleaf之前，需要理解SpringMVC的处理流程、模板引擎的基本概念，以及Thymeleaf的核心特性。SpringMVC负责处理用户请求，通过控制器（Controller）返回模型数据，然后由模板引擎（如Thymeleaf）结合模板文件生成最终的HTML响应。
+
+### 77.1.1 什么是模板引擎
+模板引擎是一种服务器端技术，用于将静态模板文件与动态数据结合，生成最终的输出内容（如HTML、XML或文本）。它的主要作用是分离业务逻辑和展示逻辑，提高代码的可维护性。模板引擎通常支持变量替换、条件判断、循环迭代等功能。常见的Java模板引擎包括：
+- **JSP（JavaServer Pages）**：基于Servlet的旧式技术，需要容器支持。
+- **Freemarker**：轻量级模板引擎，语法简洁。
+- **Thymeleaf**：现代化引擎，支持自然模板（无需服务器即可预览）。
+模板引擎的工作流程：控制器处理请求并准备数据模型，模板引擎读取模板文件，将数据填充到模板中，最终输出渲染后的内容。在SpringBoot中，Thymeleaf通过自动配置集成，无需手动设置解析器。
+
+### 77.1.2 什么是Thymeleaf
+Thymeleaf是一个开源的Java模板引擎，专为Web和独立环境设计。它支持HTML、XML、JavaScript等格式，语法自然易懂，允许模板在浏览器中直接预览（称为“自然模板”）。Thymeleaf 3.0版本引入了性能优化，如缓存机制和表达式改进。主要特点包括：
+- **与Spring生态无缝集成**：支持Spring MVC、Spring Security等。
+- **丰富的表达式语言**：如变量表达式 `${}`、链接表达式 `@{}` 等。
+- **可扩展性**：可通过自定义方言扩展功能。
+官方文档（3.0版本）：http://www.thymeleaf.org/doc/tutorials/3.0/usingthymeleaf.html。在SpringBoot中，只需添加`spring-boot-starter-thymeleaf`依赖即可自动配置。
+
+## 77.2 实现案例
+本节通过三个案例逐步介绍Thymeleaf的用法。每个案例均提供可运行的代码示例，基于SpringBoot 2.7+和Thymeleaf 3.0。建议使用IDE（如IntelliJ IDEA或Eclipse）创建SpringBoot项目进行实践。
+
+### 77.2.1 简单的Hello World案例
+本案例演示最基本的Thymeleaf使用：创建一个SpringBoot应用，通过控制器返回数据，并在HTML模板中显示“Hello World”。以下是完整步骤和代码。
+
+**步骤1: 创建SpringBoot项目**
+- 使用Spring Initializr（https://start.spring.io/）生成项目，选择依赖：Spring Web、Thymeleaf。
+- 或手动创建Maven项目，添加以下依赖到`pom.xml`：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.7.0</version> <!-- 使用稳定版本 -->
+        <relativePath/>
+    </parent>
+    <groupId>com.example</groupId>
+    <artifactId>thymeleaf-demo</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>thymeleaf-demo</name>
+    <description>Demo project for Thymeleaf</description>
+    <properties>
+        <java.version>11</java.version>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+```
+
+**步骤2: 创建控制器（Controller）**
+在`src/main/java/com/example/demo/`目录下创建`HelloController.java`：
+
+```java
+package com.example.demo;
+
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.GetMapping;
+
+@Controller
+public class HelloController {
+
+    @GetMapping("/hello") // 处理GET请求，路径为/hello
+    public String hello(Model model) {
+        model.addAttribute("name", "World"); // 向模型添加属性"name"，值为"World"
+        return "hello"; // 返回模板名称"hello"，对应src/main/resources/templates/hello.html
+    }
+}
+```
+
+**步骤3: 创建Thymeleaf模板**
+在`src/main/resources/templates/`目录下创建`hello.html`：
+
+```html
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"> <!-- 引入Thymeleaf命名空间 -->
+<head>
+    <meta charset="UTF-8">
+    <title>Hello Thymeleaf</title>
+</head>
+<body>
+    <!-- 使用th:text表达式动态显示数据 -->
+    <h1 th:text="'Hello, ' + ${name} + '!'">Hello, User!</h1> 
+    <!-- 默认文本"Hello, User!"在浏览器中直接预览时显示，渲染后替换为动态数据 -->
+</body>
+</html>
+```
+
+**步骤4: 运行应用**
+- 主类自动生成于`src/main/java/com/example/demo/ThymeleafDemoApplication.java`：
+
+```java
+package com.example.demo;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class ThymeleafDemoApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(ThymeleafDemoApplication.class, args);
+    }
+}
+```
+
+- 运行主类，访问 http://localhost:8080/hello，页面将显示“Hello, World!”。
+
+**说明**：此案例展示了Thymeleaf的基本用法：控制器通过`Model`传递数据，模板使用`th:text`表达式渲染。Thymeleaf自动配置模板解析路径（默认为`classpath:/templates/`）。
+
+### 77.2.2 Thymeleaf各种语法案例
+本案例介绍Thymeleaf核心语法，包括变量、条件、循环等。扩展Hello World案例，添加更多功能。
+
+**步骤1: 更新控制器**
+修改`HelloController.java`，添加更多数据：
+
+```java
+package com.example.demo;
+
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.GetMapping;
+import java.util.Arrays;
+import java.util.List;
+
+@Controller
+public class HelloController {
+
+    @GetMapping("/hello")
+    public String hello(Model model) {
+        model.addAttribute("name", "World");
+        model.addAttribute("age", 25);
+        model.addAttribute("isAdmin", true);
+        List<String> hobbies = Arrays.asList("Reading", "Traveling", "Coding");
+        model.addAttribute("hobbies", hobbies);
+        return "hello";
+    }
+}
+```
+
+**步骤2: 更新模板**
+修改`hello.html`，演示多种语法：
+
+```html
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Thymeleaf语法案例</title>
+</head>
+<body>
+    <h1 th:text="'Hello, ' + ${name} + '!'">Hello, User!</h1>
+    
+    <!-- 条件判断：th:if -->
+    <p th:if="${age > 18}" th:text="'年龄：' + ${age} + '（成年人）'">年龄显示</p>
+    <p th:unless="${age > 18}" th:text="'年龄：' + ${age} + '（未成年人）'">年龄显示</p>
+    
+    <!-- 循环：th:each -->
+    <h3>兴趣爱好：</h3>
+    <ul>
+        <li th:each="hobby : ${hobbies}" th:text="${hobby}">兴趣项</li>
+    </ul>
+    
+    <!-- 链接表达式：@{...} 用于生成URL -->
+    <a th:href="@{/about}">关于我们</a>
+    
+    <!-- 消息表达式（国际化）：#{...}，需配置消息文件 -->
+    <p th:text="#{welcome.message}">欢迎消息</p>
+</body>
+</html>
+```
+
+**步骤3: 添加其他页面（可选）**
+创建`about.html`在`templates`目录：
+
+```html
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>关于页面</title>
+</head>
+<body>
+    <h1>关于Thymeleaf</h1>
+    <a th:href="@{/hello}">返回首页</a>
+</body>
+</html>
+```
+
+并添加控制器方法：
+
+```java
+@GetMapping("/about")
+public String about() {
+    return "about";
+}
+```
+
+运行应用，访问`/hello`查看语法效果。此案例覆盖了常用表达式，实际开发中可结合SpringBoot功能（如表单处理）扩展。
+
+### 77.2.3 Thymeleaf增删查改应用案例
+本案例模拟一个简单的用户管理CRUD（增删查改）应用，展示Thymeleaf在真实场景中的使用。由于代码较长，这里简化实现，重点展示Thymeleaf整合。
+
+**步骤1: 项目结构**
+- 实体类`User`、控制器`UserController`、模板文件（如`user-list.html`）。
+- 使用内存列表模拟数据存储。
+
+**步骤2: 代码示例**
+- 实体类`src/main/java/com/example/demo/User.java`：
+
+```java
+package com.example.demo;
+
+public class User {
+    private Long id;
+    private String name;
+    private String email;
+    
+    // 构造器、getter和setter
+    public User() {}
+    
+    public User(Long id, String name, String email) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+    }
+    
+    // 省略getter/setter，实际中需完整生成
+}
+```
+
+- 控制器`UserController.java`：
+
+```java
+package com.example.demo;
+
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
+
+@Controller
+@RequestMapping("/users")
+public class UserController {
+    private List<User> users = new ArrayList<>();
+    private AtomicLong counter = new AtomicLong(1); // ID生成器
+    
+    // 初始数据
+    public UserController() {
+        users.add(new User(counter.getAndIncrement(), "Alice", "alice@example.com"));
+        users.add(new User(counter.getAndIncrement(), "Bob", "bob@example.com"));
+    }
+    
+    // 列表页面
+    @GetMapping
+    public String listUsers(Model model) {
+        model.addAttribute("users", users);
+        return "user-list";
+    }
+    
+    // 添加用户表单
+    @GetMapping("/add")
+    public String addUserForm(Model model) {
+        model.addAttribute("user", new User());
+        return "user-form";
+    }
+    
+    // 处理添加请求
+    @PostMapping("/add")
+    public String addUser(@ModelAttribute User user) {
+        user.setId(counter.getAndIncrement());
+        users.add(user);
+        return "redirect:/users"; // 重定向到列表
+    }
+    
+    // 删除用户
+    @GetMapping("/delete/{id}")
+    public String deleteUser(@PathVariable Long id) {
+        users.removeIf(u -> u.getId().equals(id));
+        return "redirect:/users";
+    }
+}
+```
+
+- 列表模板`src/main/resources/templates/user-list.html`：
+
+```html
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>用户列表</title>
+</head>
+<body>
+    <h1>用户管理</h1>
+    <a th:href="@{/users/add}">添加用户</a>
+    <table border="1">
+        <tr>
+            <th>ID</th>
+            <th>姓名</th>
+            <th>邮箱</th>
+            <th>操作</th>
+        </tr>
+        <tr th:each="user : ${users}">
+            <td th:text="${user.id}">1</td>
+            <td th:text="${user.name}">Alice</td>
+            <td th:text="${user.email}">alice@example.com</td>
+            <td>
+                <a th:href="@{/users/delete/{id}(id=${user.id})}">删除</a>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+```
+
+- 表单模板`user-form.html`：
+
+```html
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>添加用户</title>
+</head>
+<body>
+    <h1>添加用户</h1>
+    <form th:action="@{/users/add}" th:object="${user}" method="post">
+        <label>姓名：</label>
+        <input type="text" th:field="*{name}" required/><br/>
+        <label>邮箱：</label>
+        <input type="email" th:field="*{email}" required/><br/>
+        <button type="submit">提交</button>
+    </form>
+    <a th:href="@{/users}">返回列表</a>
+</body>
+</html>
+```
+
+**步骤3: 运行应用**
+- 启动后访问 http://localhost:8080/users，可进行用户添加和删除操作。此案例展示了Thymeleaf与SpringBoot表单绑定、重定向等高级用法。
+
+## 77.3 进一步理解
+通过以下问题深入掌握Thymeleaf在SpringBoot中的最佳实践。
+
+### 77.3.1 为什么SpringBoot中默认的后端模板引擎会是Thymeleaf？
+SpringBoot选择Thymeleaf作为推荐模板引擎，主要基于以下原因：
+- **无侵入性设计**：Thymeleaf支持自然模板，HTML文件可直接在浏览器中预览，无需启动服务器，便于前端开发。
+- **与Spring生态深度集成**：自动配置简化了设置，支持Spring MVC、Spring Security等（如使用`sec:`标签进行权限控制）。
+- **性能与现代化**：Thymeleaf 3.0优化了缓存和解析速度，相比JSP避免了Servlet容器依赖，更轻量。
+- **语法友好**：表达式类似HTML属性，学习曲线平缓，社区活跃。相比之下，JSP已逐渐淘汰，Freemarker配置稍复杂。
+
+### 77.3.2 Thymeleaf的生态？
+Thymeleaf拥有成熟的生态系统：
+- **核心模块**：支持标准方言，可处理HTML、XML等。
+- **Spring集成**：官方提供`thymeleaf-spring`库，无缝整合Spring功能。
+- **扩展模块**：如`thymeleaf-extras-springsecurity`用于安全标签，`thymeleaf-extras-java8time`处理日期。
+- **工具支持**：IDE插件（如IntelliJ的Thymeleaf插件）、社区模板和文档。
+- **持续更新**：兼容最新Java版本，广泛应用于企业级项目，如电商平台和管理系统。
+
+### 77.3.3 Thymeleaf其它常见问题？
+常见问题及解决方案：
+- **性能问题**：Thymeleaf默认开启模板缓存，生产环境中可配置`spring.thymeleaf.cache=false`关闭缓存以方便调试，但上线后应启用缓存提升性能。
+- **与前端框架冲突**：如与Vue.js共用时，可通过`th:inline="javascript"`避免语法冲突，或使用自然模板分离动态部分。
+- **国际化支持**：通过`MessageSource`配置消息文件，模板中使用`#{key}`表达式实现多语言。
+- **错误调试**：开启调试模式（`spring.thymeleaf.mode=HTML`），查看模板解析日志。
+
+## 77.4 示例源码
+完整可运行的示例代码已集成在上述案例中。建议通过Spring Initializr创建项目，复制代码进行测试。如需更复杂示例，可参考：
+- Spring官方指南：https://spring.io/guides/gs/serving-web-content/
+- Thymeleaf官方示例库：https://github.com/thymeleaf/thymeleaf-examples
+实践时，注意依赖版本匹配，确保SpringBoot和Thymeleaf兼容。
+# 七十八、SpringBoot后端视图 - 基于Freemarker视图解析
+
+Freemarker是另一个广泛使用的Java模板引擎，尤其在传统企业级应用中常见。它与Thymeleaf类似，但语法和设计哲学有所不同。本部分将详细介绍Freemarker的基础知识、实现案例和深入理解，最后与Thymeleaf进行深度对比，并讨论当前流行趋势。所有案例基于SpringBoot 2.7+和Freemarker 2.3+，确保可运行。
+
+## 78.1 知识准备
+在使用Freemarker之前，需要理解其核心概念和与SpringBoot的集成方式。Freemarker通过模板文件（.ftl）和动态数据生成输出，适用于Web页面、邮件模板等场景。
+
+### 78.1.1 什么是模板引擎
+模板引擎是一种服务器端技术，用于将静态模板与动态数据结合，生成最终内容（如HTML、XML或文本）。它的核心目标是分离业务逻辑和展示逻辑，提高代码可维护性。模板引擎通常支持变量替换、条件判断、循环迭代等功能。在Java生态中，除了Thymeleaf，Freemarker也是一个轻量级且高性能的选择。与Thymeleaf的自然模板不同，Freemarker模板不能直接在浏览器中预览，需要服务器渲染，但其语法简洁，执行效率高。
+
+### 78.1.2 什么是Freemarker
+Freemarker是一个开源的Java模板引擎，由Apache软件基金会维护。它使用FTL（Freemarker Template Language）语法，专注于生成文本输出，如HTML、XML、代码文件等。主要特点包括：
+- **高性能**：编译后的模板缓存到内存，减少解析开销。
+- **逻辑强大**：支持复杂表达式、宏定义和自定义指令。
+- **与Spring无缝集成**：SpringBoot提供自动配置，只需添加依赖即可使用。
+- **轻量级**：无外部依赖，适用于嵌入式系统。
+官方文档：https://freemarker.apache.org/docs/。在SpringBoot中，通过`spring-boot-starter-freemarker`依赖自动配置模板解析路径（默认为`classpath:/templates/`）。
+
+## 78.2 实现案例
+本节通过三个案例介绍Freemarker的用法，从基础Hello World到完整CRUD应用。案例基于SpringBoot项目，代码完整可运行。建议使用IDE创建项目实践。
+
+### 78.2.1 简单的Hello World案例
+本案例演示Freemarker的基本使用：创建SpringBoot应用，通过控制器返回数据，并在FTL模板中显示“Hello World”。
+
+**步骤1: 创建SpringBoot项目**
+- 使用Spring Initializr（https://start.spring.io/）生成项目，选择依赖：Spring Web、Freemarker。
+- 或手动添加依赖到`pom.xml`：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.7.0</version>
+        <relativePath/>
+    </parent>
+    <groupId>com.example</groupId>
+    <artifactId>freemarker-demo</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>freemarker-demo</name>
+    <description>Demo project for Freemarker</description>
+    <properties>
+        <java.version>11</java.version>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-freemarker</artifactId>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+```
+
+**步骤2: 创建控制器（Controller）**
+在`src/main/java/com/example/demo/`目录下创建`HelloController.java`：
+
+```java
+package com.example.demo;
+
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.GetMapping;
+
+@Controller
+public class HelloController {
+
+    @GetMapping("/hello") // 处理GET请求，路径为/hello
+    public String hello(Model model) {
+        model.addAttribute("name", "World"); // 向模型添加属性"name"
+        return "hello"; // 返回模板名称"hello"，对应src/main/resources/templates/hello.ftl
+    }
+}
+```
+
+**步骤3: 创建Freemarker模板**
+在`src/main/resources/templates/`目录下创建`hello.ftl`（Freemarker模板文件扩展名为.ftl）：
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Hello Freemarker</title>
+</head>
+<body>
+    <!-- 使用${}表达式显示动态数据 -->
+    <h1>Hello, ${name}!</h1> 
+    <!-- Freemarker表达式直接嵌入HTML，渲染时替换 -->
+</body>
+</html>
+```
+
+**步骤4: 运行应用**
+- 主类`src/main/java/com/example/demo/FreemarkerDemoApplication.java`：
+
+```java
+package com.example.demo;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class FreemarkerDemoApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(FreemarkerDemoApplication.class, args);
+    }
+}
+```
+
+- 运行主类，访问 http://localhost:8080/hello，页面显示“Hello, World!”。
+
+**说明**：此案例展示了Freemarker的基本用法。控制器通过`Model`传递数据，模板使用`${}`表达式渲染。Freemarker自动配置模板路径，无需额外设置。
+
+### 78.2.2 Freemarker各种语法案例
+本案例介绍Freemarker核心语法，包括变量、条件、循环等。扩展Hello World案例，添加更多功能。
+
+**步骤1: 更新控制器**
+修改`HelloController.java`，添加更多数据：
+
+```java
+package com.example.demo;
+
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.GetMapping;
+import java.util.Arrays;
+import java.util.List;
+
+@Controller
+public class HelloController {
+
+    @GetMapping("/hello")
+    public String hello(Model model) {
+        model.addAttribute("name", "World");
+        model.addAttribute("age", 25);
+        model.addAttribute("isAdmin", true);
+        List<String> hobbies = Arrays.asList("Reading", "Traveling", "Coding");
+        model.addAttribute("hobbies", hobbies);
+        return "hello";
+    }
+}
+```
+
+**步骤2: 更新模板**
+修改`hello.ftl`，演示多种语法：
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Freemarker语法案例</title>
+</head>
+<body>
+    <h1>Hello, ${name}!</h1>
+    
+    <!-- 条件判断：<#if> -->
+    <#if age gt 18> <!-- gt表示大于 -->
+        <p>年龄：${age}（成年人）</p>
+    <#else>
+        <p>年龄：${age}（未成年人）</p>
+    </#if>
+    
+    <!-- 循环：<#list> -->
+    <h3>兴趣爱好：</h3>
+    <ul>
+        <#list hobbies as hobby>
+            <li>${hobby}</li>
+        </#list>
+    </ul>
+    
+    <!-- 使用内置函数：如?cap_first将首字母大写 -->
+    <p>欢迎用户：${name?cap_first}</p>
+    
+    <!-- 宏定义（类似函数）：定义简单宏 -->
+    <#macro greet person>
+        <p>Hello, ${person}!</p>
+    </#macro>
+    <@greet person="Freemarker"/> <!-- 调用宏 -->
+</body>
+</html>
+```
+
+**步骤3: 运行测试**
+启动应用，访问`/hello`查看效果。此案例覆盖了Freemarker常用语法，实际开发中可结合更多内置函数和指令。
+
+### 78.2.3 Freemarker增删查改应用案例
+本案例模拟用户管理CRUD应用，展示Freemarker在真实场景中的使用。使用内存列表存储数据。
+
+**步骤1: 项目结构**
+- 实体类`User`、控制器`UserController`、模板文件（如`user-list.ftl`）。
+
+**步骤2: 代码示例**
+- 实体类`src/main/java/com/example/demo/User.java`：
+
+```java
+package com.example.demo;
+
+public class User {
+    private Long id;
+    private String name;
+    private String email;
+    
+    // 构造器、getter和setter
+    public User() {}
+    
+    public User(Long id, String name, String email) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+    }
+    
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+}
+```
+
+- 控制器`UserController.java`：
+
+```java
+package com.example.demo;
+
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
+
+@Controller
+@RequestMapping("/users")
+public class UserController {
+    private List<User> users = new ArrayList<>();
+    private AtomicLong counter = new AtomicLong(1);
+    
+    public UserController() {
+        users.add(new User(counter.getAndIncrement(), "Alice", "alice@example.com"));
+        users.add(new User(counter.getAndIncrement(), "Bob", "bob@example.com"));
+    }
+    
+    @GetMapping
+    public String listUsers(Model model) {
+        model.addAttribute("users", users);
+        return "user-list";
+    }
+    
+    @GetMapping("/add")
+    public String addUserForm(Model model) {
+        model.addAttribute("user", new User());
+        return "user-form";
+    }
+    
+    @PostMapping("/add")
+    public String addUser(@ModelAttribute User user) {
+        user.setId(counter.getAndIncrement());
+        users.add(user);
+        return "redirect:/users";
+    }
+    
+    @GetMapping("/delete/{id}")
+    public String deleteUser(@PathVariable Long id) {
+        users.removeIf(u -> u.getId().equals(id));
+        return "redirect:/users";
+    }
+}
+```
+
+- 列表模板`src/main/resources/templates/user-list.ftl`：
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>用户列表</title>
+</head>
+<body>
+    <h1>用户管理</h1>
+    <a href="/users/add">添加用户</a> <!-- 硬编码URL，实际可用${springMacroRequestContext.getContextPath()}处理 -->
+    <table border="1">
+        <tr>
+            <th>ID</th>
+            <th>姓名</th>
+            <th>邮箱</th>
+            <th>操作</th>
+        </tr>
+        <#list users as user>
+            <tr>
+                <td>${user.id}</td>
+                <td>${user.name}</td>
+                <td>${user.email}</td>
+                <td>
+                    <a href="/users/delete/${user.id}">删除</a>
+                </td>
+            </tr>
+        </#list>
+    </table>
+</body>
+</html>
+```
+
+- 表单模板`user-form.ftl`：
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>添加用户</title>
+</head>
+<body>
+    <h1>添加用户</h1>
+    <form action="/users/add" method="post">
+        <label>姓名：</label>
+        <input type="text" name="name" required/><br/>
+        <label>邮箱：</label>
+        <input type="email" name="email" required/><br/>
+        <button type="submit">提交</button>
+    </form>
+    <a href="/users">返回列表</a>
+</body>
+</html>
+```
+
+**步骤3: 运行应用**
+- 启动后访问 http://localhost:8080/users，可进行用户管理操作。此案例展示了Freemarker与SpringBoot的表单处理和重定向。
+
+## 78.3 进一步理解
+通过以下问题深入掌握Freemarker。
+
+### 78.3.1 为什么SpringBoot中支持Freemarker？
+SpringBoot支持Freemarker作为模板引擎选项，主要因为：
+- **高性能和稳定性**：Freemarker编译模板缓存到内存，处理大量数据时效率高，适合高并发场景。
+- **灵活的逻辑控制**：FTL语法支持复杂逻辑（如宏、嵌套循环），适用于报表生成或代码生成工具。
+- **企业级应用传统**：许多遗留系统使用Freemarker，SpringBoot提供兼容支持。
+- **轻量集成**：自动配置简化，无需额外依赖。但与Thymeleaf相比，Freemarker缺乏自然模板特性。
+
+### 78.3.2 Freemarker的生态？
+Freemarker拥有成熟的生态系统：
+- **核心功能**：支持模板继承、宏库、国际化等。
+- **Spring整合**：通过`spring-context-support`集成，支持Spring标签。
+- **扩展工具**：如IDE插件（Eclipse、IntelliJ）、Maven插件用于模板预处理。
+- **社区支持**：Apache基金会维护，文档完善，但更新频率低于Thymeleaf。
+- **应用场景**：常用于电商平台、内容管理系统和批量数据处理。
+
+### 78.3.3 Freemarker其它常见问题？
+常见问题及解决方案：
+- **模板缓存问题**：生产环境默认开启缓存，调试时可通过`spring.freemarker.cache=false`禁用。
+- **语法错误调试**：Freemarker错误信息详细，可配置`spring.freemarker.settings.template_exception_handler=debug`输出堆栈。
+- **安全性**：避免用户输入直接插入模板，使用内置函数转义（如`${userInput?html}`）。
+- **与前端框架整合**：由于Freemarker在服务端渲染，与Vue.js等前端框架共用时需注意上下文隔离。
+
+## 78.4 示例源码
+完整代码已集成在上述案例中。可通过Spring Initializr创建项目测试。如需更多示例，参考：
+- Freemarker官方指南：https://freemarker.apache.org/docs/dgui_quickstart.html
+- SpringBoot文档：https://docs.spring.io/spring-boot/docs/current/reference/html/features.html#features.templating
+
+## 78.5 Freemarker与Thymeleaf深度对比及流行趋势
+本部分对Freemarker和Thymeleaf进行深度对比，并讨论当前流行方式，帮助您在实际项目中选择合适的模板引擎。
+
+### 78.5.1 深度对比
+从语法、性能、集成、学习曲线等维度对比：
+
+| 特性 | Freemarker | Thymeleaf |
+|------|------------|-----------|
+| **语法设计** | 基于FTL专有语法（如`<#if>`、`${}`），逻辑强大，但需学习新语言。 | 基于HTML属性（如`th:`前缀），自然模板可直接预览，更符合前端习惯。 |
+| **性能** | 通常更高，模板编译后缓存，适合高并发场景。Benchmark显示处理复杂逻辑时更快。 | Thymeleaf 3.0后性能提升，但仍稍慢于Freemarker，因需解析HTML结构。 |
+| **与SpringBoot集成** | 自动配置，支持Spring MVC，但缺乏Thymeleaf的深度整合（如Spring Security标签）。 | 无缝集成，支持Spring生态特性（如`sec:`标签），是SpringBoot默认推荐。 |
+| **学习曲线** | 语法相对复杂，尤其宏定义，但文档完善。 | 语法简单，前端开发者易上手，学习曲线平缓。 |
+| **模板可预览性** | 不支持自然模板，必须通过服务器渲染才能查看效果。 | 支持自然模板，HTML文件可直接在浏览器中预览，便于协作开发。 |
+| **适用场景** | 企业级应用、报表生成、代码生成、高性能需求系统。 | Web应用、快速原型开发、需要前后端分离过渡的项目。 |
+| **社区和更新** | Apache维护，稳定但更新较慢，适合传统项目。 | 社区活跃，持续更新，紧跟Spring生态。 |
+
+### 78.5.2 目前流行的方式
+当前，模板引擎的选择趋势如下：
+- **SpringBoot项目首选Thymeleaf**：由于其自然模板特性和与Spring生态的深度整合，Thymeleaf成为新项目的默认选择，尤其适合敏捷开发和团队协作。
+- **Freemarker在特定场景仍占优势**：对于性能要求极高的系统（如金融或大数据平台），或遗留系统升级，Freemarker因稳定性和速度更受青睐。
+- **前后端分离的兴起**：随着Vue.js、React等前端框架普及，许多项目转向前后端分离，后端仅提供API，模板引擎使用减少。但在服务端渲染（SSR）或简单管理后台中，模板引擎仍有价值。
+- **综合建议**：
+  - 如果项目强调开发效率和前端友好性，选择Thymeleaf。
+  - 如果追求极致性能或处理复杂逻辑，Freemarker更合适。
+  - 对于新项目，可优先评估Thymeleaf，因其是SpringBoot社区的主流推荐。
+
+通过以上对比，您可以根据项目需求灵活选择。在实践中，两者都能良好工作，关键在于团队熟悉度和具体场景。
+# 七十九、Spring Security中的CSRF Token处理：Freemarker与Thymeleaf对比
+
+在Freemarker/Thymeleaf模板中使用`${(_csrf.headerName)!}`和`${(_csrf.token)!}`来传递CSRF token的方式是Spring Security中的常见做法。
+
+## 79.1. Spring Security中CSRF Token的默认行为
+Spring Security默认启用CSRF（跨站请求伪造）保护。当使用模板引擎（如Freemarker或Thymeleaf）时，Spring Security会自动将CSRF token的相关信息添加到模型（Model）中，以便在模板中访问。关键点如下：
+- **默认启用**：Spring Security默认开启CSRF保护，无需额外配置。
+- **模型属性**：Spring Security会自动向模型添加一个名为`_csrf`的对象，该对象包含：
+  - `token`：CSRF token的值（字符串）。
+  - `headerName`：CSRF token在HTTP头中的字段名（默认为`X-CSRF-TOKEN`）。
+  - `parameterName`：CSRF token在表单参数中的字段名（默认为`_csrf`）。
+- **模板引擎集成**：这一行为是Spring Security与模板引擎集成的部分，无论使用Freemarker还是Thymeleaf，只要Spring Security在类路径中，`_csrf`对象就会被注入模型。
+
+因此，您在Freemarker中使用的语法`${(_csrf.headerName)!}`和`${(_csrf.token)!}`是Spring Security的默认支持方式。`!`是Freemarker的空值处理运算符，用于避免变量未定义时的错误。
+## 79.2. 在Freemarker中实现CSRF Token传递
+### 79.2.1 引入pom依赖
+```xml
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-freemarker</artifactId>
+    </dependency>
+```
+### 79.2.2 在模板中增加定义
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="_csrf_header" content="${(_csrf.headerName)!}">
+    <meta name="_csrf" content="${(_csrf.token)!}">
+</head>
+</html>
+```
+## 79.3. 在Thymeleaf中实现CSRF Token传递
+Thymeleaf同样支持CSRF token的集成，而且方式更为简洁。以下是具体实现方法：
+
+### 79.3.1 步骤1: 添加Thymeleaf Spring Security依赖
+在`pom.xml`中添加Thymeleaf的Spring Security扩展依赖（如果尚未添加）：
+```xml
+<dependency>
+    <groupId>org.thymeleaf.extras</groupId>
+    <artifactId>thymeleaf-extras-springsecurity5</artifactId> <!-- 适用于Spring Security 5.x -->
+    <version>3.0.4.RELEASE</version> <!-- 使用与SpringBoot兼容的版本 -->
+</dependency>
+```
+
+### 79.3.2 步骤2: 在Thymeleaf模板中访问CSRF Token
+Thymeleaf提供了多种方式处理CSRF token：
+- **方式1: 直接使用模型属性**（与Freemarker类似）：
+  ```html
+  <!DOCTYPE html>
+  <html xmlns:th="http://www.thymeleaf.org">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="_csrf_header" th:content="${_csrf.headerName}"/>
+      <meta name="_csrf" th:content="${_csrf.token}"/>
+  </head>
+  <body>
+      <!-- 其他内容 -->
+  </body>
+  </html>
+  ```
+  这里使用Thymeleaf的`th:content`属性直接输出`_csrf`对象的值。这种方式与Freemarker逻辑一致。
+
+- **方式2: 使用Thymeleaf的Spring Security标签**（推荐）：
+  Thymeleaf的Spring Security扩展提供了更简洁的语法。首先，在HTML中引入安全命名空间：
+  ```html
+  <!DOCTYPE html>
+  <html xmlns:th="http://www.thymeleaf.org"
+        xmlns:sec="http://www.thymeleaf.org/extras/spring-security"> <!-- 引入安全命名空间 -->
+  <head>
+      <meta charset="UTF-8">
+      <!-- 使用sec:csrfMetaTags自动生成CSRF meta标签 -->
+      <meta sec:csrfMetaTags />
+  </head>
+  <body>
+      <!-- 在表单中自动添加CSRF token -->
+      <form method="post" action="/submit">
+          <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}" />
+          <!-- 或使用更简洁的sec:csrfInput -->
+          <input type="hidden" sec:csrfInput />
+          <button type="submit">提交</button>
+      </form>
+  </body>
+  </html>
+  ```
+  - `sec:csrfMetaTags`：自动生成包含CSRF token和header名称的meta标签（等价于您提到的Freemarker方式）。
+  - `sec:csrfInput`：在表单中自动生成隐藏的CSRF token输入字段，无需手动编写。
+
+### 79.3.3 步骤3: 确保Spring Security配置正确
+CSRF token的自动注入依赖于Spring Security的默认配置。如果自定义了安全配置，需确保未禁用CSRF：
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http
+            .authorizeRequests()
+                .anyRequest().authenticated()
+                .and()
+            .formLogin()
+                .and()
+            .csrf(); // 默认启用CSRF，无需显式调用也可
+    }
+}
+```
+
+## 79.4. Freemarker与Thymeleaf的CSRF处理对比
+| 特性 | Freemarker | Thymeleaf |
+|------|------------|-----------|
+| **语法** | 使用Freemarker表达式：`${_csrf.token}`，需手动处理空值（如`!`）。 | 使用Thymeleaf属性：`th:content="${_csrf.token}"`或专用标签`sec:csrfMetaTags`。 |
+| **集成度** | 依赖Spring Security的自动模型注入，无额外标签支持。 | 通过`thymeleaf-extras-springsecurity`库提供高级标签（如`sec:csrfInput`），更简洁。 |
+| **默认行为** | 是Spring Security的默认支持方式，但需手动编写meta标签。 | 同样支持默认模型注入，但推荐使用扩展标签以提升可读性。 |
+| **错误处理** | 需使用`!`运算符避免空值异常。 | Thymeleaf自动处理表达式空值，更安全。 |
+
+## 79.5. 当前流行方式建议
+- **Thymeleaf是SpringBoot的首选**：由于与Spring生态深度集成，Thymeleaf的`sec:`标签更符合现代开发习惯，代码更简洁。
+- **Freemarker在遗留项目中常见**：如果您维护传统系统，Freemarker的方式仍然有效。
+- **最佳实践**：无论使用哪种模板引擎，都建议将CSRF token通过meta标签传递给前端JavaScript，以便在AJAX请求中添加CSRF头。例如：
+  ```javascript
+  var csrfToken = document.querySelector("meta[name='_csrf']").getAttribute("content");
+  var csrfHeader = document.querySelector("meta[name='_csrf_header']").getAttribute("content");
+  // 在AJAX请求头中添加
+  xhr.setRequestHeader(csrfHeader, csrfToken);
+  ```
+## 79.6 补充
+> 为什么我们在上面介绍的时候freemarker模板只是简单的引入`spring-boot-starter-freemarker`，但是thymeleaf却有一个单独配合springsecurity的依赖`thymeleaf-extras-springsecurity`?这触及到了Thymeleaf和Freemarker在Spring生态中设计哲学的一个核心区别。
+
+对于基础的CSRF token获取，Thymeleaf确实不需要额外依赖,引入`spring-boot-starter-thymeleaf`即可。但引入 `thymeleaf-extras-springsecurity` 依赖是为了获得**更强大、更便捷、更语义化**的集成功能。
+
+下面我为您详细解释这背后的原因和区别。
+
+### 79.6.1. 核心机制：Spring Security 提供数据，模板引擎负责显示
+
+首先，无论使用Freemarker还是Thymeleaf，**提供 `_csrf` 这个模型属性的是 Spring Security 本身，而不是模板引擎**。
+
+当Spring Security在类路径中时，它会自动将一个 `CsrfToken` 对象添加到每个请求的模型（Model）中，属性名默认为 `_csrf`。这意味着，任何模板引擎都可以通过访问模型数据来获取它。
+
+- **Freemarker方式**：`${_csrf.token}` 直接访问模型属性。
+- **Thymeleaf基础方式**：`th:content="${_csrf.token}"` 同样直接访问模型属性。
+
+**所以，只引入 `spring-boot-starter-thymeleaf`，您完全可以使用基础方式：**
+
+```html
+<meta name="_csrf_header" th:content="${_csrf.headerName}"/>
+<meta name="_csrf" th:content="${_csrf.token}"/>
+```
+
+### 79.6.2. 那么，为什么还需要额外的依赖？
+
+`thymeleaf-extras-springsecurity` 依赖的目的不是让您“能”获取CSRF token，而是让您“更好地”与Spring Security集成。它提供了一整套专用的方言（Dialect）和标签，主要优势如下：
+
+#### 优势一：极简的语法糖和自动化
+
+对于CSRF token，它提供了两个极其方便的标签：
+
+- **`<meta sec:csrfMetaTags />`**
+    这行代码会自动生成完整的两个meta标签，无需您手动写两个`<meta>`标签并分别指定 `headerName` 和 `token`。更简洁，更不易出错。
+
+- **`<input type="hidden" sec:csrfInput />`**
+    在表单中，您不需要再手动写一个隐藏域。这个标签会自动生成类似 `<input type="hidden" name="_csrf" value="..."/>` 的代码。这对于保护POST表单非常方便。
+
+#### 优势二：强大的安全表达式和条件渲染（这是最重要的原因）
+
+CSRF处理只是这个扩展库的“开胃菜”，其核心价值在于它允许您在模板中直接使用Spring Security的权限信息进行条件判断。
+
+**没有该依赖，您无法在Thymeleaf中做以下事情：**
+
+```html
+<!-- 根据用户权限决定是否显示某个元素 -->
+<div sec:authorize="isAuthenticated()">
+   <p>这段内容只有已登录用户能看到。</p>
+</div>
+
+<div sec:authorize="hasRole('ADMIN')">
+   <a href="/admin">管理员后台</a>
+</div>
+
+<!-- 显示当前登录用户的用户名 -->
+<p>用户名：<span sec:authentication="name"></span></p>
+
+<!-- 检查是否有某个权限 -->
+<div sec:authorize="hasAuthority('USER:DELETE')">
+   <button>删除用户</button>
+</div>
+```
+
+这些 `sec:authorize`、`sec:authentication` 等标签是 `thymeleaf-extras-springsecurity` 库定义的**专属方言**。没有这个依赖，Thymeleaf根本不认识 `sec:` 这个命名空间下的这些属性。
+
+### 79.6.3. 对比总结
+
+| 特性 | Freemarker | Thymeleaf (仅基础依赖) | Thymeleaf (引入安全扩展) |
+| :--- | :--- | :--- | :--- |
+| **获取CSRF Token** | ✅ 直接通过 `${_csrf}` | ✅ 直接通过 `th:content="${_csrf}"` | ✅ 直接通过 `th:content="${_csrf}"` |
+| **CSRF Meta Tags** | ❌ 需手动编写两个标签 | ❌ 需手动编写两个标签 | ✅ **极简**：`<meta sec:csrfMetaTags />` |
+| **CSRF 表单隐藏域** | ❌ 需手动编写 | ❌ 需手动编写 | ✅ **极简**：`<input sec:csrfInput />` |
+| **基于权限的条件渲染**| ❌ 很难实现，或需自定义 | ❌ 无法实现 | ✅ **强大支持**：`sec:authorize="hasRole('ADMIN')"` |
+| **获取认证信息** | ❌ 困难 | ❌ 无法实现 | ✅ **简单**：`sec:authentication="name"` |
+
+### 结论
+
+- **Freemarker**：设计上更“纯粹”，它是一个模板引擎，不直接与安全框架等耦合。它通过标准方式访问模型数据，功能强大但需要更多手动代码。Spring Boot没有为它提供官方的安全扩展。
+- **Thymeleaf**：设计上更注重与Spring生态的**深度集成**。其核心库 (`spring-boot-starter-thymeleaf`) 解决了模板解析的基本问题，而各种 `extras` 扩展库（如针对Spring Security、Java8 Time等）则提供了针对特定场景的、更高级的、语义化的标签，极大地提升了开发效率和代码可读性。
+
+因此，`thymeleaf-extras-springsecurity` 不是一个“必须”的依赖，而是一个“强烈推荐”的依赖。它代表了Thymeleaf在Spring生态中的优势：**通过声明式的方式，将后端安全逻辑优雅地集成到前端模板中**。如果您在项目中使用了Spring Security，引入这个依赖几乎是标准做法。
+# 八十、▶SpringBoot应用部署 - 打包成jar部署
+> 我们知道spring-boot-starter-web默认已经集成了web容器(tomcat)，在部署前只需要将项目打包成jar即可。那么怎么将springboot web项目打包成jar呢？本文主要介绍常见的几种方式。
+## 80.1 通过Maven打包成jar
+> 通过Maven打包成jar，最为常用，因为可以脚本化，这是所有自动化部署的前提。
+
+首先， 在pom中使用SpringBoot的build插件
+```xml
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-maven-plugin</artifactId>
+        </plugin>
+    </plugins>
+</build>
+```
+然后通过如下步骤进行build
+![281.springboot-x-jar-8.png](../../assets/images/04-主流框架/spring/281.springboot-x-jar-8.png)
+## 80.2 通过Idea打包成jar
+> 此外一些IDE工具也集成了打包的功能，我们看下如下通过idea打包成jar。
+1. File栏选择Project Structure
+![282.springboot-x-jar-1.png](../../assets/images/04-主流框架/spring/282.springboot-x-jar-1.png)
+2. 在Artifacts下添加jar
+![283.springboot-x-jar-2.png](../../assets/images/04-主流框架/spring/283.springboot-x-jar-2.png)
+3. 选择module，main class等
+![284.springboot-x-jar-3.png](../../assets/images/04-主流框架/spring/284.springboot-x-jar-3.png)
+4. 确认编译后的jar输出位置
+![285.springboot-x-jar-4.png](../../assets/images/04-主流框架/spring/285.springboot-x-jar-4.png)
+5. 进行build
+![286.springboot-x-jar-5.png](../../assets/images/04-主流框架/spring/286.springboot-x-jar-5.png)
+点击build/rebuild
+![287.springboot-x-jar-6.png](../../assets/images/04-主流框架/spring/287.springboot-x-jar-6.png)
+6. 编译后的jar
+![288.springboot-x-jar-7.png](../../assets/images/04-主流框架/spring/288.springboot-x-jar-7.png)
+# 八十一、SpringBoot应用部署 - 使用第三方JAR包
+> 在项目中我们经常需要使用第三方的Jar，比如某些SDK，这些SDK没有直接发布到公开的maven仓库中，这种情况下如何使用这些三方JAR呢？本文提供最常用的两种方式。
+## 81.1 方案一：安装到Maven仓库
+> 如果有项目的Maven仓库，则推荐按照到的Maven仓库（比如私服）中。（最好不是本地的Maven仓库，因为还有CI环境需要集成。）
+
+配置Maven私服, server & profile
+```xml
+<!-- server -->
+<server>
+    <id>nexus</id>
+    <username>pdai</username>
+    <password>passw0rd</password>
+</server>
+<!-- profile -->
+<profile>
+    <id>pdai-artifactory</id>
+    <repositories>
+        <repository>
+            <id>nexus</id>
+            <url>xxx.xxx.xxx.xxx</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+</profile>
+```
+```sh
+# -X：详细信息输出用于调试
+# -Dfile：本地jar路径
+# gav: group, artifactId, verson
+# -Durl：仓库地址
+# -DrepositoryId：settings文件中的ID
+mvn -X deploy:deploy-file -DgroupId=tech.pdai -DartifactId=test-xxx -Dversion=1.1.0 -Dpackaging=jar -Dfile=/xxxx/xxx.jar -Durl=http://nexus.pdai.tech/repository/releases/ -DrepositoryId=nexus
+```
+## 81.2 方案二：使用systemPath属性
+> 如果Jar无法放到maven仓库，即放在项目代码中，比如项目中libs文件夹中
+
+使用systemPath属性，`<scope>system</scope>`, 其它gav三元组是可以随意填写的。
+```xml
+<dependency>
+    <groupId>com.aliyun</groupId>
+    <artifactId>taobao-sdk-java</artifactId>
+    <version>1.0.0</version>
+    <scope>system</scope>
+    <systemPath>${project.basedir}/libs/taobao-sdk-java-auto_1479188381469-20180831.jar</systemPath>
+</dependency>
+```
+- SpringBoot JAR打包
+
+springboot在打包的时候，调用spring-boot-maven-plugin，执行repackage把tomcat和resource，lib等合成一个新的jar。想要将系统jar打进去，必须配置includeSystemScope。最终会将lib放入BOOT-INF\lib
+```xml
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-maven-plugin</artifactId>
+            <configuration>
+                <includeSystemScope>true</includeSystemScope>
+            </configuration>
+            <executions>
+                <execution>
+                    <goals>
+                        <goal>build-info</goal>
+                        <goal>repackage</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+</build>
+```
+- SpringBoot War打包
+
+使用mvn clean package命令打包时需要在pom文件加入以下webResources配置，并设置jar包在WEB-INF/lib目录下
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-war-plugin</artifactId>
+    <version>2.4</version>
+    <configuration>
+        <webResources>
+            <resource>
+                <directory>src/main/resources/libs/</directory>
+                <targetPath>WEB-INF/lib/</targetPath>
+                <includes>
+                    <include>**/*.jar</include>
+                </includes>
+            </resource>
+        </webResources>
+    </configuration>
+</plugin>
+```
+# 八十二、SpringBoot应用部署 - 打包成war部署
+## 82.1 概述
+> 前文我们知道SpringBoot web项目默认打包成jar部署是非常方便的，那什么样的场景下还会打包成war呢？
+
+这主要是由于在早期没有SpringBoot时，一些老的项目已经通过Tomcat独立部署war包，并构建了相应的部署体系和闭环。而且对于老的成熟的项目不期望在投入精力去升级和改造，只需要最小大家的保证运行稳定，为了投入和产出的平衡。
+
+在这种情况下，如果有一些必要性的更新（比如高危漏洞的修复），需要编译成war包。
+
+## 82.2 打包成war
+### 82.2.1 将pom中packaging设置为war类型
+默认是jar类型，需要添加或者改成war类型
+```xml
+<groupId>tech.pdai</groupId>
+<artifactId>103-springboot-demo-helloworld-build-war</artifactId>
+<packaging>war</packaging>
+<version>1.0-SNAPSHOT</version>
+```
+### 82.2.2 移除内嵌的Tomcat，并增加servlet-api的依赖包
+因为默认内嵌了tomcat，所以需要移除；并增加servlet-api相关的包。
+![289.springboot-x-war-1.png](../../assets/images/04-主流框架/spring/289.springboot-x-war-1.png)
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+    <exclusions>
+        <exclusion>
+            <artifactId>spring-boot-starter-tomcat</artifactId>
+            <groupId>org.springframework.boot</groupId>
+        </exclusion>
+    </exclusions>
+</dependency>
+<dependency>
+    <groupId>javax.servlet</groupId>
+    <artifactId>javax.servlet-api</artifactId>
+    <scope>provided</scope>
+</dependency>
+```
+### 82.2.3 启动类继承SpringBootServletInitialize
+修改项目默认启动方式，启动类继承SpringBootServletInitializer类并重写configure()方法
+![290.springboot-x-war-2.png](../../assets/images/04-主流框架/spring/290.springboot-x-war-2.png)
+
+完整代码如下
+```java
+/**
+ * @author pdai
+ */
+@SpringBootApplication
+@RestController
+public class SpringBootHelloWorldApplication extends SpringBootServletInitializer {
+
+    /**
+     * main interface.
+     *
+     * @param args args
+     */
+    public static void main(String[] args) {
+        SpringApplication.run(SpringBootHelloWorldApplication.class, args);
+    }
+
+    /**
+     * hello world.
+     *
+     * @return hello
+     */
+    @GetMapping("/hello")
+    public ResponseEntity<String> hello() {
+        return new ResponseEntity<>("hello world", HttpStatus.OK);
+    }
+
+    @Override
+    protected SpringApplicationBuilder configure(SpringApplicationBuilder builder) {
+        return builder.sources(SpringBootHelloWorldApplication.class);
+    }
+}
+```
+### 82.2.4 maven打包成war的插件
+- 推荐使用spring-boot-maven-plugin
+  -   **这是 Spring Boot 的“官方”插件**，专为 Spring Boot 项目设计。
+  -   在执行 `mvn package` 时，它会根据 `pom.xml` 中的 `<packaging>war</packaging>` 配置，自动识别并打包成 war 文件。
+  -   它**已经包含了 `maven-war-plugin` 的核心功能**，并且与 Spring Boot 的生命周期（如 `repackage`）完美集成。
+  -   你甚至不需要在 `pom.xml` 中显式声明它，因为 Spring Boot 的 starter parent 通常已经预配置了。
+```xml
+<!-- 通常由 spring-boot-starter-parent 提供，无需显式配置即可工作 -->
+<plugin>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-maven-plugin</artifactId>
+</plugin>
+```
+- 使用maven-war-plugin插件进行打包
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-war-plugin</artifactId>
+    <version>3.3.1</version>
+    <configuration>
+        <failOnMissingWebXml>false</failOnMissingWebXml>
+    </configuration>
+</plugin>
+```
+### 82.2.5 打包测试
+通过maven 进行打包测试
+![291.springboot-x-war-3.png](../../assets/images/04-主流框架/spring/291.springboot-x-war-3.png)
+# 八十三、SpringBoot应用部署 - 替换tomcat为Jetty容器
+> 前文我们知道spring-boot-starter-web默认集成tomcat servlet容器(被使用广泛)；而Jetty也是servlet容器，它具有易用性，轻量级，可拓展性等，有些场景（Jetty更满足公有云的分布式环境的需求，而Tomcat更符合企业级环境）下会使用jetty容器。本文主要介绍SpringBoot使用Jetty容器。
+## 83.1 概述
+### 83.1.1 什么是Jetty
+Jetty 是一个开源的servlet容器，它为基于Java的web容器，例如JSP和servlet提供运行环境。Jetty是使用Java语言编写的，它的API以一组JAR包的形式发布。开发人员可以将Jetty容器实例化成一个对象，可以迅速为一些独立运行(stand-alone)的Java应用提供网络和web连接。
+- 易用性
+
+易用性是 Jetty 设计的基本原则，易用性主要体现在以下几个方面：
+1. 通过 XML 或者 API 来对Jetty进行配置；
+2. 默认配置可以满足大部分的需求；
+3. 将 Jetty 嵌入到应用程序当中只需要非常少的代码；
+- 可扩展性
+
+在使用了 Ajax 的 Web 2.0 的应用程序中，每个连接需要保持更长的时间，这样线程和内存的消耗量会急剧的增加。这就使得我们担心整个程序会因为单个组件陷入瓶颈而影响整个程序的性能。但是有了 Jetty：
+1. 即使在有大量服务请求的情况下，系统的性能也能保持在一个可以接受的状态。
+2. 利用 Continuation 机制来处理大量的用户请求以及时间比较长的连接。
+3. 另外 Jetty 设计了非常良好的接口，因此在 Jetty 的某种实现无法满足用户的需要时，用户可以非常方便地对 Jetty 的某些实现进行修改，使得 Jetty 适用于特殊的应用程序的需求。
+- 易嵌入性
+
+Jetty 设计之初就是作为一个优秀的组件来设计的，这也就意味着 Jetty 可以非常容易的嵌入到应用程序当中而不需要程序为了使用 Jetty 做修改。从某种程度上，你也可以把 Jetty 理解为一个嵌入式的Web服务器。
+
+Jetty 可以作为嵌入式服务器使用，Jetty的运行速度较快，而且是轻量级的，可以在Java中可以从test case中控制其运行。从而可以使自动化测试不再依赖外部环境，顺利实现自动化测试。
+### 83.1.2 Jetty和Tomcat容器对比
+> Tomcat和Jetty都是一种Servlet引擎，他们都支持标准的servlet规范和JavaEE的规范。以下对比来源于百度百科：
+- Jetty更轻量级。这是相对Tomcat而言的。
+
+由于Tomcat除了遵循Java Servlet规范之外，自身还扩展了大量J2EE特性以满足企业级应用的需求，所以Tomcat是较重量级的，而且配置较Jetty亦复杂许多。但对于大量普通互联网应用而言，并不需要用到Tomcat其他高级特性，所以在这种情况下，使用Tomcat是很浪费资源的。这种劣势放在分布式环境下，更是明显。换成Jetty，对新的Servlet规范的支持较好，且每个应用服务器省下那几兆内存，对于大的分布式环境则是节省大量资源。而且，Jetty的轻量级也使其在处理高并发细粒度请求的场景下显得更快速高效。
+- Jetty更灵活
+
+体现在其可插拔性和可扩展性，更易于开发者对Jetty本身进行二次开发，定制一个适合自身需求的Web Server。 相比之下，重量级的Tomcat原本便支持过多特性，要对其瘦身的成本远大于丰富Jetty的成本。用自己的理解，即增肥容易减肥难。
+- 然而，当支持大规模企业级应用时
+
+Jetty也许便需要扩展，在这场景下Tomcat便是更优的。
+
+总结：Jetty更满足公有云的分布式环境的需求，而Tomcat更符合企业级环境。
+
+## 83.2 替换tomcat为jetty容器
+### 83.2.1 移除内嵌的Tomcat并使用jetty
+移除内嵌的Tomcat相关的依赖spring-boot-starter-tomcat，并增加jetty的依赖spring-boot-starter-jetty
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+    <exclusions>
+        <exclusion>
+            <artifactId>spring-boot-starter-tomcat</artifactId>
+            <groupId>org.springframework.boot</groupId>
+        </exclusion>
+    </exclusions>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-jetty</artifactId>
+</dependency>
+```
+### 83.2.2 配置jetty
+jetty相关的配置可以看：
+![292.springboot-x-jetty-1.png](../../assets/images/04-主流框架/spring/292.springboot-x-jetty-1.png)
+### 93.2.3 简单测试
+运行SpringBootApplication
+
+结果如下
+![293.springboot-x-jetty-2.png](../../assets/images/04-主流框架/spring/293.springboot-x-jetty-2.png)
+
+运行的日志如下
+```sh
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::                (v2.5.3)
+
+2022-04-18  21:09:21.749  INFO 54806 --- [           main] .p.s.h.j.SpringBootHelloWorldApplication : Starting SpringBootHelloWorldApplication using Java 1.8.0_181 on MacBook-Pro.local with PID 54806 (/Users/pdai/pdai/www/tech-pdai-spring-demos/104-springboot-demo-helloworld-jetty/target/classes started by pdai in /Users/pdai/pdai/www/tech-pdai-spring-demos)
+2022-04-18  21:09:21.752  INFO 54806 --- [           main] .p.s.h.j.SpringBootHelloWorldApplication : No active profile set, falling back to default profiles: default
+2022-04-18  21:09:22.484  INFO 54806 --- [           main] org.eclipse.jetty.util.log               : Logging initialized @1888ms to org.eclipse.jetty.util.log.Slf4jLog
+2022-04-18  21:09:22.556  INFO 54806 --- [           main] o.s.b.w.e.j.JettyServletWebServerFactory : Server initialized with port: 8080
+2022-04-18  21:09:22.558  INFO 54806 --- [           main] org.eclipse.jetty.server.Server          : jetty-9.4.43.v20210629; built: 2021-06-30T11:07:22.254Z; git: 526006ecfa3af7f1a27ef3a288e2bef7ea9dd7e8; jvm 1.8.0_181-b13
+2022-04-18  21:09:22.577  INFO 54806 --- [           main] o.e.j.s.h.ContextHandler.application     : Initializing Spring embedded WebApplicationContext
+2022-04-18  21:09:22.577  INFO 54806 --- [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 755 ms
+2022-04-18  21:09:22.632  INFO 54806 --- [           main] org.eclipse.jetty.server.session         : DefaultSessionIdManager workerName=node0
+2022-04-18  21:09:22.632  INFO 54806 --- [           main] org.eclipse.jetty.server.session         : No SessionScavenger set, using defaults
+2022-04-18  21:09:22.633  INFO 54806 --- [           main] org.eclipse.jetty.server.session         : node0 Scavenging every 660000ms
+2022-04-18  21:09:22.638  INFO 54806 --- [           main] o.e.jetty.server.handler.ContextHandler  : Started o.s.b.w.e.j.JettyEmbeddedWebAppContext@232024b9{application,/,[file:///private/var/folders/p9/9xtytd4j6lxc0ttbpjx63s2c0000gn/T/jetty-docbase.8080.6026164686377179293/],AVAILABLE}
+2022-04-18  21:09:22.638  INFO 54806 --- [           main] org.eclipse.jetty.server.Server          : Started @2043ms
+2022-04-18  21:09:22.887  INFO 54806 --- [           main] o.e.j.s.h.ContextHandler.application     : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2022-04-18  21:09:22.887  INFO 54806 --- [           main] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2022-04-18  21:09:22.888  INFO 54806 --- [           main] o.s.web.servlet.DispatcherServlet        : Completed initialization in 1 ms
+2022-04-18  21:09:22.905  INFO 54806 --- [           main] o.e.jetty.server.AbstractConnector       : Started ServerConnector@78461bc4{HTTP/1.1, (http/1.1)}{0.0.0.0:8080}
+2022-04-18  21:09:22.906  INFO 54806 --- [           main] o.s.b.web.embedded.jetty.JettyWebServer  : Jetty started on port(s) 8080 (http/1.1) with context path '/'
+2022-04-18  21:09:22.914  INFO 54806 --- [           main] .p.s.h.j.SpringBootHelloWorldApplication : Started SpringBootHelloWorldApplication in 1.648 seconds (JVM running for 2.32)
+```
+## 83.3 进一步理解
+### 83.3.1 Google将默认的应用引擎切换为Jetty?
+> Google 应用系统引擎最初是以 Apache Tomcat 作为其 webserver/servlet 容器的，但最终将切换到 Jetty 上。为什么要做这样的改变？
+
+**不是为了性能，而是轻量级！**
+
+Google选择Jetty的关键原因是它的体积和灵活性。在云计算里，体积的因素是很重要，如果你运行几万个Jetty的实例（Google就是这样干的），每个server省1兆，那就会省10几个G的内存（或能够给其他应用提供更多的内存）。
+
+Jetty 被设计成了可插拔和可扩展的特性，这样Google就可以高度的自定义它。他们在其中替换了他们自己的HTTP connector，Google认证，以及他们自己的session集群。也真是奇怪，这个特性对于云计算来说是非常出色的，但同时也让Jetty非常适合嵌入小的设备中，例如手机和机顶盒。
+
+# 八十四、SpringBoot应用部署 - 替换tomcat为Undertow容器
+> 前文我们了解到Jetty更满足公有云的分布式环境的需求，而Tomcat更符合企业级环境；那么从性能的角度来看，更为优秀的servlet容器是Undertow。本文将介绍Undertow，以及SpringBoot集成Undertow的示例。
+## 84.1 概述
+### 84.1.1 什么是Undertow?
+> 内容来源于<a href='https://undertow.io/'>Undertow官网</a>
+
+Undertow 是一个采用 Java 开发的灵活的高性能 Web 服务器，提供包括阻塞和基于 NIO 的非堵塞机制。Undertow 是RedHat公司的开源产品(原先是JBoss的产品，然后Redhat收购了JBoss)，是 Wildfly 默认的 Web 服务器。
+
+Undertow 提供一个基础的架构用来构建 Web 服务器，这是一个完全为嵌入式设计的项目，提供易用的构建器 API，完全兼容 Java EE Servlet 4 和低级非堵塞的处理器。
+
+Undertow设计为完全可嵌入的，并具有易于使用的流畅的Builder API。 Undertow的生命周期完全由嵌入应用程序控制。
+
+**Undertow的特性有哪些？**
+- HTTP/2 Support:Undertow 支持 HTTP/2 开箱即用，不需要重写引导类路径。
+- 支持 HTTP 升级:支持 HTTP 升级，允许多个协议通过 HTTP 端口上进行复用。
+- 支持 Web Socket:Undertow 提供对 Web 套接字的全面支持，包括对 JSR-356 的支持。
+- 支持 Servlet 4.0:Undertow 提供了对 Servlet 4.0 的支持，包括对嵌入式 Servlet 的支持，还可以混合部署 Servlet 和原生 Undertow 非阻塞处理程序。
+- 可嵌入式:Undertow 可以嵌入到应用程序中，也可以通过几行代码独立运行。
+- 高灵活性:一个 Undertow 服务器是通过链式处理器来配置的，可以根据需要添加功能，因此可以避免添加没有必要的功能。
+### 84.1.2 Undertow性能比jetty和tomcat强多少？
+> 关于Undertow的性能和jetty,tomcat对于，可以看如下两篇文章：
+1. <a href='https://examples.javacodegeeks.com/java-development/enterprise-java/spring/tomcat-vs-jetty-vs-undertow-comparison-of-spring-boot-embedded-servlet-containers/'>Tomcat vs. Jetty vs. Undertow: Comparison of Spring Boot Embedded Servlet Containers</a>
+2. <a href='https://cloud.tencent.com/developer/article/1699803'>Tomcat vs Jetty vs Undertow性能对比</a>
+## 84.2 替换tomcat为Undertow容器
+### 84.2.1 移除内嵌的Tomcat并使用Undertow
+移除内嵌的Tomcat相关的依赖spring-boot-starter-tomcat，并增加undertow的依赖spring-boot-starter-undertow
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+    <exclusions>
+        <exclusion>
+            <artifactId>spring-boot-starter-tomcat</artifactId>
+            <groupId>org.springframework.boot</groupId>
+        </exclusion>
+    </exclusions>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-undertow</artifactId>
+</dependency>
+```
+### 84.2.2 配置Undertow
+Undertow相关的配置可以看：
+![294.springboot-x-undertow-1.png](../../assets/images/04-主流框架/spring/294.springboot-x-undertow-1.png)
+
+### 84.2.3 简单测试
+运行SpringBootApplication
+
+结果如下
+![295.springboot-x-undertow-2.png](../../assets/images/04-主流框架/spring/295.springboot-x-undertow-2.png)
+
+运行的日志如下
+```sh
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::                (v2.5.3)
+
+2022-04-18  22:47:28.900  INFO 60368 --- [           main] .p.s.h.u.SpringBootHelloWorldApplication : Starting SpringBootHelloWorldApplication using Java 1.8.0_181 on MacBook-Pro.local with PID 60368 (/Users/pdai/pdai/www/tech-pdai-spring-demos/105-springboot-demo-helloworld-undertow/target/classes started by pdai in /Users/pdai/pdai/www/tech-pdai-spring-demos)
+2022-04-18  22:47:28.902  INFO 60368 --- [           main] .p.s.h.u.SpringBootHelloWorldApplication : No active profile set, falling back to default profiles: default
+2022-04-18  22:47:29.691  WARN 60368 --- [           main] io.undertow.websockets.jsr               : UT026010: Buffer pool was not set on WebSocketDeploymentInfo, the default pool will be used
+2022-04-18  22:47:29.710  INFO 60368 --- [           main] io.undertow.servlet                      : Initializing Spring embedded WebApplicationContext
+2022-04-18  22:47:29.710  INFO 60368 --- [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 769 ms
+2022-04-18  22:47:30.020  INFO 60368 --- [           main] io.undertow                              : starting server: Undertow - 2.2.9.Final
+2022-04-18  22:47:30.025  INFO 60368 --- [           main] org.xnio                                 : XNIO version 3.8.4.Final
+2022-04-18  22:47:30.029  INFO 60368 --- [           main] org.xnio.nio                             : XNIO NIO Implementation Version 3.8.4.Final
+2022-04-18  22:47:30.060  INFO 60368 --- [           main] org.jboss.threads                        : JBoss Threads version 3.1.0.Final
+2022-04-18  22:47:30.121  INFO 60368 --- [           main] o.s.b.w.e.undertow.UndertowWebServer     : Undertow started on port(s) 8080 (http)
+2022-04-18  22:47:30.132  INFO 60368 --- [           main] .p.s.h.u.SpringBootHelloWorldApplication : Started SpringBootHelloWorldApplication in 1.586 seconds (JVM running for 2.215)
+```
+## 84.3 进一步理解
+### 84.3.1 在异步NIO环境下的性能？
+> 结论来源于：https://blog.51cto.com/u_3664660/3212743
+
+HTTP异步的目的在帮助dispatcherservlet分担压力，提升吞吐量。但如果运行在NIO模式的服务容器上，就会产生负面影响，因为NIO本身就做了类似的事情，此时再加HTTP异步，则相当于又加了N多不必要的线程，导致性能主要消耗在线程的开销上，所以**建议使用tomcat作为内嵌容器并且没有开启tomcat的NIO模式时，可以配合HTTP异步来提升程序性能**。尤其是当业务繁重时，提升效果尤其明显。
+
+- 如何启动HTTP异步
+```java
+package com.shy.test4server;
+
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.context.request.async.WebAsyncTask;
+
+/**
+ * @ClassName: TestController
+ * @Description: TODO(这里用一句话描述这个类的作用)
+ * @author chengcai.shang@
+ * @date 2018年12月7日 上午9:36:25
+ * 
+ */
+@Controller
+@RequestMapping("/test")
+public class TestController {
+	/**
+	 * 未使用HTTP异步的接口
+	 * 
+	 * @Title: testCeilingNoAsync
+	 * @Description: TODO(这里用一句话描述这个方法的作用)
+	 * @date 2018年12月7日 上午9:40:57
+	 */
+	@GetMapping("/testCeilingNoAsync")
+	public String testCeilingNoAsync() {
+		return "";
+	}
+
+	/**
+	 * 使用HTTP异步的接口
+	 * 
+	 * @Title: testCeilingNoAsync
+	 * @Description: TODO(这里用一句话描述这个方法的作用)
+	 * @date 2018年12月7日 上午9:40:57
+	 */
+	@GetMapping("/testCeilingWithAsync")
+	public WebAsyncTask<String> testCeilingWithAsync() {
+		return new WebAsyncTask(() -> {
+			return "";
+		});
+	}
+}
+```
+### 84.3.2 什么是WebAsyncTask（异步HTTP的spring实现）
+`WebAsyncTask` 是 Spring MVC 中用于处理异步请求的一个实用类。让我为你详细介绍它的用法和特性：
+
+#### 84.3.2.1. 基本概念
+
+`WebAsyncTask` 允许你在 Spring MVC 控制器中执行异步操作，主要用于处理长时间运行的任务，避免阻塞请求线程。
+
+```java
+@RestController
+public class AsyncController {
+    
+    @GetMapping("/async-task")
+    public WebAsyncTask<String> handleAsyncRequest() {
+        return new WebAsyncTask<>(30000L, () -> {
+            // 模拟长时间运行的任务
+            Thread.sleep(2000);
+            return "异步任务完成 - " + Thread.currentThread().getName();
+        });
+    }
+}
+```
+
+#### 84.3.2.2. 核心特性
+
+##### 84.3.2.2.1 超时控制
+```java
+@GetMapping("/async-timeout")
+public WebAsyncTask<String> handleWithTimeout() {
+    // 设置5秒超时
+    WebAsyncTask<String> webAsyncTask = new WebAsyncTask<>(5000L, () -> {
+        Thread.sleep(10000); // 这个任务需要10秒，会超时
+        return "任务完成";
+    });
+    
+    webAsyncTask.onTimeout(() -> "请求超时，请稍后重试");
+    return webAsyncTask;
+}
+```
+
+##### 84.3.2.2.2 回调方法
+```java
+@GetMapping("/async-callbacks")
+public WebAsyncTask<String> handleWithCallbacks() {
+    Callable<String> callable = () -> {
+        // 业务逻辑
+        return "处理结果";
+    };
+    
+    WebAsyncTask<String> webAsyncTask = new WebAsyncTask<>(10000L, callable);
+    
+    // 完成回调
+    webAsyncTask.onCompletion(() -> 
+        System.out.println("异步任务完成")
+    );
+    
+    // 超时回调
+    webAsyncTask.onTimeout(() -> 
+        "自定义超时处理"
+    );
+    
+    // 错误回调
+    webAsyncTask.onError(() -> 
+        "发生错误时的处理"
+    );
+    
+    return webAsyncTask;
+}
+```
+
+#### 84.3.2.3. 完整示例
+
+```java
+@RestController
+@Slf4j
+public class AsyncTaskController {
+    
+    private final Executor asyncExecutor;
+    
+    public AsyncTaskController(@Qualifier("taskExecutor") Executor asyncExecutor) {
+        this.asyncExecutor = asyncExecutor;
+    }
+    
+    @GetMapping("/complex-async")
+    public WebAsyncTask<ResponseEntity<String>> complexAsyncTask(@RequestParam String data) {
+        log.info("接收请求，当前线程: {}", Thread.currentThread().getName());
+        
+        Callable<ResponseEntity<String>> callable = () -> {
+            log.info("异步处理开始，线程: {}", Thread.currentThread().getName());
+            
+            // 模拟业务处理
+            try {
+                // 数据库查询、外部API调用等耗时操作
+                String result = processBusinessLogic(data);
+                log.info("异步处理完成");
+                return ResponseEntity.ok(result);
+            } catch (Exception e) {
+                log.error("处理失败", e);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("处理失败: " + e.getMessage());
+            }
+        };
+        
+        // 创建WebAsyncTask，设置10秒超时
+        WebAsyncTask<ResponseEntity<String>> task = 
+            new WebAsyncTask<>(10000L, callable);
+        
+        // 设置自定义执行器
+        task.setExecutor(asyncExecutor);
+        
+        // 设置回调
+        task.onTimeout(() -> {
+            log.warn("请求超时");
+            return ResponseEntity.status(HttpStatus.REQUEST_TIMEOUT)
+                .body("请求超时");
+        });
+        
+        task.onCompletion(() -> 
+            log.info("异步任务完成回调")
+        );
+        
+        task.onError(() -> {
+            log.error("异步任务发生错误");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body("服务器内部错误");
+        });
+        
+        return task;
+    }
+    
+    private String processBusinessLogic(String data) throws InterruptedException {
+        // 模拟业务处理
+        Thread.sleep(3000);
+        return "处理结果: " + data + " - " + System.currentTimeMillis();
+    }
+}
+```
+
+#### 84.3.2.4. 配置支持
+
+需要在配置类中启用异步支持：
+
+```java
+@Configuration
+@EnableAsync
+public class AsyncConfig implements AsyncConfigurer {
+    
+    @Bean("taskExecutor")
+    public ThreadPoolTaskExecutor taskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(5);
+        executor.setMaxPoolSize(10);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("async-");
+        executor.initialize();
+        return executor;
+    }
+    
+    @Override
+    public Executor getAsyncExecutor() {
+        return taskExecutor();
+    }
+}
+```
+
+#### 84.3.2.5. 与 DeferredResult 的区别
+
+| 特性 | WebAsyncTask | DeferredResult |
+|------|-------------|----------------|
+| 返回值 | Callable<T> | 手动设置结果 |
+| 超时控制 | 内置支持 | 需要手动处理 |
+| 回调方法 | 丰富的回调 | 相对简单 |
+| 适用场景 | 有明确返回值的异步任务 | 需要外部事件触发的任务 |
+
+#### 84.3.2.6. 最佳实践
+
+1. **合理设置超时时间**：根据业务需求设置合适的超时时间
+2. **使用自定义线程池**：避免使用默认的简单线程池
+3. **异常处理**：确保所有异常都被适当处理
+4. **资源清理**：在回调中清理资源
+5. **监控日志**：添加适当的日志记录
+
+```java
+// 最佳实践示例
+@GetMapping("/best-practice")
+public WebAsyncTask<ApiResponse> bestPractice() {
+    long startTime = System.currentTimeMillis();
+    
+    WebAsyncTask<ApiResponse> task = new WebAsyncTask<>(15000L, () -> {
+        try {
+            ApiResponse result = someService.process();
+            log.info("处理成功，耗时: {}ms", System.currentTimeMillis() - startTime);
+            return result;
+        } catch (BusinessException e) {
+            log.warn("业务异常", e);
+            return ApiResponse.error(e.getMessage());
+        } catch (Exception e) {
+            log.error("系统异常", e);
+            return ApiResponse.error("系统繁忙");
+        }
+    });
+    
+    task.onTimeout(() -> {
+        log.warn("请求超时，耗时: {}ms", System.currentTimeMillis() - startTime);
+        return ApiResponse.error("请求超时");
+    });
+    
+    return task;
+}
+```
+
+`WebAsyncTask` 是处理异步请求的强大工具，特别适合需要精确控制超时和回调的场景。
+### 84.3.3 WebAsyncTask 和@Async注解的区别
+**WebAsyncTask 和 @Async 的底层原理完全不同**。让我详细解释它们的差异：
+
+#### 84.3.3.1. WebAsyncTask - HTTP 异步请求机制
+
+```java
+@RestController
+public class AsyncController {
+    
+    @GetMapping("/async")
+    public WebAsyncTask<String> handleAsync() {
+        return new WebAsyncTask<>(5000L, () -> {
+            // 这个 Callable 会在异步线程中执行
+            return "Result";
+        });
+    }
+}
+```
+
+**底层原理：**
+- **基于 Servlet 3.0+ 异步特性**
+- **不创建新线程**，而是利用容器的异步处理能力
+- **请求线程立即释放**，但 HTTP 连接保持打开
+- **使用配置的 TaskExecutor** 执行实际业务逻辑
+- **本质是异步非阻塞 I/O**
+
+**工作流程：**
+```
+HTTP请求 → Servlet容器 → 立即返回WebAsyncTask → 释放请求线程 → 
+→ 异步执行Callable → 完成后写回响应 → 关闭连接
+```
+
+#### 84.3.3.2. @Async - 方法级别的异步执行
+
+```java
+@Service
+public class UserService {
+    
+    @Async
+    public CompletableFuture<User> findUser(Long id) {
+        // 这个方法会在新线程中执行
+        return CompletableFuture.completedFuture(userRepository.findById(id));
+    }
+}
+```
+
+**底层原理：**
+- **基于 Spring AOP 代理**
+- **确实会创建新线程**（或使用线程池）
+- **与 HTTP 请求生命周期无关**
+- **纯粹的方法异步执行**
+
+**工作流程：**
+```
+方法调用 → Spring AOP拦截 → 提交到线程池 → 立即返回Future → 
+→ 新线程执行实际方法
+```
+
+#### 84.3.3.3. 核心区别对比
+
+| 方面 | WebAsyncTask | @Async |
+|------|-------------|--------|
+| **层级** | Web层（HTTP请求级别） | 任何层（方法级别） |
+| **线程模型** | 请求线程立即释放，业务在异步线程执行 | 调用线程立即返回，方法在新线程执行 |
+| **HTTP连接** | 保持连接直到异步完成 | 与HTTP无关 |
+| **适用场景** | 长时间HTTP请求处理 | 后台任务、并行处理 |
+| **依赖** | Servlet 3.0+ 容器支持 | Spring框架支持 |
+
+#### 84.3.3.4. 实际执行线程分析
+
+```java
+@RestController
+@Slf4j
+public class ThreadAnalysisController {
+    
+    @GetMapping("/thread-analysis")
+    public WebAsyncTask<String> threadAnalysis() {
+        log.info("1. Controller方法执行线程: {}", Thread.currentThread().getName());
+        
+        return new WebAsyncTask<>(10000L, () -> {
+            log.info("2. WebAsyncTask执行线程: {}", Thread.currentThread().getName());
+            return "完成";
+        });
+    }
+    
+    @Async
+    public CompletableFuture<String> asyncMethod() {
+        log.info("3. @Async方法执行线程: {}", Thread.currentThread().getName());
+        return CompletableFuture.completedFuture("完成");
+    }
+}
+```
+
+**输出结果可能是：**
+```
+1. Controller方法执行线程: http-nio-8080-exec-1
+2. WebAsyncTask执行线程: task-1
+3. @Async方法执行线程: task-2
+```
+
+#### 84.3.3.5. 底层技术栈
+
+##### 84.3.3.5.1 WebAsyncTask 技术栈：
+```
+Servlet 3.0 AsyncContext
+    ↓
+Spring MVC AsyncWebRequest
+    ↓
+WebAsyncManager
+    ↓
+WebAsyncTask/Callable
+    ↓
+TaskExecutor (线程池执行实际业务)
+```
+
+##### 84.3.3.5.2 @Async 技术栈：
+```
+Spring AOP Proxy
+    ↓
+AnnotationAsyncExecutionInterceptor
+    ↓
+TaskExecutor (线程池执行方法)
+    ↓
+返回 Future/CompletableFuture
+```
+
+#### 84.3.3.6. 关键理解点
+
+**你的理解完全正确：**
+- **@Async**：确实是"开个新线程"来执行方法
+- **WebAsyncTask**：实现的是HTTP异步请求，利用Servlet 3.0特性
+
+**更准确地说：**
+- WebAsyncTask 是为了 **不阻塞HTTP工作线程**
+- @Async 是为了 **方法的异步执行**（与HTTP无关）
+
+#### 84.3.3.7. 实际应用选择
+
+```java
+// 场景1：需要异步HTTP响应（使用WebAsyncTask）
+@GetMapping("/long-request")
+public WebAsyncTask<String> longRunningRequest() {
+    return new WebAsyncTask<>(30000L, () -> {
+        // 长时间处理，但不阻塞HTTP线程
+        return heavyService.process();
+    });
+}
+
+// 场景2：服务层异步方法（使用@Async）
+@Service
+public class NotificationService {
+    @Async
+    public void sendEmailAsync(String to, String content) {
+        // 发送邮件，与HTTP请求无关
+        emailSender.send(to, content);
+    }
+}
+```
+### 84.3.4 DeferredResult又是什么？
+`DeferredResult` 是 Spring MVC 中另一个重要的异步处理机制，它与 `WebAsyncTask` 类似但又有所不同。
+
+#### 84.3.4.1. 基本概念
+
+`DeferredResult` 允许你将 HTTP 请求的处理延迟到另一个线程中完成，**由你手动控制何时返回结果**。
+
+```java
+@RestController
+public class DeferredResultController {
+    
+    private final Map<Long, DeferredResult<String>> deferredResults = new ConcurrentHashMap<>();
+    
+    @GetMapping("/deferred/{id}")
+    public DeferredResult<String> handleDeferredRequest(@PathVariable Long id) {
+        DeferredResult<String> deferredResult = new DeferredResult<>(5000L, "Timeout Result");
+        
+        // 存储 deferredResult，等待外部事件触发
+        deferredResults.put(id, deferredResult);
+        
+        // 设置回调
+        deferredResult.onCompletion(() -> {
+            deferredResults.remove(id);
+            System.out.println("DeferredResult 完成");
+        });
+        
+        deferredResult.onTimeout(() -> {
+            deferredResults.remove(id);
+            System.out.println("DeferredResult 超时");
+        });
+        
+        return deferredResult;
+    }
+    
+    // 外部触发结果的方法
+    @PostMapping("/trigger/{id}")
+    public String triggerResult(@PathVariable Long id, @RequestParam String result) {
+        DeferredResult<String> deferredResult = deferredResults.get(id);
+        if (deferredResult != null) {
+            deferredResult.setResult("处理结果: " + result);
+            return "结果已设置";
+        }
+        return "未找到对应的 DeferredResult";
+    }
+}
+```
+
+#### 84.3.4.2. 三者对比：WebAsyncTask vs @Async vs DeferredResult
+
+| 特性 | **WebAsyncTask** | **@Async** | **DeferredResult** |
+|------|------------------|------------|-------------------|
+| **控制方式** | 自动执行 Callable | 自动执行方法 | **手动设置结果** |
+| **适用场景** | 有明确业务逻辑的异步任务 | 服务层后台任务 | **外部事件驱动的任务** |
+| **结果返回** | 由 Callable 返回 | 由方法返回 | 手动调用 setResult() |
+| **超时控制** | 内置 | 需要额外处理 | 内置 |
+| **线程模型** | 使用配置的线程池 | 使用配置的线程池 | 可由任意线程设置结果 |
+
+#### 84.3.4.3. DeferredResult 的核心特点
+
+##### 84.3.4.3.1 手动控制结果
+```java
+@RestController
+public class OrderController {
+    
+    private final Map<String, DeferredResult<Order>> orderResults = new ConcurrentHashMap<>();
+    
+    @GetMapping("/order/{orderId}")
+    public DeferredResult<Order> getOrderStatus(@PathVariable String orderId) {
+        DeferredResult<Order> deferredResult = new DeferredResult<>(30000L);
+        orderResults.put(orderId, deferredResult);
+        
+        // 立即返回，不阻塞请求线程
+        return deferredResult;
+    }
+    
+    // 订单处理完成后调用此方法
+    public void onOrderProcessed(String orderId, Order order) {
+        DeferredResult<Order> deferredResult = orderResults.get(orderId);
+        if (deferredResult != null) {
+            deferredResult.setResult(order); // 手动设置结果
+        }
+    }
+}
+```
+
+##### 84.3.4.3.2 支持外部事件触发
+```java
+@Component
+public class MessageListener {
+    
+    @Autowired
+    private OrderController orderController;
+    
+    @JmsListener(destination = "order.processed.queue")
+    public void handleOrderProcessed(OrderProcessedEvent event) {
+        // 当收到消息队列的消息时，触发 DeferredResult 完成
+        orderController.onOrderProcessed(event.getOrderId(), event.getOrder());
+    }
+}
+```
+
+#### 84.3.4.4. 实际应用场景
+
+##### 84.3.4.4.1 场景1：长轮询（Long Polling）
+```java
+@RestController
+public class LongPollingController {
+    
+    private final Map<String, DeferredResult<String>> pendingRequests = new ConcurrentHashMap<>();
+    
+    @GetMapping("/wait-for-update/{userId}")
+    public DeferredResult<String> waitForUpdate(@PathVariable String userId) {
+        DeferredResult<String> deferredResult = new DeferredResult<>(30000L, "No update");
+        
+        // 立即检查是否有更新
+        String update = checkForUpdate(userId);
+        if (update != null) {
+            deferredResult.setResult(update);
+        } else {
+            // 没有更新，加入等待队列
+            pendingRequests.put(userId, deferredResult);
+            
+            deferredResult.onCompletion(() -> 
+                pendingRequests.remove(userId)
+            );
+        }
+        
+        return deferredResult;
+    }
+    
+    // 当有更新时调用此方法
+    public void notifyUpdate(String userId, String update) {
+        DeferredResult<String> deferredResult = pendingRequests.remove(userId);
+        if (deferredResult != null) {
+            deferredResult.setResult(update);
+        }
+    }
+}
+```
+
+##### 84.3.4.4.2 场景2：订单状态查询
+```java
+@RestController
+public class PaymentController {
+    
+    private final Map<String, DeferredResult<PaymentResult>> paymentRequests = new ConcurrentHashMap<>();
+    
+    @GetMapping("/payment/status/{paymentId}")
+    public DeferredResult<PaymentResult> getPaymentStatus(@PathVariable String paymentId) {
+        DeferredResult<PaymentResult> deferredResult = new DeferredResult<>(60000L);
+        
+        // 立即检查支付状态
+        PaymentResult currentStatus = paymentService.getCurrentStatus(paymentId);
+        if (currentStatus.isFinal()) {
+            deferredResult.setResult(currentStatus);
+        } else {
+            paymentRequests.put(paymentId, deferredResult);
+            
+            deferredResult.onTimeout(() -> {
+                paymentRequests.remove(paymentId);
+                deferredResult.setResult(PaymentResult.timeout());
+            });
+        }
+        
+        return deferredResult;
+    }
+    
+    // 支付回调接口
+    @PostMapping("/payment/callback")
+    public String paymentCallback(@RequestBody PaymentCallback callback) {
+        DeferredResult<PaymentResult> deferredResult = paymentRequests.remove(callback.getPaymentId());
+        if (deferredResult != null) {
+            deferredResult.setResult(PaymentResult.success(callback));
+        }
+        return "OK";
+    }
+}
+```
+
+#### 84.3.4.5. 三者的选择指南
+
+##### 84.3.4.5.1 选择 **WebAsyncTask** 当：
+- 有明确的业务逻辑需要异步执行
+- 需要丰富的回调处理
+- 任务执行时间可预估
+
+##### 84.3.4.5.2 选择 **@Async** 当：
+- 在服务层执行与HTTP请求无关的异步任务
+- 需要并行处理多个独立操作
+- 执行邮件发送、文件处理等后台任务
+
+##### 84.3.4.5.3 选择 **DeferredResult** 当：
+- **结果由外部事件决定**（消息队列、WebSocket、定时任务等）
+- 需要实现长轮询
+- 任务完成时间不确定
+- 需要手动控制结果返回时机
+
+#### 84.3.4.6. 底层原理对比
+
+##### 84.3.4.6.1 WebAsyncTask：
+```java
+// 内部使用 Callable，自动执行
+WebAsyncTask<String> task = new WebAsyncTask<>(() -> {
+    return someService.process(); // 自动执行并返回结果
+});
+```
+
+##### 84.3.4.6.2 DeferredResult：
+```java
+// 需要手动设置结果
+DeferredResult<String> result = new DeferredResult<>();
+// ... 某个时间点手动调用
+result.setResult("manual result");
+```
+
+##### 84.3.4.6.3 @Async：
+```java
+// 方法自动异步执行
+@Async
+public CompletableFuture<String> asyncMethod() {
+    return CompletableFuture.completedFuture("result");
+}
+```
+
+#### 84.3.4.7. 总结
+
+**简单记忆：**
+- **WebAsyncTask**：有明确业务逻辑的HTTP异步请求
+- **@Async**：服务层的异步方法执行  
+- **DeferredResult**：外部事件驱动的异步HTTP响应
+
+**关键区别：**
+- `WebAsyncTask` 和 `DeferredResult` 都是处理 **HTTP请求级别** 的异步
+- `@Async` 是处理 **方法级别** 的异步
+- `DeferredResult` 的独特之处在于 **手动控制结果返回时机**
+### 84.3.5 springMVC提供了哪些HTTP异步机制
+WebAsyncTask、DeferredResult、Callable 都是 Spring MVC 提供的 HTTP 异步处理方式：
+```java
+@RestController
+public class AsyncController {
+    
+    // 1. Callable 方式
+    @GetMapping("/callable")
+    public Callable<String> callableExample() {
+        return () -> {
+            Thread.sleep(2000);
+            return "Callable Result";
+        };
+    }
+    
+    // 2. WebAsyncTask 方式  
+    @GetMapping("/webtask")
+    public WebAsyncTask<String> webAsyncTaskExample() {
+        return new WebAsyncTask<>(5000L, () -> {
+            Thread.sleep(2000);
+            return "WebAsyncTask Result";
+        });
+    }
+    
+    // 3. DeferredResult 方式
+    @GetMapping("/deferred")
+    public DeferredResult<String> deferredResultExample() {
+        DeferredResult<String> result = new DeferredResult<>(5000L);
+        
+        // 模拟异步处理
+        CompletableFuture.runAsync(() -> {
+            try {
+                Thread.sleep(2000);
+                result.setResult("DeferredResult Result");
+            } catch (InterruptedException e) {
+                result.setErrorResult(e);
+            }
+        });
+        
+        return result;
+    }
+}
+```
+#### 84.3.5.1 三者底层都是基于 Servlet 3.0 异步特性
+
+**共同的底层原理：**
+```
+HTTP请求 → Servlet容器 → Spring MVC异步处理 → 释放请求线程 → 
+→ 异步执行业务逻辑 → 完成后写回响应 → 关闭连接
+```
+
+三者的关系和区别
+
+#### 84.3.5.2 关系：
+- 都是 **HTTP 请求级别** 的异步处理
+- 都基于 **Servlet 3.0+ 异步支持**
+- 都用于 **释放 Servlet 容器线程**，避免阻塞
+
+#### 84.3.5.3 主要区别：
+| 特性 | **Callable** | **WebAsyncTask** | **DeferredResult** |
+|------|-------------|------------------|-------------------|
+| **控制方式** | 自动执行 | 自动执行，但可配置超时/回调 | **完全手动控制** |
+| **复杂度** | 最简单 | 中等 | 最灵活但也最复杂 |
+| **适用场景** | 简单异步任务 | 需要超时和回调的异步任务 | 外部事件驱动的任务 |
+
+#### 84.3.5.4. 实际选择建议
+
+- 使用 **Callable**：
+```java
+// 简单场景：只需要异步执行，不需要复杂控制
+@GetMapping("/simple")
+public Callable<String> simpleAsync() {
+    return () -> {
+        // 简单的异步处理
+        return service.process();
+    };
+}
+```
+
+- 使用 **WebAsyncTask**：
+```java
+// 中等复杂度：需要超时控制、回调处理
+@GetMapping("/with-timeout")
+public WebAsyncTask<String> withTimeout() {
+    return new WebAsyncTask<>(10000L, () -> {
+        return service.longRunningProcess();
+    });
+}
+```
+
+- 使用 **DeferredResult**：
+```java
+// 复杂场景：结果由外部事件决定
+@GetMapping("/event-driven")
+public DeferredResult<String> eventDriven() {
+    DeferredResult<String> result = new DeferredResult<>();
+    
+    // 注册到事件监听器
+    eventBus.register(result);
+    
+    return result;
+}
+```
+#### 84.3.5.5 为什么 Callable 也是 HTTP 异步？
+
+**Callable 本身确实只是 Java 的一个并发接口**，但在 Spring MVC 的上下文中，它被赋予了 HTTP 异步处理的能力。
+
+```java
+@GetMapping("/callable-example")
+public Callable<String> callableExample() {
+    // 这个 Callable 对象会被 Spring MVC 特殊处理
+    return new Callable<String>() {
+        @Override
+        public String call() throws Exception {
+            // 这里会在 Spring 管理的线程池中执行
+            Thread.sleep(3000);
+            return "异步处理结果";
+        }
+    };
+}
+```
+
+##### 84.3.5.5.1 Spring MVC 的处理流程：
+```
+1. HTTP请求到达 → Spring MVC 接收
+2. 方法返回 Callable 对象 → Spring 检测到这是异步处理
+3. 立即释放 Servlet 容器线程 → 该线程可以处理其他请求
+4. Spring 将 Callable 提交到任务线程池执行
+5. Callable 执行完成后，Spring 用另一个线程将结果写回响应
+```
+
+##### 84.3.5.5.2 这就是为什么 Callable 也是 HTTP 异步：
+- **不是**因为 Callable 本身是异步的（它只是个接口）
+- **而是**因为 Spring MVC 框架对 Callable 返回值做了特殊处理
+- Spring 自动帮你实现了"释放请求线程 + 后台执行 + 完成后响应"的完整异步流程
+
+#### 84.3.5.6. Callable 的多线程本质 vs HTTP 异步
+
+##### 84.3.5.6.1 Callable - 开启新线程的接口
+```java
+// 普通的 Java 多线程用法
+ExecutorService executor = Executors.newFixedThreadPool(5);
+Future<String> future = executor.submit(new Callable<String>() {
+    public String call() {
+        return "多线程结果";
+    }
+});
+```
+
+##### 84.3.5.6.2 但在 Spring MVC 中，Callable 被"升级"为 HTTP 异步机制：
+```java
+@RestController
+public class AsyncController {
+    
+    // 这个 Callable 不是简单的多线程，而是 HTTP 异步处理
+    @GetMapping("/async-callable")
+    public Callable<String> httpAsyncCallable() {
+        return () -> {
+            // Spring 自动管理线程池和响应返回
+            return businessService.heavyOperation();
+        };
+    }
+    
+    // 对比：普通的服务层异步（不是 HTTP 异步）
+    @Autowired
+    private BusinessService businessService;
+    
+    @GetMapping("/service-async")
+    public String serviceAsync() {
+        // 这只是方法级别的异步，HTTP 请求还是同步等待
+        businessService.asyncMethod(); // 使用 @Async
+        return "立即返回，但业务在后台执行";
+    }
+}
+```
+
+#### 84.3.5.7. 三种 HTTP 异步方式的对比
+
+| 机制 | 本质 | Spring 的处理方式 |
+|------|------|------------------|
+| **Callable** | Java 并发接口 | Spring 检测到返回值是 Callable，自动启用异步处理 |
+| **WebAsyncTask** | Spring 包装类 | 专门为 HTTP 异步设计的增强版 Callable |
+| **DeferredResult** | Spring 异步对象 | 手动控制结果返回的异步机制 |
+
+#### 84.3.5.8. 实际底层原理
+
+##### 84.3.5.8.1 Servlet 3.0 异步支持：
+```java
+// Spring 底层大致是这样处理 Callable 的：
+public void processCallable(Callable<?> callable, HttpServletRequest request, HttpServletResponse response) {
+    
+    // 1. 开启异步上下文
+    AsyncContext asyncContext = request.startAsync();
+    
+    // 2. 释放当前线程
+    // 原 Servlet 线程立即返回，可以处理其他请求
+    
+    // 3. 提交到线程池执行
+    taskExecutor.execute(() -> {
+        try {
+            Object result = callable.call();
+            
+            // 4. 完成后用另一个线程写回响应
+            asyncContext.getResponse().getWriter().write(result.toString());
+            
+        } catch (Exception e) {
+            // 错误处理
+        } finally {
+            // 5. 完成异步处理
+            asyncContext.complete();
+        }
+    });
+}
+```
+
+#### 84.3.5.9. 总结
+
+- **Callable**：最简单的 HTTP 异步
+- **WebAsyncTask**：功能更丰富的 HTTP 异步（超时、回调）
+- **DeferredResult**：最灵活的 HTTP 异步（手动控制结果）
+
+它们都是解决同一个核心问题：**避免长时间运行的 HTTP 请求阻塞 Servlet 容器线程**，提高服务器的并发处理能力。
+### 84.3.6 什么是 HTTP 异步？
+
+**HTTP 异步**指的是在 Web 服务器处理 HTTP 请求时的一种机制：**当请求需要执行耗时操作时，服务器不会阻塞等待，而是立即释放请求线程，让这个线程可以去处理其他请求，等耗时操作完成后，再用另一个线程将结果返回给客户端。**
+
+#### 84.3.6.1 关键特点：
+- **释放线程**：避免长时间占用 Servlet 容器线程（如 Tomcat 的工作线程）
+- **提高并发**：让有限的线程可以处理更多请求
+- **后台处理**：耗时操作在后台执行，不阻塞请求响应流程
+
+#### 84.3.6.2 传统同步 vs HTTP 异步：
+```java
+// ❌ 同步处理（阻塞线程）
+@GetMapping("/sync")
+public String syncMethod() {
+    // 这个线程被阻塞2秒，无法处理其他请求
+    Thread.sleep(2000); 
+    return "Result";
+}
+
+// ✅ 异步处理（释放线程）
+@GetMapping("/async")
+public Callable<String> asyncMethod() {
+    return () -> {
+        // 在另一个线程中执行，原线程立即释放
+        Thread.sleep(2000);
+        return "Result";
+    };
+}
+```
+#### 84.3.6.2 HTTP 异步效果体现
+
+1. **✅ 服务器端**：请求线程立即释放，提高并发能力
+2. **✅ 浏览器端**：仍然阻塞等待直到响应返回（10秒）
+3. **✅ 核心价值**：不是减少单个请求时间，而是提高服务器整体吞吐量
+
+**HTTP异步的本质是：**
+- **对用户**：请求响应时间不变（仍然要等待）
+- **对服务器**：可以用有限的线程处理更多并发请求
+- **适用场景**：高并发的耗时操作（文件处理、复杂计算、外部API调用）
+# 八十五、SpringBoot应用部署 - 在linux环境将jar制作成service
+> 前文我们将SpringBoot应用打包成jar，那么如何将jar封装成service呢？本文主要介绍将SpringBoot应用部署成linux的service。
+## 85.1 概述
+> 基本的java -jar运行方式，和这种运行方式的缺陷。
+### 85.1.1 Java -jar运行？
+Linux 运行jar包基本命令：
+```sh
+# 当前ssh窗口被锁定，可按CTRL + C打断程序运行，或直接关闭窗口，程序退出
+java -jar XXX.jar
+
+# &代表在后台运行。当前ssh窗口不被锁定，但是当窗口关闭时，程序中止运行。
+java -jar XXX.jar &
+```
+nohup命令， nohup 意思是不挂断运行命令,当账户退出或终端关闭时,程序仍然运行
+```sh
+# 当用 nohup 命令执行作业时，缺省情况下该作业的所有输出被重定向到nohup.out的文件中。
+nohup java -jar XXX.jar &  
+
+# 输出重定向到temp.txt文件
+nohup java -jar XXX.jar >temp.txt &  
+
+# 程序在后台运行，当ssh窗口关闭，程序正常运行，且不会输出文件
+nohup java -jar xx.jar >/dev/null 2>&1 & 
+```
+### 85.1.2 这种运行方式的缺陷
+1. 不优雅
+2. 无法向Linux服务一样简单易用，具备start,stop,restart等service操作方式。以及开机自启等。
+## 85.2 在Linux环境封装service
+> 假如我们编译出了一个tech_arch-0.0.1-RELEASE.jar，如何将它封装成service呢？
+### 85.2.1 文件准备
+```sh
+[root@docker opt]# tree -a
+.
+└── tech_doc
+    ├── bin
+    │   ├── logs
+    │   │   └── service.2018-10-31.log
+    │   └── tech_arch-0.0.1-RELEASE.jar
+    └── tech_doc
+```
+### 85.2.2 创建启动文件
+tech_doc
+```sh
+[root@docker opt]# cat tech_doc/tech_doc
+#!/bin/sh
+
+#------------------------------------------------
+# function: services start
+# author: pdai
+# home: /opt/tech_doc/bin
+# log: /var/log/tech_doc/process
+#------------------------------------------------
+
+HOME=/opt/tech_doc/bin
+LOGHOME=/var/log/tech_doc/process
+
+
+function serviceLoad()
+{
+  b=''
+  i=0
+  while [ $i -le  100 ]
+  do
+      printf "$1:[%-50s]%d%%\r" $b $i
+      sleep 0.3
+      i=`expr 2 + $i`
+      b=#$b
+  done
+  echo
+}
+
+function svcStart()
+{
+  echo "Starting $2 ..."
+  cd $1
+  PID=$(ps -ef | grep "$4" | grep -v grep | awk '{print $2}')
+  if [ -z "$PID" ]; then
+          nohup java -jar $3  > $5 2> $6 &
+    serviceLoad $SERVICE_NAME
+          echo "$2 started ..."
+  else
+          echo "$2 is already running ..."
+  fi
+}
+
+function svcStop()
+{
+  PID=$(ps -ef | grep "$1" | grep -v grep | awk '{print $2}')
+  if [ -z "$PID" ]; then
+          echo "$2 already stopped ..."
+  else
+    kill $PID
+        echo "$2 is stoping ..."
+  fi
+}
+
+function do_start()
+{
+  for FILE in `ls $HOME | grep jar`
+  do
+    FILE_NAME=$FILE
+    SERVICE_JAR_PACKAGE_PATH=$HOME/$FILE
+    SERVICE_NAME=${FILE_NAME%-[0-9]*}
+    SERVICE_LOG_PATH="$LOGHOME/$SERVICE_NAME.log"
+    SERVICE_ERR_LOG_PATH="$LOGHOME/$SERVICE_NAME.err"
+
+    svcStart $HOME $SERVICE_NAME $SERVICE_JAR_PACKAGE_PATH $FILE_NAME $SERVICE_LOG_PATH $SERVICE_ERR_LOG_PATH
+  done
+}
+
+function do_stop()
+{
+    for FILE in `ls $HOME | grep jar`
+  do
+    FILE_NAME=$FILE
+    SERVICE_NAME=${FILE_NAME%-[0-9]*}
+    SERVICE_PID_PATH="/tmp/$SERVICE_NAME.pid"
+
+    svcStop $FILE_NAME $SERVICE_NAME
+    sleep 1
+  done
+}
+
+function do_check()
+{
+    for FILE in `ls $HOME | grep jar`
+  do
+    FILE_NAME=$FILE
+    SERVICE_NAME=${FILE_NAME%-[0-9]*}
+    PID=$(ps -ef | grep $FILE_NAME | grep -v grep | awk '{print $2}')
+  if [ -z "$PID" ]; then
+          echo "$SERVICE_NAME $PID is not running ..."
+  else
+        echo "$SERVICE_NAME $PID is running ..."
+  fi
+
+    sleep 1
+  done
+}
+
+case "$1" in
+    start)
+
+        do_start
+        echo start successful
+
+    ;;
+    stop)
+
+        do_stop
+        echo stop successful
+
+    ;;
+    restart)
+
+        do_stop
+              sleep 2
+        do_start
+        echo restart successful
+
+    ;;
+    status)
+
+        do_check
+
+    ;;
+    *)
+    echo "Usage: {start|stop|restart|status}" >&2
+    exit 3
+    ;;
+esac
+exit 0
+```
+### 85.2.3 制作服务
+在init.d下创建服务
+```sh
+[root@docker init.d]# tree -a
+.
+├── functions
+├── netconsole
+├── network
+├── README
+└── tech-doc
+```
+tech-doc内容如下:
+```sh
+[root@docker opt]# cd /etc/init.d
+[root@docker init.d]# ls
+functions  netconsole  network  README  tech-doc
+[root@docker init.d]# tree -a
+.
+├── functions
+├── netconsole
+├── network
+├── README
+└── tech-doc
+
+0 directories, 5 files
+[root@docker init.d]# ^C
+[root@docker init.d]# cat tech-doc
+#!/bin/sh
+#
+# /etc/init.d/tech-doc
+# chkconfig: 2345 60 20
+# description: ms.
+# processname: tech-doc
+
+SCRIPT_HOME=/opt/tech_doc
+
+case $1 in
+    start)
+        sh $SCRIPT_HOME/tech_doc start
+    ;;
+    stop)
+        sh $SCRIPT_HOME/tech_doc stop
+    ;;
+    restart)
+        sh $SCRIPT_HOME/tech_doc stop
+        sh $SCRIPT_HOME/tech_doc start
+    ;;
+    status)
+        sh $SCRIPT_HOME/tech_doc status
+    ;;
+    *)
+    echo "Usage: {start|stop|restart|status}" >&2
+    exit 3
+    ;;
+esac
+exit 0
+```
+### 85.2.4 赋予权限
+```sh
+chmod 777 /etc/init.d/tech-doc
+```
+### 85.2.5 开机自启
+```sh
+chkconfig --list
+chkconfig tech-doc on
+```
+### 85.2.6 查看端口
+```sh
+netstat -nltp
+```
+### 85.2.7 查看防火墙
+```sh
+systemctl status firewalld
+```
+# 八十六、SpringBoot应用部署 - docker镜像打包,运行和管理
+> 随着软虚拟化docker的流行，基于docker的devops技术栈也开始流行。本文主要介绍通过docker-maven-plugin将springboot应用打包成docker镜像，通过Docker桌面化管理工具或者Idea Docker插件进行管理。
+## 86.1 通过docker-maven-plugin构建镜像
+> 这里使用的是最为常用的maven构建，由spofity开源，具体可以看<a href='https://github.com/spotify/dockerfile-maven'>Github - docker-maven-plugin</a>
+### 86.1.1 编写Dockerfile文件
+> 更多Dockerfile相关的，可以看Docker官网<a href='https://docs.docker.com/reference/dockerfile'>Dockerfile配置</a>
+
+在项目的根目录（与pom同一层级）创建Dockerfile文件
+```sh
+FROM openjdk:8-jre
+MAINTAINER pdai
+WORKDIR /
+ADD target/springboot-demo-helloworld.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar"]
+CMD ["app.jar"]
+```
+具体解释如下：
+- `FROM openjdk:8-jre`，基镜像一般采用openjdk
+- `MAINTAINER pdai`，创建镜像的作者，一般是作者邮件地址
+- `WORKDIR /`，WORKDIR指令设置Dockerfile中的任何RUN，CMD，ENTRPOINT，COPY和ADD指令的工作目录。
+- `ADD target/springboot-demo-helloworld.jar app.jar`，表示将jar包添加到镜像中，并重命名app.jar
+- `EXPOSE 8080`，表示暴露的端口是8080
+- `ENTRYPOINT ["java", "-jar"]`，表示启动时运行 java -jar
+- `CMD ["app.jar"]`，表示参数，这里是运行的具体的jar
+### 86.1.2 引入docker-maven-plugin
+为方便你学习，我这边给每行添加了具体的注释
+```xml
+<build>
+    <!-- 固定的jar的名字，这样Dockerfile可以固定写 -->
+    <finalName>springboot-demo-helloworld</finalName>
+    <!-- 构建的插件 -->
+    <plugins>
+        <!-- springboot构建jar -->
+        <plugin>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-maven-plugin</artifactId>
+        </plugin>
+        <!-- 构建docker镜像 -->
+        <plugin>
+            <groupId>com.spotify</groupId>
+            <artifactId>docker-maven-plugin</artifactId>
+            <version>1.2.2</version>
+            <executions>
+                <execution>
+                    <id>build-image</id>
+                    <phase>package</phase>
+                    <goals>
+                        <goal>build</goal>
+                    </goals>
+                </execution>
+            </executions>
+            <configuration>
+                <!-- image 的名字 -->
+                <imageName>${project.build.finalName}</imageName>
+                <!-- image 的tag, 可以是多个 -->
+                <imageTags>
+                    <imageTag>latest</imageTag>
+                    <imageTag>${project.version}</imageTag>
+                </imageTags>
+                <!-- Dockerfile所在的目录 -->
+                <dockerDirectory>${project.basedir}</dockerDirectory>
+                <!-- 复制jar到docker的位置 -->
+                <resources>
+                    <resource>
+                        <targetPath>/</targetPath>
+                        <!--jar 包所在的路径，对应target目录-->
+                        <directory>${project.build.directory}</directory>
+                        <!-- 包含的jar　-->
+                        <include>${project.build.finalName}.jar</include>
+                    </resource>
+                </resources>
+            </configuration>
+        </plugin>
+    </plugins>
+</build>
+```
+### 86.1.3 构建镜像测试
+执行mvn package
+![296.springboot-x-docker-11.png](../../assets/images/04-主流框架/spring/296.springboot-x-docker-11.png)
+
+编译docker image的日志
+```sh
+[INFO] Building image springboot-demo-helloworld
+Step 1/7 : FROM openjdk:8-jre
+
+ ---> c739d22edd6e
+Step 2/7 : MAINTAINER pdai
+
+ ---> Using cache
+ ---> 06c416bae082
+Step 3/7 : WORKDIR /
+
+ ---> Using cache
+ ---> b6daef7ab3f2
+Step 4/7 : ADD target/springboot-demo-helloworld.jar app.jar
+
+ ---> Using cache
+ ---> 22201ebd2a12
+Step 5/7 : EXPOSE 8080
+
+ ---> Using cache
+ ---> 42dd45bbeeb5
+Step 6/7 : ENTRYPOINT ["java", "-jar"]
+
+ ---> Using cache
+ ---> 9725c120cda8
+Step 7/7 : CMD ["app.jar"]
+
+ ---> Using cache
+ ---> d7f8c4745bf3
+ProgressMessage{id=null, status=null, stream=null, error=null, progress=null, progressDetail=null}
+Successfully built d7f8c4745bf3
+Successfully tagged springboot-demo-helloworld:latest
+[INFO] Built springboot-demo-helloworld
+[INFO] Tagging springboot-demo-helloworld with latest
+[INFO] Tagging springboot-demo-helloworld with 1.0-SNAPSHOT
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  17.264 s
+```
+## 86.2 通过Docker桌面化工具管理
+> 这里展示通过Docker 官方的管理工具管理，<a href='https://docs.docker.com/get-docker/'>官网地址</a>。
+
+编译完以后，默认会在本地docker中生成镜像
+![297.springboot-x-docker-2.png](../../assets/images/04-主流框架/spring/297.springboot-x-docker-2.png)
+
+点击Run
+![298.springboot-x-docker-3.png](../../assets/images/04-主流框架/spring/298.springboot-x-docker-3.png)
+
+Run后的实例
+![299.springboot-x-docker-4.png](../../assets/images/04-主流框架/spring/299.springboot-x-docker-4.png)
+
+实例的日志
+![300.springboot-x-docker-5.png](../../assets/images/04-主流框架/spring/300.springboot-x-docker-5.png)
+
+访问接口
+![301.springboot-x-docker-1.png](../../assets/images/04-主流框架/spring/301.springboot-x-docker-1.png)
+## 86.3 通过idea的docker插件进行管理
+> 除了docker自带的管理工具，还可以通过idea的docker插件进行管理。
+
+（新的版本自带docker插件，如果没有可以自行下载）
+
+配置Docker插件
+![301.springboot-x-docker-21.png](../../assets/images/04-主流框架/spring/301.springboot-x-docker-21.png)
+
+点击连接
+![303.springboot-x-docker-22.png](../../assets/images/04-主流框架/spring/303.springboot-x-docker-22.png)
+
+可以看到编译后的镜像
+![304.springboot-x-docker-23.png](../../assets/images/04-主流框架/spring/304.springboot-x-docker-23.png)
+
+右击，添加Container
+![305.springboot-x-docker-24.png](../../assets/images/04-主流框架/spring/305.springboot-x-docker-24.png)
+
+启动这个镜像的实例
+![306.springboot-x-docker-25.png](../../assets/images/04-主流框架/spring/306.springboot-x-docker-25.png)
+## 86.4 Maven实现自动化Docker镜像构建和发布
+### 86.4.1 方案一：使用docker-maven-plugin（推荐）
+
+```xml
+<build>
+    <finalName>${project.artifactId}</finalName>
+    <plugins>
+        <plugin>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-maven-plugin</artifactId>
+        </plugin>
+        
+        <!-- Docker构建插件 -->
+        <plugin>
+            <groupId>com.spotify</groupId>
+            <artifactId>docker-maven-plugin</artifactId>
+            <version>1.2.2</version>
+            <configuration>
+                <!-- 镜像名称（包含仓库地址） -->
+                <imageName>your-registry.com/${project.groupId}/${project.artifactId}</imageName>
+                <imageTags>
+                    <imageTag>latest</imageTag>
+                    <imageTag>${project.version}</imageTag>
+                    <imageTag>${project.version}-${maven.build.timestamp}</imageTag>
+                </imageTags>
+                <dockerDirectory>${project.basedir}</dockerDirectory>
+                <resources>
+                    <resource>
+                        <targetPath>/</targetPath>
+                        <directory>${project.build.directory}</directory>
+                        <include>${project.build.finalName}.jar</include>
+                    </resource>
+                </resources>
+                <!-- 推送到仓库的配置 -->
+                <serverId>docker-registry</serverId>
+                <registryUrl>https://your-registry.com</registryUrl>
+            </configuration>
+            <executions>
+                <execution>
+                    <id>build-image</id>
+                    <phase>package</phase>
+                    <goals>
+                        <goal>build</goal>
+                    </goals>
+                </execution>
+                <execution>
+                    <id>push-image</id>
+                    <phase>deploy</phase>
+                    <goals>
+                        <goal>push</goal>
+                    </goals>
+                    <configuration>
+                        <imageName>your-registry.com/${project.groupId}/${project.artifactId}</imageName>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+</build>
+```
+
+### 86.4.2 方案二：使用jib-maven-plugin（Google出品，更现代化）
+
+```xml
+<plugin>
+    <groupId>com.google.cloud.tools</groupId>
+    <artifactId>jib-maven-plugin</artifactId>
+    <version>3.3.1</version>
+    <configuration>
+        <from>
+            <image>openjdk:8-jre-alpine</image>
+        </from>
+        <to>
+            <image>your-registry.com/${project.groupId}/${project.artifactId}</image>
+            <tags>
+                <tag>latest</tag>
+                <tag>${project.version}</tag>
+            </tags>
+        </to>
+        <container>
+            <ports>
+                <port>8080</port>
+            </ports>
+            <jvmFlags>
+                <jvmFlag>-Djava.security.egd=file:/dev/./urandom</jvmFlag>
+                <jvmFlag>-Xms256m</jvmFlag>
+                <jvmFlag>-Xmx512m</jvmFlag>
+            </jvmFlags>
+        </container>
+    </configuration>
+    <executions>
+        <execution>
+            <phase>package</phase>
+            <goals>
+                <goal>build</goal>
+            </goals>
+        </execution>
+    </executions>
+</plugin>
+```
+
+### 86.4.3. 优化后的Dockerfile
+
+```dockerfile
+# 使用更小的基础镜像
+FROM openjdk:8-jre-alpine
+
+# 设置元数据
+LABEL maintainer="your-email@example.com"
+LABEL version="1.0"
+LABEL description="Spring Boot Application"
+
+# 创建非root用户运行（安全考虑）
+RUN addgroup -S spring && adduser -S spring -G spring
+USER spring
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制jar包（利用Docker缓存层）
+COPY target/*.jar app.jar
+
+# 暴露端口
+EXPOSE 8080
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/actuator/health || exit 1
+
+# 启动命令（使用exec形式）
+ENTRYPOINT ["java", "-jar", "/app.jar"]
+```
+
+### 86.4.4. 配置Docker仓库认证
+
+#### 86.4.4.1 在Maven的settings.xml中配置：
+```xml
+<servers>
+    <server>
+        <id>docker-registry</id>
+        <username>your-username</username>
+        <password>your-password</password>
+    </server>
+</servers>
+```
+
+#### 86.4.4.2 或者使用环境变量（更安全）：
+```bash
+export DOCKER_REGISTRY_USERNAME=your-username
+export DOCKER_REGISTRY_PASSWORD=your-password
+```
+
+### 86.4.5. 构建完成的Docker镜像是什么样的？
+
+构建完成后，你可以通过以下命令查看：
+
+```bash
+# 查看本地镜像
+docker images
+
+# 输出示例：
+REPOSITORY                                          TAG                 IMAGE ID       CREATED         SIZE
+your-registry.com/com.example/my-app               latest              abc123def456   2 minutes ago   120MB
+your-registry.com/com.example/my-app               1.0.0               abc123def456   2 minutes ago   120MB
+```
+
+**镜像结构：**
+- **基础层**：openjdk:8-jre-alpine (~80MB)
+- **应用层**：你的Spring Boot应用jar包和配置
+- **总大小**：通常在100-200MB之间
+
+### 86.4.6. 发布到镜像仓库
+
+#### 推送到Docker Hub：
+```bash
+# 登录Docker Hub
+docker login
+
+# 推送镜像
+docker push your-username/my-app:latest
+```
+
+#### 推送到私有仓库：
+```bash
+# 登录私有仓库
+docker login your-registry.com
+
+# 推送镜像
+docker push your-registry.com/com.example/my-app:latest
+```
+
+#### 使用Maven自动推送：
+```bash
+# 构建并推送
+mvn clean package docker:build docker:push
+
+# 或者使用jib（自动推送）
+mvn compile jib:build
+```
+
+### 86.4.7. 完整的CI/CD流水线示例
+
+#### 86.4.7.1 一键构建和部署脚本
+```bash
+#!/bin/bash
+# deploy.sh
+
+set -e
+
+# 1. 构建应用和Docker镜像
+echo "构建应用..."
+mvn clean package
+
+# 2. 登录Docker仓库
+echo "登录Docker仓库..."
+docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+
+# 3. 推送镜像
+echo "推送镜像..."
+docker push your-registry.com/com.example/my-app:latest
+
+# 4. 在服务器上部署（通过SSH）
+echo "部署到服务器..."
+ssh user@server << EOF
+    docker pull your-registry.com/com.example/my-app:latest
+    docker stop my-app || true
+    docker rm my-app || true
+    docker run -d \
+        --name my-app \
+        -p 8080:8080 \
+        -e SPRING_PROFILES_ACTIVE=prod \
+        your-registry.com/com.example/my-app:latest
+EOF
+
+echo "部署完成！"
+```
+
+#### 86.4.7.2 使用Docker Compose管理
+```yaml
+# docker-compose.yml
+version: '3.8'
+services:
+  my-app:
+    image: your-registry.com/com.example/my-app:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+```
+
+### 86.4.8. 实际工作流程
+
+#### 开发流程：
+```mermaid
+graph LR
+    A[代码变更] --> B[Git提交]
+    B --> C[CI/CD流水线触发]
+    C --> D[Maven构建]
+    D --> E[Docker镜像打包]
+    E --> F[推送到镜像仓库]
+    F --> G[自动部署到服务器]
+    G --> H[服务重启]
+```
+
+#### 具体操作命令：
+```bash
+# 开发完成后，一键部署
+git add .
+git commit -m "功能更新"
+git push origin main
+
+# CI/CD自动执行以下流程：
+# 1. 运行测试
+# 2. 构建Docker镜像
+# 3. 推送到仓库
+# 4. 部署到服务器
+```
+
+### 86.4.9. 优势总结
+
+**相比传统方式：**
+- ✅ **自动化**：代码提交后自动构建部署
+- ✅ **环境一致**：开发、测试、生产环境完全一致
+- ✅ **快速回滚**：只需切换镜像标签
+- ✅ **版本管理**：每个版本都有对应的镜像
+- ✅ **依赖管理**：所有依赖都打包在镜像中
+
+**具体收益：**
+- 不再需要手动上传jar包
+- 部署时间从分钟级降到秒级
+- 支持蓝绿部署、金丝雀发布等高级部署策略
+- 更好的可观测性和健康检查
+
+## 86.5. 实际案例：GitHub Actions自动化
+
+```yaml
+# .github/workflows/deploy.yml
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set up JDK 8
+      uses: actions/setup-java@v2
+      with:
+        java-version: '8'
+        distribution: 'adopt'
+    
+    - name: Build with Maven
+      run: mvn clean package -DskipTests
+      
+    - name: Build Docker image
+      run: |
+        docker build -t your-registry.com/com.example/my-app:latest .
+        
+    - name: Push Docker image
+      run: |
+        echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+        docker push your-registry.com/com.example/my-app:latest
+        
+    - name: Deploy to server
+      run: |
+        ssh user@server 'docker-compose pull && docker-compose up -d'
+```
+
+这样配置后，你只需要`git push`，剩下的所有流程都会自动完成！🎉
+## 86.6 参考文章
+1. https://blog.csdn.net/fly_duck/article/details/124709727
+2. https://blog.csdn.net/weixin_33825683/article/details/92407322
+
+# 八十七、SpringBoot应用部署 - 使用Docker Compose对容器编排管理
+> 如果docker容器是相互依赖的（比如SpringBoot容器依赖另外一个MySQL的数据库容器），那就需要对容器进行编排。本文主要介绍基于Docker Compose的简单容器化编排SpringBoot应用。
+## 87.1 Docker Compose编排管理
+### 87.1.1 DockerCompose编排
+- 整体的文件结构
+
+PS: 注意红色的字
+![307.springboot-x-docker-27.png](../../assets/images/04-主流框架/spring/307.springboot-x-docker-27.png)
+- Docker Compose 配置文件
+
+PS：参数可以设置成环境变量注入进来
+```yml
+version: "3.1"
+
+services:
+  db-mysql:
+    image: mysql:8.0.28
+    container_name: mysql8
+    restart: always
+    privileged: true
+    volumes:
+      # files
+      - /usr/local/docker/mysql/files/:/var/lib/mysql-files/
+#      # conf
+#      - /usr/local/docker/mysql/conf/:/etc/mysql/conf.d/
+#      # data
+#      - /usr/local/docker/mysql/data/:/var/lib/mysql/
+#      # log
+#      - /usr/local/docker/mysql/logs/:/var/log/
+      # init db by order
+      - ./db/:/docker-entrypoint-initdb.d/
+    environment:
+      TZ : Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: bfXa4Pt2lUUScy8jakXf
+      MYSQL_DATABASE: test_db
+      MYSQL_USER: pdai
+      MYSQL_PASSWORD: sdqiireasgadklkklk
+    ports:
+      - 13306:3306
+    command:
+      --authentication_policy=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+      --explicit_defaults_for_timestamp=true
+      --lower_case_table_names=1
+    networks:
+      - internal
+  service-app:
+    image: springboot-demo-mysql8-jpa
+    container_name: springboot-demo-mysql8-jpa
+    environment:
+      # profile
+#      SPRING_PROFILES_ACTIVE: prod
+      # or
+      SPRING_DATASOURCE_URL: jdbc:mysql://db-mysql:3306/test_db?useSSL=false&autoReconnect=true&characterEncoding=utf8
+      SPRING_DATASOURCE_USERNAME: pdai
+      SPRING_DATASOURCE_PASSWORD: sdqiireasgadklkklk
+    depends_on:
+      - db-mysql
+    ports:
+      - 18080:8080
+    networks:
+      - internal
+
+networks:
+  internal:
+    name: internal
+```
+- SQL
+
+PS: 如果需要有time_zone字段，请参考<a href='https://github.com/docker-library/mysql/issues/229'>Github</a>
+```sql
+use test_db;
+
+--
+-- Table structure for table `tb_role`
+--
+
+DROP TABLE IF EXISTS `tb_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_role` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) NOT NULL,
+  `role_key` varchar(255) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_role`
+--
+
+LOCK TABLES `tb_role` WRITE;
+/*!40000 ALTER TABLE `tb_role` DISABLE KEYS */;
+INSERT INTO `tb_role` VALUES (1,'admin','admin','admin','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_role` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user`
+--
+
+DROP TABLE IF EXISTS `tb_user`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_user` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_name` varchar(45) NOT NULL,
+  `password` varchar(45) NOT NULL,
+  `email` varchar(45) DEFAULT NULL,
+  `phone_number` int(11) DEFAULT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user`
+--
+
+LOCK TABLES `tb_user` WRITE;
+/*!40000 ALTER TABLE `tb_user` DISABLE KEYS */;
+INSERT INTO `tb_user` VALUES (1,'pdai','dfasdf','suzhou.daipeng@gmail.com',1212121213,'afsdfsaf','2021-09-08 17:09:15','2021-09-08 17:09:15');
+/*!40000 ALTER TABLE `tb_user` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `tb_user_role`
+--
+
+DROP TABLE IF EXISTS `tb_user_role`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `tb_user_role` (
+  `user_id` int(11) NOT NULL,
+  `role_id` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `tb_user_role`
+--
+
+LOCK TABLES `tb_user_role` WRITE;
+/*!40000 ALTER TABLE `tb_user_role` DISABLE KEYS */;
+INSERT INTO `tb_user_role` VALUES (1,1);
+/*!40000 ALTER TABLE `tb_user_role` ENABLE KEYS */;
+UNLOCK TABLES;
+```
+## 87.2 测试和校验
+通过docker-compose up启动，启动后的日志如下：
+```sh
+pdai@MacBook-Pro resources % docker-compose up                                                  
+Starting mysql8 ... done
+Starting springboot-demo-mysql8-jpa ... done
+Attaching to mysql8, springboot-demo-mysql8-jpa
+mysql8         | 2022-04-20 11:25:49+08:00 [Note] [Entrypoint]: Entrypoint script for MySQL Server 8.0.28-1debian10 started.
+mysql8         | 2022-04-20 11:25:49+08:00 [Note] [Entrypoint]: Switching to dedicated user 'mysql'
+mysql8         | 2022-04-20 11:25:49+08:00 [Note] [Entrypoint]: Entrypoint script for MySQL Server 8.0.28-1debian10 started.
+mysql8         | 2022-04-20T03:25:49.555053Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld (mysqld 8.0.28) starting as process 1
+mysql8         | 2022-04-20T03:25:49.563364Z 1 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+mysql8         | 2022-04-20T03:25:49.832470Z 1 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+mysql8         | 2022-04-20T03:25:49.935130Z 0 [System] [MY-010229] [Server] Starting XA crash recovery...
+mysql8         | 2022-04-20T03:25:49.943755Z 0 [System] [MY-010232] [Server] XA crash recovery finished.
+mysql8         | 2022-04-20T03:25:50.011665Z 0 [Warning] [MY-010068] [Server] CA certificate ca.pem is self signed.
+mysql8         | 2022-04-20T03:25:50.011719Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.
+mysql8         | 2022-04-20T03:25:50.013067Z 0 [Warning] [MY-011810] [Server] Insecure configuration for --pid-file: Location '/var/run/mysqld' in the path is accessible to all OS users. Consider choosing a different directory.
+mysql8         | 2022-04-20T03:25:50.028686Z 0 [System] [MY-011323] [Server] X Plugin ready for connections. Bind-address: '::' port: 33060, socket: /var/run/mysqld/mysqlx.sock
+mysql8         | 2022-04-20T03:25:50.028772Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections. Version: '8.0.28'  socket: '/var/run/mysqld/mysqld.sock'  port: 3306  MySQL Community Server - GPL.
+springboot-demo-mysql8-jpa | 
+springboot-demo-mysql8-jpa |   .   ____          _            __ _ _
+springboot-demo-mysql8-jpa |  /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+springboot-demo-mysql8-jpa | ( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+springboot-demo-mysql8-jpa |  \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+springboot-demo-mysql8-jpa |   '  |____| .__|_| |_|_| |_\__, | / / / /
+springboot-demo-mysql8-jpa |  =========|_|==============|___/=/_/_/_/
+springboot-demo-mysql8-jpa |  :: Spring Boot ::                (v2.5.3)
+springboot-demo-mysql8-jpa | 
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:50.475  INFO 1 --- [           main] t.p.s.mysql8.jpa.dockercompose.App       : Starting App v1.0-SNAPSHOT using Java 1.8.0_322 on 468363ab8772 with PID 1 (/app.jar started by root in /)
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:50.477  INFO 1 --- [           main] t.p.s.mysql8.jpa.dockercompose.App       : The following profiles are active: prod
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:51.482  INFO 1 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:51.557  INFO 1 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 66 ms. Found 2 JPA repository interfaces.
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:52.135  INFO 1 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port(s): 8080 (http)
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:52.148  INFO 1 --- [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:52.148  INFO 1 --- [           main] org.apache.catalina.core.StandardEngine  : Starting Servlet engine: [Apache Tomcat/9.0.50]
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:52.203  INFO 1 --- [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:52.203  INFO 1 --- [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 1682 ms
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:52.353  INFO 1 --- [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:52.593  INFO 1 --- [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:52.638  INFO 1 --- [           main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:52.694  INFO 1 --- [           main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 5.4.32.Final
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:52.824  INFO 1 --- [           main] o.hibernate.annotations.common.Version   : HCANN000001: Hibernate Commons Annotations {5.1.2.Final}
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:52.941  INFO 1 --- [           main] org.hibernate.dialect.Dialect            : HHH000400: Using dialect: org.hibernate.dialect.MySQLDialect
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:53.541  INFO 1 --- [           main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000490: Using JtaPlatform implementation: [org.hibernate.engine.transaction.jta.platform.internal.NoJtaPlatform]
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:53.550  INFO 1 --- [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:54.665  INFO 1 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port(s): 8080 (http) with context path ''
+springboot-demo-mysql8-jpa | 2022-04-20 03:25:54.930  INFO 1 --- [           main] t.p.s.mysql8.jpa.dockercompose.App       : Started App in 4.854 seconds (JVM running for 5.267)
+```
+- 查看mysql db是否正确创建
+
+（注意：也可以不开放端口，通过服务名进行内部网络通信）
+```sh
+pdai@MacBook-Pro conf % docker exec -it mysql8 /bin/bash  
+root@028760cee140:/# mysql -u pdai -p
+Enter password: 
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 8
+Server version: 8.0.28 MySQL Community Server - GPL
+
+Copyright (c) 2000, 2022, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> show databases;
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| test_db            |
++--------------------+
+2 rows in set (0.00 sec)
+
+mysql> use test_db;
+Reading table information for completion of table and column names
+You can turn off this feature to get a quicker startup with -A
+
+Database changed
+mysql> show tables;
++-------------------+
+| Tables_in_test_db |
++-------------------+
+| tb_role           |
+| tb_user           |
+| tb_user_role      |
++-------------------+
+3 rows in set (0.00 sec)
+
+mysql> 
+```
+# 八十八、▶SpringBoot监控 - 集成actuator监控工具
+> 当SpringBoot的应用部署到生产环境中后，如何监控和管理呢？比如审计日志，监控状态，指标收集等。为了解决这个问题，SpringBoot提供了Actuator。本文主要介绍Spring Boot Actuator及实现案例。
+## 88.1 知识准备
+### 88.1.1 什么是Actuator?
+> 致动器（actuator）是2018年公布的计算机科学技术名词。
+
+百度百科的解释如下： 致动器能将某种形式的能量转换为机械能的驱动装置。如热致动器、磁致动器等，在磁盘中是指将电能转换为机械能并带动磁头运动的装置。
+
+官网给的解释是：An actuator is a manufacturing term that refers to a mechanical device for moving or controlling something. Actuators can generate a large amount of motion from a small change.
+
+从上述的解释不难知道Spring 命名这个组件为Actuator，就是为了提供监测程序的能力。
+### 88.1.2 什么是Spring Boot Actuator？
+> 什么是Spring Boot Actuator? 用在什么样的场景呢？
+
+Spring Boot Actuator提供了对SpringBoot应用程序（可以是生产环境）监视和管理的能力， 可以选择通过使用HTTP Endpoint或使用JMX来管理和监控SpringBoot应用程序。
+### 88.1.3 什么是Actuator Endpoints？
+Spring Boot Actuator 允许你通过Endpoints对Spring Boot进行监控和交互。
+
+Spring Boot 内置的Endpoint包括（两种Endpoint： WEB和JMX， web方式考虑到安全性默认只开启了/health）：
+
+
+| ID | JMX | Web Endpoint | 功能描述 |
+|:---|:---|:---|:---|
+| auditevents | Yes | No | 暴露当前应用的audit events （依赖AuditEventRepository） |
+| beans | Yes | No | Spring中所有Beans |
+| caches | Yes | No | 暴露可用的缓存 |
+| conditions | Yes | No | 展示configuration 和auto-configuration类中解析的condition，并展示是否匹配的信息. |
+| configprops | Yes | No | 展示所有的@ConfigurationProperties |
+| env | Yes | No | 展示环境变量，来源于ConfigurableEnvironment |
+| flyway | Yes | No | flyway数据迁移信息（依赖Flyway） |
+| health | Yes | Yes | 展示应用的健康信息 |
+| heapdump | N/A | No | （web应用时）hprof 堆的dump文件（依赖HotSpot JVM） |
+| httptrace | Yes | No | 展示HTTP trace信息, 默认展示前100个（依赖HttpTraceRepository） |
+| info | Yes | No | 应用信息 |
+| integrationgraph | Yes | No | 展示spring集成信息（依赖spring-integration-core） |
+| jolokia | N/A | No | （web应用时）通过HTTP暴露JMX beans（依赖jolokia-core） |
+| logfile | N/A | No | （web应用时）如果配置了logging.file.name 或者 logging.file.path，展示logfile内容 |
+| loggers | Yes | No | 展示或者配置loggers，比如修改日志的等级 |
+| liquibase | Yes | No | Liquibase 数据迁移信息（依赖Liquibase） |
+| metrics | Yes | No | 指标信息 |
+| mappings | Yes | No | @RequestMapping映射路径 |
+| prometheus | N/A | No | （web应用时）向prometheus暴露监控信息（依赖micrometer-registry-prometheus） |
+| quartz | Yes | No | 展示 quartz任务信息 |
+| scheduledtasks | Yes | No | 展示Spring Scheduled 任务信息 |
+| sessions | Yes | No | session信息 |
+| shutdown | Yes | No | 关闭应用 |
+| startup | Yes | No | 展示ApplicationStartup的startup步骤的数据（依赖通在SpringApplication配置BufferingApplicationStartup） |
+| threaddump | Yes | No | 线程dump |
+
+当然你也可以自己定义暴露哪些endpoint,
+
+JMX时：
+```yml
+management:
+  endpoints:
+    jmx:
+      exposure:
+        include: "health,info"
+```
+web时(*代表所有)：
+```yml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+        exclude: "env,beans"
+```
+## 88.2 简单示例
+### 88.2.1 POM引入actuator包
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+### 88.2.2 yml配置
+自定义暴露哪些endpoint, 比如如下yml配置
+```yml
+server:
+  port: 8080
+
+management:
+  endpoints:
+    enabled-by-default: false
+    web:
+      base-path: /manage
+      exposure:
+        include: 'info,health,env,beans'
+  endpoint:
+    info:
+      enabled: true
+    health:
+      enabled: true
+    env:
+      enabled: true
+    beans:
+      enabled: true
+```
+上述配置只暴露info,health,env,beans四个endpoints, web通过可以`/manage`访问，
+![308.springboot-actuator-1.png](../../assets/images/04-主流框架/spring/308.springboot-actuator-1.png)
+### 88.2.3 Endpoints的进一步拓展配置
+#### 88.2.3.1 与SpringSecurity集成保障安全
+正是由于endpoint可能潜在暴露应用的安全性，web方式的endpoint才在默认情况下只暴露了一个/health。
+
+如果你需要暴露更多，并保证endpoint接口安全，可以与Spring Security集成，比如
+```java
+@Configuration(proxyBeanMethods = false)
+public class MySecurityConfiguration {
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http.requestMatcher(EndpointRequest.toAnyEndpoint())
+                .authorizeRequests((requests) -> requests.anyRequest().hasRole("ENDPOINT_ADMIN"));
+        http.httpBasic();
+        return http.build();
+    }
+
+}
+```
+#### 88.2.3.2 Endpoint跨域访问
+跨域访问，可以通过如下配置：
+```yml
+management:
+  endpoints:
+    web:
+      cors:
+        allowed-origins: "https://example.com"
+        allowed-methods: "GET,POST"
+```
+#### 88.2.3.3 实现自己的Endpoint
+我们可以通过@JmxEndpoint or @WebEndpoint注解来定义自己的endpoint, 然后通过@ReadOperation, @WriteOperation或者@DeleteOperation来暴露操作，
+
+比如添加系统时间date的endpoint
+```java
+package tech.pdai.springboot.actuator;
+
+import java.time.LocalDateTime;
+
+import org.springframework.boot.actuate.endpoint.annotation.ReadOperation;
+import org.springframework.boot.actuate.endpoint.web.annotation.WebEndpoint;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * @author pdai
+ */
+@RestController("custom")
+@WebEndpoint(id = "date")
+public class CustomEndpointController {
+
+    @ReadOperation
+    public ResponseEntity<String> currentDate() {
+        return ResponseEntity.ok(LocalDateTime.now().toString());
+    }
+}
+```
+enable 自定义的date
+```yml
+management:
+  endpoints:
+    enabled-by-default: false
+    web:
+      base-path: /manage
+      exposure:
+        include: 'info,health,env,beans,date'
+  endpoint:
+    info:
+      enabled: true
+    health:
+      enabled: true
+    env:
+      enabled: true
+    beans:
+      enabled: true
+    date:
+      enabled: true
+```
+你可以看到所有开放的接口中增加了date
+![309.springboot-actuator-5.png](../../assets/images/04-主流框架/spring/309.springboot-actuator-5.png)
+
+访问效果
+![310.springboot-actuator-2.png](../../assets/images/04-主流框架/spring/310.springboot-actuator-2.png)
+## 88.3 组件的health状况
+SpringBoot默认集成了如下常见中间件的health监控
+![311.springboot-actuator-3.png](../../assets/images/04-主流框架/spring/311.springboot-actuator-3.png)
+
+当然你也可以自定义HealthIndicator
+```java
+package tech.pdai.springboot.actuator;
+
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.stereotype.Component;
+
+/**
+ * @author pdai
+ */
+@Component
+public class CustomHealthIndicator implements HealthIndicator {
+
+    @Override
+    public Health health() {
+        int errorCode = check();
+        if (errorCode!=0) {
+            return Health.down().withDetail("Error Code", errorCode).build();
+        }
+        return Health.up().build();
+    }
+
+    private int check() {
+        // perform some specific health check
+        return 0;
+    }
+
+}
+```
+更详细的信息可以参考<a href='https://docs.spring.io/spring-boot/redirect.html?page=actuator#actuator.endpoints.health'>官网</a>
+
+## 88.4 Metrics接入监控系统
+这个也是比较常用的，具体参考
+![312.springboot-actuator-4.png](../../assets/images/04-主流框架/spring/312.springboot-actuator-4.png)
+## 88.5 Info信息如何获取
+有细心的小伙伴会发现/info是空的，最简单的配置方式是在spring-boot-maven-plugin中加入build-info， 编译成jar后运行，即可获取info：
+```xml
+<plugins>
+    <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <executions>
+            <execution>
+                <goals>
+                    <goal>build-info</goal>
+                </goals>
+            </execution>
+        </executions>
+    </plugin>
+</plugins>
+```
+# 八十九、SpringBoot进阶 - 健康检查Actuator原理
+
+SpringBoot Actuator 是 SpringBoot 框架的一个重要模块，用于提供应用程序的监控和管理功能。其中，健康检查（Health Check）是 Actuator 的核心特性之一，它允许开发者通过 HTTP 端点实时查看应用程序的运行状态，如数据库连接、磁盘空间等。本文将从实现原理和设计思想等方面详细介绍 Actuator 的健康检查机制，帮助读者深入理解其内部工作原理。
+
+## 89.1 实现原理
+
+Actuator 的健康检查功能基于 SpringBoot 的自动配置和端点机制实现。其核心在于通过预定义的端点暴露健康信息，并利用 HealthIndicator 接口来收集和组合各种组件的状态。下面我们将分小节详细解析。
+
+### 89.1.1 核心机制：端点暴露与 HealthIndicator 接口
+
+健康检查的实现原理主要依赖于两个关键部分：端点的暴露机制和 HealthIndicator 接口的工作方式。
+
+**端点暴露机制**  
+SpringBoot Actuator 通过 HTTP 端点（如 `/actuator/health`）来提供健康信息。这些端点是基于 Spring MVC 或 WebFlux 的控制器实现的，但 Actuator 对其进行了封装，使得端点可以自动注册和暴露。当应用程序启动时，SpringBoot 的自动配置会扫描类路径下的 Actuator 相关依赖，并创建相应的端点 Bean。例如，健康检查端点由 `HealthEndpoint` 类处理，该类实现了 `Endpoint` 接口。在运行时，当用户访问 `/actuator/health` 时，Spring 的调度机制会调用 `HealthEndpoint` 的 `health()` 方法，该方法会聚合所有注册的 HealthIndicator 实例的状态信息。
+
+**HealthIndicator 接口工作原理**  
+HealthIndicator 是健康检查的核心接口，定义了一个 `health()` 方法，用于返回当前组件的健康状态（如 UP、DOWN 或未知）。SpringBoot 内置了多个 HealthIndicator 实现，例如 `DataSourceHealthIndicator`（检查数据库连接）、`DiskSpaceHealthIndicator`（检查磁盘空间）等。这些实现类通过实现 `health()` 方法，执行具体的检查逻辑（如测试数据库连接或计算磁盘使用率），并返回一个 `Health` 对象。Health 对象包含了状态详情（如错误信息或指标数据），使得健康报告更加丰富。
+
+在实际运行中，HealthIndicator 实例是通过 Spring 的依赖注入机制管理的。当 Actuator 端点被调用时，它会从 Spring 容器中获取所有 HealthIndicator Bean，并依次调用它们的 `health()` 方法，最后将结果聚合为一个整体的健康状态。这种设计允许开发者轻松添加自定义健康检查，只需实现 HealthIndicator 接口并注册为 Bean 即可。
+
+此外，健康检查还支持细节控制：通过配置 `management.endpoint.health.show-details` 属性，可以决定是否显示详细状态信息，这体现了 Actuator 的灵活性和安全性考虑。
+
+总结来说，实现原理的核心是“端点驱动”和“组件聚合”：端点作为入口，HealthIndicator 作为执行单元，通过 Spring 的 IOC 容器实现松耦合的集成。
+
+## 89.2 设计思想
+
+Actuator 的健康检查功能不仅注重实现效率，还体现了微服务架构下的设计哲学。其设计思想主要包括松耦合、可扩展性和生产就绪性。
+
+### 89.2.1 松耦合与可扩展性
+
+健康检查机制采用接口驱动设计（如 HealthIndicator 接口），使得各个组件的检查逻辑相互独立，降低了模块间的耦合度。开发者可以轻松添加或移除健康指示器，而不影响核心框架。例如，如果应用程序需要检查第三方服务的状态，只需实现一个自定义的 HealthIndicator，SpringBoot 会自动将其集成到健康端点中。这种可扩展性得益于 Spring 的依赖注入和自动配置机制，它遵循“开闭原则”（对扩展开放，对修改关闭）。
+
+同时，Actuator 通过端点抽象支持多种暴露方式（如 HTTP、JMX），适应不同的监控场景。这种设计思想确保了健康检查功能能够灵活适配各种环境，从开发到生产均可无缝使用。
+
+### 89.2.2 生产就绪性与监控友好
+
+Actuator 的健康检查强调“生产就绪”（Production-Ready），旨在为微服务提供可靠的监控支持。设计上，它考虑了性能和安全：健康检查端点通常轻量级，避免对应用造成负担；并通过配置限制敏感信息的暴露，防止安全风险。此外，健康状态可以集成到云平台（如 Kubernetes）的存活探针中，实现自动故障恢复，这反映了现代云原生应用的设计趋势。
+
+总体而言，Actuator 的健康检查设计思想是以“监控驱动开发”为核心，通过标准化接口和自动化配置，提升应用程序的可维护性和可靠性。这种思想不仅简化了开发，还促进了 DevOps 实践。
+
+DevOps（Development 和 Operations 的组合）是一种软件开发和运维的文化、实践与工具集合，旨在通过自动化和协作来缩短软件开发生命周期，提高交付速度和质量。其核心思想是打破传统开发团队和运维团队之间的壁垒，促进持续集成、持续交付和持续监控，从而实现更高效、可靠的软件发布。DevOps 强调自动化流程、快速反馈和团队协作，常用于支持微服务、云原生应用等现代技术架构。
+# 九十、SpringBoot进阶 - 自定义starter
+> 如何将自己的模块封装成starter， 并给其它springBoot项目使用呢？ 本文主要介绍在Springboot封装一个自定义的Starter的一个Demo，从创建一个模块->封装starter->使用。
+## 90.1 思路
+> 创建模块，封装starter，最后使用starter.
+1. 创建一个Demo Project，模拟一个需要被封装的DemoModule模块，其中核心方法为exeModuleMethod
+2. 通过starter封装可以直接初始化DemoModule的实例到Spring容器
+3. 在Maven中引入starter，且在yml中配置相应到参数即可直接初始化DemoModule的实例
+4. 在应用中注入DemoModule即可使用其exeModuleMethod方法
+## 90.2 新建项目
+- pom.xml
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.1.7.RELEASE</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+    <groupId>com.pdai</groupId>
+    <artifactId>demo</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>demo</name>
+    <description>Demo project for Spring Boot</description>
+
+    <properties>
+        <java.version>1.8</java.version>
+    </properties>
+
+    <dependencies>
+        <!-- 注意不要引入Springboot模块-->
+    </dependencies>
+
+    <build>
+        
+    </build>
+
+</project>
+```
+- 创建一个测试模块
+```java
+package com.pdai.demo.module;
+
+/**
+ *
+ */
+public class DemoModule {
+
+    private String version;
+
+    private String name;
+
+    public String exeModuleMethod() {
+        return "Demo module, name = " + name + ", version = " + version;
+    }
+
+    public String getVersion() {
+        return version;
+    }
+
+    public void setVersion(String version) {
+        this.version = version;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+}
+```
+- install
+![313.springboot-starter-demo-1.png](../../assets/images/04-主流框架/spring/313.springboot-starter-demo-1.png)
+## 90.3 封装Starter
+- 创建项目 - pom.xml
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.1.7.RELEASE</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+    <groupId>com.pdai</groupId>
+    <artifactId>demo-springboot-starter</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>demo-springboot-starter</name>
+    <description>Demo project for Spring Boot</description>
+
+    <properties>
+        <java.version>1.8</java.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>com.pdai</groupId>
+            <artifactId>demo</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>
+```
+- Properties
+```java
+package com.pdai.demospringbootstarter;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@ConfigurationProperties(prefix = "com.pdai")
+public class DemoProperties {
+    private String version;
+    private String name;
+
+    public String getVersion() {
+        return version;
+    }
+
+    public void setVersion(String version) {
+        this.version = version;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+}
+```
+- AutoConfiguration
+```java
+package com.pdai.demospringbootstarter;
+
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+@EnableConfigurationProperties(DemoProperties.class)
+public class DemoAutoConfiguration {
+
+    @Bean
+    public com.pdai.demo.module.DemoModule demoModule(DemoProperties properties){
+        com.pdai.demo.module.DemoModule demoModule = new com.pdai.demo.module.DemoModule();
+        demoModule.setName(properties.getName());
+        demoModule.setVersion(properties.getVersion());
+        return demoModule;
+
+    }
+}
+```
+- spring.factory
+> 在META-INF下创建spring.factory文件
+```sj
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+com.pdai.demospringbootstarter.DemoAutoConfiguration
+```
+- install
+## 90.4 使用starter
+只需要在application.yml中
+
+- application.yml
+```yml
+com:
+    pdai:
+        name: DEMO
+        version: v1
+```
+- pom.xml
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.1.7.RELEASE</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+    <groupId>com.pdai</groupId>
+    <artifactId>demo-usage</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>demo-usage</name>
+    <description>Demo starter usage</description>
+
+    <properties>
+        <java.version>1.8</java.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.pdai</groupId>
+            <artifactId>demo-springboot-starter</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
+```
+- app
+```java
+package com.pdai.demo.usage;
+
+import com.pdai.demo.module.DemoModule;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@SpringBootApplication
+@RestController
+public class DemoUsageApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(DemoUsageApplication.class, args);
+    }
+
+    @Autowired
+    private DemoModule demoModule;
+
+
+    @GetMapping("demo")
+    public String demo(){
+        return demoModule.exeModuleMethod();
+    }
+}
+```
+- 输出
+
+http://localhost:8080/demo
+```sh
+Demo module, name = DEMO, version = v1
+```
+# 第九十一章、SpringBoot进阶 - 嵌入web容器Tomcat原理
+
+SpringBoot 作为现代 Java 应用开发的主流框架，其核心特性之一是支持嵌入式 Web 容器（如 Tomcat），这使得应用可以打包为可执行的 JAR 文件，无需外部服务器即可独立运行。这种设计极大地简化了部署和测试流程，特别适合微服务和云原生场景。本章将详细解读 SpringBoot 嵌入 Tomcat 的原理，从实现机制到设计思想，并提供核心代码指导，帮助读者深入理解其内部工作方式。
+
+## 91.1 实现原理
+
+SpringBoot 嵌入 Tomcat 的原理基于 Spring 框架的自动配置和 Servlet 容器抽象机制。其核心是通过 SpringBoot 的启动过程自动检测并初始化嵌入式 Tomcat 实例，替代传统的外部 Tomcat 部署。下面分小节详细解析。
+
+### 91.1.1 核心机制：自动配置与 Tomcat 启动流程
+
+嵌入 Tomcat 的实现原理主要依赖于 SpringBoot 的自动配置（Auto-Configuration）和 Servlet Web 服务器工厂模式。整个过程从应用启动开始，到 Tomcat 实例运行结束，涉及多个关键类和步骤。
+
+**自动配置机制**  
+当 SpringBoot 应用启动时（通过 `SpringApplication.run()` 方法），SpringBoot 会扫描类路径下的依赖。如果检测到 `spring-boot-starter-web` 依赖（它包含了 Tomcat 相关库），SpringBoot 的自动配置模块会触发 `ServletWebServerFactoryAutoConfiguration` 类。这个配置类负责创建和配置嵌入式 Web 服务器。具体来说：
+- SpringBoot 使用 `TomcatServletWebServerFactory` 作为默认的 Servlet Web 服务器工厂，该类实现了 `ServletWebServerFactory` 接口。
+- 在启动过程中，SpringBoot 通过条件注解（如 `@ConditionalOnClass`）确保 Tomcat 类（如 `org.apache.catalina.startup.Tomcat`）存在于类路径中，然后自动注册 `TomcatServletWebServerFactory` Bean。
+- 这个工厂 Bean 负责创建和管理嵌入式 Tomcat 实例，包括设置端口、上下文路径等参数。
+
+**Tomcat 启动流程**  
+Tomcat 的启动流程由 SpringBoot 的 `SpringApplication` 驱动，大致步骤如下：
+1. **应用启动**：当 `main` 方法调用 `SpringApplication.run()` 时，Spring 容器开始初始化。
+2. **服务器工厂调用**：在 Spring 容器刷新阶段，`ServletWebServerApplicationContext`（Web 应用上下文）会获取 `ServletWebServerFactory` Bean（即 `TomcatServletWebServerFactory`），并调用其 `getWebServer()` 方法。
+3. **Tomcat 实例化**：`getWebServer()` 方法内部会实例化一个 Apache Tomcat 对象（`new Tomcat()`），并配置基本参数，如端口（默认 8080）和基础目录。
+4. **上下文配置**：SpringBoot 会将应用上下文（如 DispatcherServlet）注册到 Tomcat 中，通过 `Tomcat.addContext()` 或类似方法，确保 Spring MVC 的请求映射正常工作。
+5. **服务器启动**：最后，调用 Tomcat 的 `start()` 方法启动嵌入式服务器，并等待 HTTP 请求。整个过程是异步的，但 SpringBoot 会阻塞直到服务器就绪。
+
+这种机制的优势在于“约定优于配置”：开发者无需手动编写 Tomcat 配置，SpringBoot 自动处理所有细节。例如，端口可以通过 `application.properties` 中的 `server.port` 属性自定义，体现了灵活性。
+
+### 91.1.2 关键组件与依赖注入
+
+嵌入 Tomcat 的核心组件包括 `TomcatServletWebServerFactory`、`Tomcat` 类以及 Spring 的依赖注入（DI）机制。这些组件协同工作，确保嵌入式容器的高效运行。
+
+- **TomcatServletWebServerFactory**：这是 SpringBoot 提供的工厂类，继承自 `AbstractServletWebServerFactory`，负责创建 Tomcat 实例。它通过重写 `getWebServer()` 方法，使用 Tomcat API 构建服务器。代码层面，它会设置 Connector（连接器）、Context（上下文）等 Tomcat 核心元素。
+- **Tomcat 类**：来自 Apache Tomcat 库，是嵌入式模式下的主类。SpringBoot 通过反射或直接调用其 API 来初始化和启动 Tomcat，而不是使用传统的 `catalina.sh` 脚本。
+- **依赖注入**：Spring 的 IOC 容器管理这些组件的生命周期。例如，当应用需要自定义 Tomcat 配置时，开发者可以定义一个 `WebServerFactoryCustomizer` Bean，SpringBoot 会自动将其注入到工厂中，用于修改 Tomcat 设置。
+
+这种设计实现了松耦合：Tomcat 细节被抽象化，开发者只需关注业务逻辑，同时可以通过 Spring 的扩展点进行定制。
+
+## 91.2 设计思想
+
+SpringBoot 嵌入 Tomcat 的设计思想体现了现代软件工程的核心理念，包括简化部署、支持微服务架构和提升开发效率。其思想不仅注重技术实现，还强调生产环境下的可靠性和可维护性。
+
+### 91.2.1 简化部署与开发效率
+
+嵌入 Tomcat 的核心设计思想是“开箱即用”（Out-of-the-Box），通过减少外部依赖来简化开发和生产部署。传统 Java Web 应用需要单独安装和配置 Tomcat 服务器，而 SpringBoot 将 Tomcat 作为内嵌组件，使得应用可以打包为单一 JAR 文件，直接通过 `java -jar` 命令运行。这降低了环境配置的复杂性，加速了开发迭代周期。
+
+设计上，SpringBoot 遵循“约定优于配置”原则：默认使用嵌入式 Tomcat，但如果类路径中有其他容器（如 Jetty），会自动切换。这种灵活性确保了兼容性，同时鼓励快速原型开发。例如，在测试阶段，开发者可以轻松启动内嵌服务器进行集成测试，无需搭建完整环境。
+
+### 91.2.2 微服务友好与云原生支持
+
+嵌入 Tomcat 的设计还契合微服务架构和云原生趋势。在微服务中，每个服务通常是轻量级的、独立部署的单元。嵌入式容器使得服务可以自包含，易于在 Docker 或 Kubernetes 中运行，支持水平扩展和健康检查（如通过 Actuator 端点）。
+
+设计思想强调“生产就绪性”：SpringBoot 提供了丰富的配置选项（如 SSL 支持、连接池优化），确保嵌入式 Tomcat 在高并发场景下稳定运行。同时，通过自动配置避免了“配置地狱”，使团队能专注于业务逻辑，而非基础设施。这种思想促进了 DevOps 实践，实现了开发与运维的无缝衔接。
+
+## 91.3 核心代码指导
+
+为了帮助读者实际应用嵌入 Tomcat 的原理，本节提供核心代码示例和配置指导。这些代码基于 SpringBoot 2.x 或 3.x 版本，演示如何自定义和优化嵌入式 Tomcat。
+
+### 91.3.1 基础配置与自定义
+
+在 SpringBoot 中，嵌入式 Tomcat 的配置主要通过 `application.properties` 或 `application.yml` 文件完成。以下是一些常见配置示例：
+
+- **设置端口和上下文路径**：  
+  在 `application.properties` 中添加：
+  ```properties
+  server.port=9090  # 自定义端口，默认为8080
+  server.servlet.context-path=/myapp  # 设置上下文路径
+  ```
+
+- **启用 SSL 支持**：  
+  配置 HTTPS，确保安全通信：
+  ```properties
+  server.ssl.key-store=classpath:keystore.p12
+  server.ssl.key-store-password=changeit
+  server.ssl.key-store-type=PKCS12
+  ```
+
+### 91.3.2 自定义 Tomcat 配置代码
+
+如果需要更高级的定制（如添加阀门或调整线程池），可以通过 Java 代码实现。以下是一个示例，演示如何使用 `WebServerFactoryCustomizer` 接口自定义 Tomcat：
+
+```java
+import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
+import org.springframework.boot.web.server.WebServerFactoryCustomizer;
+import org.springframework.stereotype.Component;
+
+@Component
+public class TomcatCustomizer implements WebServerFactoryCustomizer<TomcatServletWebServerFactory> {
+
+    @Override
+    public void customize(TomcatServletWebServerFactory factory) {
+        // 设置端口（如果未在配置文件中指定）
+        factory.setPort(8080);
+        
+        // 添加自定义阀门（Valve），例如用于日志记录
+        factory.addEngineValves(new MyCustomValve());
+        
+        // 调整连接器设置，如超时时间
+        factory.addConnectorCustomizers(connector -> {
+            connector.setProperty("connectionTimeout", "20000");
+        });
+    }
+}
+
+// 示例自定义阀门类
+import org.apache.catalina.Valve;
+import org.apache.catalina.connector.Request;
+import org.apache.catalina.connector.Response;
+import javax.servlet.ServletException;
+import java.io.IOException;
+
+public class MyCustomValve implements Valve {
+    @Override
+    public void invoke(Request request, Response response) throws IOException, ServletException {
+        // 自定义逻辑，如记录请求日志
+        System.out.println("Request URI: " + request.getRequestURI());
+        getNext().invoke(request, response); // 调用下一个阀门
+    }
+    
+    // 其他必要方法省略...
+}
+```
+
+### 91.3.3 启动和调试提示
+
+- **启动应用**：确保主类使用 `@SpringBootApplication` 注解，然后运行 `main` 方法。SpringBoot 会自动启动嵌入式 Tomcat，日志中会显示类似 "Tomcat started on port(s): 8080" 的信息。
+- **调试问题**：如果遇到端口冲突或启动失败，检查 `application.properties` 配置，或使用 Actuator 的 `/actuator/env` 端点查看服务器设置。对于性能优化，可以考虑调整 Tomcat 的线程池参数，如通过 `server.tomcat.max-threads` 属性。
+
+通过以上原理和代码指导，读者可以深入理解 SpringBoot 嵌入 Tomcat 的工作机制，并灵活应用于实际项目。这种设计不仅提升了开发效率，还为微服务架构提供了坚实基础。
+
+
+# 第九十二章、SpringBoot进阶 - 实现自动装配原理
+
+SpringBoot 的自动装配（Auto-Configuration）是其核心特性之一，它通过“约定优于配置”的原则，极大地简化了 Spring 应用的开发流程。自动装配机制能够根据类路径下的依赖自动配置 Bean 和组件，减少手动编写 XML 或 Java 配置的工作量，实现开箱即用的体验。本章将详细解读 SpringBoot 自动装配的实现原理，从核心机制到设计思想，并提供核心代码指导，帮助读者深入理解这一强大功能的内在逻辑。
+
+## 92.1 实现原理
+
+SpringBoot 的自动装配原理基于 Spring 框架的条件化配置和类路径扫描机制。其核心是通过特定的注解和配置文件，在应用启动时自动检测并注册所需的 Bean，而无需开发者显式声明。下面分小节详细解析。
+
+### 92.1.1 核心机制：@EnableAutoConfiguration 与 spring.factories 文件
+
+自动装配的实现原理主要依赖于 `@EnableAutoConfiguration` 注解和 `META-INF/spring.factories` 文件的协同工作。整个过程从 SpringBoot 应用启动开始，涉及条件注解的评估和自动配置类的加载。
+
+**@EnableAutoConfiguration 注解的作用**  
+当 SpringBoot 应用启动时（通过 `@SpringBootApplication` 注解，它内部包含了 `@EnableAutoConfiguration`），该注解会触发自动配置流程。具体来说：
+- `@EnableAutoConfiguration` 是一个组合注解，它通过 `@Import` 导入了 `AutoConfigurationImportSelector` 类。这个选择器负责扫描类路径下的 `META-INF/spring.factories` 文件，并加载其中定义的自动配置类。
+- 在 Spring 容器的刷新阶段，`AutoConfigurationImportSelector` 会调用 `selectImports()` 方法，该方法返回一个字符串数组，包含所有需要被自动导入的配置类的全限定名。这些配置类通常是 SpringBoot 内置的，如 `DataSourceAutoConfiguration`（用于数据源配置）或 `WebMvcAutoConfiguration`（用于 MVC 配置）。
+
+**spring.factories 文件的工作机制**  
+`spring.factories` 文件是自动装配的关键配置文件，位于依赖包的 `META-INF` 目录下。它采用键值对格式，其中键为 `org.springframework.boot.autoconfigure.EnableAutoConfiguration`，值为逗号分隔的自动配置类列表。例如，SpringBoot 的 `spring-boot-autoconfigure` 包中的 `spring.factories` 文件包含了大量内置配置类：
+```properties
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration,\
+org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,\
+...
+```
+当应用启动时，SpringBoot 会扫描所有依赖中的 `spring.factories` 文件，合并这些配置类，然后通过条件注解（如 `@ConditionalOnClass`）过滤掉不满足条件的类，最终只注册适用的 Bean。这种机制确保了自动装配的灵活性和准确性：例如，只有当类路径中存在 `DataSource` 类时，`DataSourceAutoConfiguration` 才会生效。
+
+### 92.1.2 条件注解与自动配置类的执行流程
+
+自动装配的核心在于条件注解（Conditional Annotations），它们控制配置类是否被激活。SpringBoot 提供了多种条件注解，如 `@ConditionalOnClass`、`@ConditionalOnMissingBean` 和 `@ConditionalOnProperty`，这些注解在运行时评估类路径、Bean 存在性或配置属性，以决定是否创建 Bean。
+
+**执行流程详解**  
+1. **启动阶段**：应用启动时，`AutoConfigurationImportSelector` 从 `spring.factories` 加载所有自动配置类。
+2. **条件评估**：Spring 容器对每个配置类进行条件检查。例如，`@ConditionalOnClass(DataSource.class)` 会检查类路径中是否存在 `DataSource` 类，如果不存在，则跳过该配置类。
+3. **Bean 注册**：通过条件的配置类会被解析，其内部的 `@Bean` 方法被调用，注册相应的 Bean 到 Spring 容器中。整个过程是自动的，开发者无需干预。
+4. **顺序控制**：自动配置类通常使用 `@AutoConfigureOrder` 或 `@AutoConfigureAfter` 注解来控制加载顺序，避免依赖冲突。
+
+这种机制实现了“智能配置”：SpringBoot 能够根据实际依赖动态调整配置，既保证了默认行为的简便性，又允许通过自定义覆盖自动配置。
+
+## 92.2 设计思想
+
+SpringBoot 自动装配的设计思想体现了现代软件工程的核心理念，包括简化开发、提升可维护性和支持模块化架构。其思想不仅注重技术实现，还强调开发效率和生产环境下的可靠性。
+
+### 92.2.1 约定优于配置与开发效率
+
+自动装配的核心设计思想是“约定优于配置”（Convention Over Configuration），通过预定义默认行为减少开发者的决策负担。例如，SpringBoot 默认内嵌 Tomcat、自动配置数据源（如果检测到 H2 数据库依赖），使得开发者只需关注业务代码，而非基础设施配置。这种设计显著提升了开发效率，尤其适合快速原型和微服务项目。
+
+设计上，自动装配遵循“开闭原则”：它对扩展开放（允许开发者自定义配置），对修改关闭（核心机制稳定）。同时，通过条件注解实现了“按需配置”，避免了不必要的资源浪费，体现了资源优化思想。
+
+### 92.2.2 模块化与云原生适配
+
+自动装配的设计还支持模块化和云原生架构。在微服务场景中，每个服务可以依赖不同的 Starter（如 `spring-boot-starter-web`），自动装配机制会根据 Starter 自动加载相关配置，确保服务的独立性和轻量性。这种设计思想促进了 DevOps 实践，使应用易于在 Docker 或 Kubernetes 中部署。
+
+此外，自动装配强调“生产就绪性”：通过丰富的条件注解，它可以适应多种环境（如开发、测试、生产），并通过配置属性（如 `application.properties`）实现灵活切换。这种思想降低了运维复杂度，支持持续集成和交付。
+
+## 92.3 核心代码指导
+
+为了帮助读者实际应用自动装配原理，本节提供核心代码示例和配置指导。这些代码基于 SpringBoot 2.x 或 3.x 版本，演示如何理解、自定义和调试自动配置。
+
+### 92.3.1 查看和调试自动配置
+
+在开发过程中，可以通过 SpringBoot 的 Actuator 端点或启动日志来查看自动配置详情。以下是一些实用方法：
+
+- **启用自动配置报告**：在 `application.properties` 中设置：
+  ```properties
+  debug=true
+  ```
+  启动应用时，控制台会输出自动配置报告，显示哪些配置类被激活或跳过。
+
+- **使用 Actuator 端点**：如果项目添加了 `spring-boot-starter-actuator` 依赖，访问 `/actuator/conditions` 端点可以查看详细的条件评估结果。
+
+### 92.3.2 自定义自动配置类示例
+
+如果需要创建自定义的自动配置（例如为第三方库添加自动支持），可以按照以下步骤实现：
+
+1. **创建自动配置类**：使用 `@Configuration` 和条件注解定义配置类。
+2. **注册到 spring.factories**：在 `src/main/resources/META-INF/spring.factories` 文件中添加配置类。
+
+示例代码：假设我们想为自定义服务 `MyService` 创建自动配置。
+
+- **首先，定义 MyService 类**：
+```java
+public class MyService {
+    private String name;
+    
+    public MyService(String name) {
+        this.name = name;
+    }
+    
+    public String greet() {
+        return "Hello from " + name;
+    }
+}
+```
+
+- **然后，创建自动配置类**：
+```java
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+@ConditionalOnClass(MyService.class) // 仅当 MyService 类存在时生效
+@EnableConfigurationProperties(MyServiceProperties.class) // 启用配置属性
+public class MyServiceAutoConfiguration {
+
+    @Bean
+    @ConditionalOnMissingBean // 仅当容器中不存在 MyService Bean 时创建
+    public MyService myService(MyServiceProperties properties) {
+        return new MyService(properties.getName());
+    }
+}
+
+// 配置属性类，用于从 application.properties 读取配置
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@ConfigurationProperties(prefix = "myservice")
+public class MyServiceProperties {
+    private String name = "defaultService"; // 默认值
+
+    // Getter 和 Setter
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+}
+```
+
+- **最后，在 spring.factories 中注册**：
+在 `src/main/resources/META-INF/spring.factories` 文件中添加：
+```properties
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+com.example.MyServiceAutoConfiguration
+```
+
+- **使用配置**：在 `application.properties` 中设置属性：
+```properties
+myservice.name=myCustomService
+```
+当应用启动时，SpringBoot 会自动创建 `MyService` Bean，并注入配置值。
+
+### 92.3.3 排除自动配置
+
+如果不需要某些自动配置，可以通过 `@SpringBootApplication` 注解的 `exclude` 属性排除：
+```java
+@SpringBootApplication(exclude = {DataSourceAutoConfiguration.class})
+public class MyApp {
+    public static void main(String[] args) {
+        SpringApplication.run(MyApp.class, args);
+    }
+}
+```
+
+通过以上原理和代码指导，读者可以深入理解 SpringBoot 自动装配的工作机制，并灵活应用于实际项目。自动装配不仅简化了开发，还为现代应用架构提供了坚实基础。
 
 
 
