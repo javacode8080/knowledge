@@ -8235,7 +8235,7 @@ spring:
     rollback-on-commit-failure: true
 ```
 
-### 11.5. 9总结
+### 11.5.9 总结
 
 Spring Boot 中 MyBatis 事务自动配置的核心逻辑：
 1. **自动创建 `DataSourceTransactionManager`** 作为平台事务管理器
@@ -8245,218 +8245,2425 @@ Spring Boot 中 MyBatis 事务自动配置的核心逻辑：
 5. **事务的提交/回滚** 由 Spring 的 AOP 代理在方法边界自动处理
 
 这种设计使得 MyBatis 能够无缝集成到 Spring 的事务管理体系中，支持声明式事务和编程式事务两种方式。
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# 十二、MyBatis详解 - 一级缓存实现机制
+> 减少资源的浪费，MyBatis会在表示会话的SqlSession对象中建立一个简单的缓存，将每次查询到的结果缓存起来，当下次查询的时候，如果判断先前有个完全一样的查询，会直接从缓存中直接将结果取出，返回给用户，不需要再进行一次数据库查询了。
+## 12.1 MyBatis一级缓存实现
+### 12.1.1 什么是一级缓存？ 为什么使用一级缓存？
+每当我们使用MyBatis开启一次和数据库的会话，MyBatis会创建出一个SqlSession对象表示一次数据库会话。
+
+在对数据库的一次会话中，我们有可能会反复地执行完全相同的查询语句，如果不采取一些措施的话，每一次查询都会查询一次数据库,而我们在极短的时间内做了完全相同的查询，那么它们的结果极有可能完全相同，由于查询一次数据库的代价很大，这有可能造成很大的资源浪费。
+
+为了解决这一问题，减少资源的浪费，MyBatis会在表示会话的SqlSession对象中建立一个简单的缓存，将每次查询到的结果结果缓存起来，当下次查询的时候，如果判断先前有个完全一样的查询，会直接从缓存中直接将结果取出，返回给用户，不需要再进行一次数据库查询了。
+
+如下图所示，MyBatis一次会话: 一个SqlSession对象中创建一个本地缓存(local cache)，对于每一次查询，都会尝试根据查询的条件去本地缓存中查找是否在缓存中，如果在缓存中，就直接从缓存中取出，然后返回给用户；否则，从数据库读取数据，将查询结果存入缓存并返回给用户。
+![38.mybatis-y-cache-1.png](../../assets/images/04-主流框架/Mybatis/38.mybatis-y-cache-1.png)
+
+> 对于会话（Session）级别的数据缓存，我们称之为一级数据缓存，简称一级缓存。
+
+### 12.1.2 MyBatis中的一级缓存是怎样组织的？
+> 即SqlSession中的缓存是怎样组织的？由于MyBatis使用SqlSession对象表示一次数据库的会话，那么，对于会话级别的一级缓存也应该是在SqlSession中控制的。
+
+实际上, MyBatis只是一个MyBatis对外的接口，SqlSession将它的工作交给了Executor执行器这个角色来完成，负责完成对数据库的各种操作。当创建了一个SqlSession对象时，MyBatis会为这个SqlSession对象创建一个新的Executor执行器，而缓存信息就被维护在这个Executor执行器中，MyBatis将缓存和对缓存相关的操作封装成了Cache接口中。SqlSession、Executor、Cache之间的关系如下列类图所示：
+![39.mybatis-y-cache-2.png](../../assets/images/04-主流框架/Mybatis/39.mybatis-y-cache-2.png)
+
+如上述的类图所示，Executor接口的实现类BaseExecutor中拥有一个Cache接口的实现类PerpetualCache，则对于BaseExecutor对象而言，它将使用PerpetualCache对象维护缓存。
+
+综上，SqlSession对象、Executor对象、Cache对象之间的关系如下图所示：
+
+![40.mybatis-y-cache-3.png](../../assets/images/04-主流框架/Mybatis/40.mybatis-y-cache-3.png)
+
+由于Session级别的一级缓存实际上就是使用PerpetualCache维护的，那么PerpetualCache是怎样实现的呢？
+
+PerpetualCache实现原理其实很简单，其内部就是通过一个简单的`HashMap<k,v>` 来实现的，没有其他的任何限制。如下是PerpetualCache的实现代码：
+```java
+package org.apache.ibatis.cache.impl;  
+  
+import java.util.HashMap;  
+import java.util.Map;  
+import java.util.concurrent.locks.ReadWriteLock;  
+  
+import org.apache.ibatis.cache.Cache;  
+import org.apache.ibatis.cache.CacheException;  
+  
+/** 
+ * 使用简单的HashMap来维护缓存 
+ * @author Clinton Begin 
+ */  
+public class PerpetualCache implements Cache {  
+  
+  private String id;  
+  
+  private Map<Object, Object> cache = new HashMap<Object, Object>();  
+  
+  public PerpetualCache(String id) {  
+    this.id = id;  
+  }  
+  
+  public String getId() {  
+    return id;  
+  }  
+  
+  public int getSize() {  
+    return cache.size();  
+  }  
+  
+  public void putObject(Object key, Object value) {  
+    cache.put(key, value);  
+  }  
+  
+  public Object getObject(Object key) {  
+    return cache.get(key);  
+  }  
+  
+  public Object removeObject(Object key) {  
+    return cache.remove(key);  
+  }  
+  
+  public void clear() {  
+    cache.clear();  
+  }  
+  
+  public ReadWriteLock getReadWriteLock() {  
+    return null;  
+  }  
+  
+  public boolean equals(Object o) {  
+    if (getId() == null) throw new CacheException("Cache instances require an ID.");  
+    if (this == o) return true;  
+    if (!(o instanceof Cache)) return false;  
+  
+    Cache otherCache = (Cache) o;  
+    return getId().equals(otherCache.getId());  
+  }  
+  
+  public int hashCode() {  
+    if (getId() == null) throw new CacheException("Cache instances require an ID.");  
+    return getId().hashCode();  
+  }  
+  
+} 
+```
+### 12.1.3 一级缓存的生命周期有多长？
+MyBatis在开启一个数据库会话时，会创建一个新的SqlSession对象，SqlSession对象中会有一个新的Executor对象，Executor对象中持有一个新的PerpetualCache对象；当会话结束时，SqlSession对象及其内部的Executor对象还有PerpetualCache对象也一并释放掉。
+
+- 如果SqlSession调用了close()方法，会释放掉一级缓存PerpetualCache对象，一级缓存将不可用；
+
+- 如果SqlSession调用了clearCache()，会清空PerpetualCache对象中的数据，但是该对象仍可使用；
+
+- SqlSession中执行了任何一个update操作(update()、delete()、insert()) ，都会清空PerpetualCache对象的数据，但是该对象可以继续使用；
+![41.mybatis-y-cache-4.png](../../assets/images/04-主流框架/Mybatis/41.mybatis-y-cache-4.png)
+### 12.1.4 SqlSession 一级缓存的工作流程
+- 对于某个查询，根据statementId(就是dao层接口的方法名-对应mapper.xml中的`<id标签属性>`),params,rowBounds来构建一个key值，根据这个key值去缓存Cache中取出对应的key值存储的缓存结果；
+- 判断从Cache中根据特定的key值取的数据数据是否为空，即是否命中；
+- 如果命中，则直接将缓存结果返回；
+- 如果没命中：
+  - 去数据库中查询数据，得到查询结果；
+  - 将key和查询到的结果分别作为key,value对存储到Cache中；
+- 将查询结果返回；
+- 结束。
+![42.mybatis-y-cache-5.png](../../assets/images/04-主流框架/Mybatis/42.mybatis-y-cache-5.png)
+### 12.1.5 Cache接口的设计以及CacheKey的定义
+如下图所示，MyBatis定义了一个org.apache.ibatis.cache.Cache接口作为其Cache提供者的SPI(Service Provider Interface) ，所有的MyBatis内部的Cache缓存，都应该实现这一接口。MyBatis定义了一个PerpetualCache实现类实现了Cache接口，实际上，在SqlSession对象里的Executor对象内维护的Cache类型实例对象，就是PerpetualCache子类创建的。
+
+（MyBatis内部还有很多Cache接口的实现，一级缓存只会涉及到这一个PerpetualCache子类，Cache的其他实现将会放到二级缓存中介绍）。
+![43.mybatis-y-cache-6.png](../../assets/images/04-主流框架/Mybatis/43.mybatis-y-cache-6.png)
+
+我们知道，Cache最核心的实现其实就是一个Map，将本次查询使用的特征值作为key，将查询结果作为value存储到Map中。现在最核心的问题出现了：怎样来确定一次查询的特征值？换句话说就是：怎样判断某两次查询是完全相同的查询？也可以这样说：如何确定Cache中的key值？
+
+MyBatis认为，对于两次查询，如果以下条件都完全一样，那么就认为它们是完全相同的两次查询：
+
+- 传入的 statementId
+- 查询时要求的结果集中的结果范围 （结果的范围通过rowBounds.offset和rowBounds.limit表示）
+- 这次查询所产生的最终要传递给JDBC java.sql.Preparedstatement的Sql语句字符串（boundSql.getSql() ）
+- 传递给java.sql.Statement要设置的参数值
+
+**现在分别解释上述四个条件**：
+
+- 传入的statementId，对于MyBatis而言，你要使用它，必须需要一个statementId，它代表着你将执行什么样的Sql；
+- MyBatis自身提供的分页功能是通过RowBounds来实现的，它通过rowBounds.offset和rowBounds.limit来过滤查询出来的结果集，这种分页功能是基于查询结果的再过滤，而不是进行数据库的物理分页；
+- 由于MyBatis底层还是依赖于JDBC实现的，那么，对于两次完全一模一样的查询，MyBatis要保证对于底层JDBC而言，也是完全一致的查询才行。而对于JDBC而言，两次查询，只要传入给JDBC的SQL语句完全一致，传入的参数也完全一致，就认为是两次查询是完全一致的。
+- 上述的第3个条件正是要求保证传递给JDBC的SQL语句完全一致；第4条则是保证传递给JDBC的参数也完全一致；即3、4两条MyBatis最本质的要求就是：调用JDBC的时候，传入的SQL语句要完全相同，传递给JDBC的参数值也要完全相同。
+
+综上所述,CacheKey由以下条件决定：**statementId + rowBounds + 传递给JDBC的SQL + 传递给JDBC的参数值**；
+
+- CacheKey的创建
+
+对于每次的查询请求，Executor都会根据传递的参数信息以及动态生成的SQL语句，将上面的条件根据一定的计算规则，创建一个对应的CacheKey对象。
+
+我们知道创建CacheKey的目的，就两个：
+
+- 根据CacheKey作为key,去Cache缓存中查找缓存结果；
+- 如果查找缓存命中失败，则通过此CacheKey作为key，将从数据库查询到的结果作为value，组成key,value对存储到Cache缓存中；
+
+CacheKey的构建被放置到了Executor接口的实现类BaseExecutor中，定义如下：
+```java
+/** 
+ * 所属类:  org.apache.ibatis.executor.BaseExecutor 
+ * 功能   :   根据传入信息构建CacheKey 
+ */  
+public CacheKey createCacheKey(MappedStatement ms, Object parameterObject, RowBounds rowBounds, BoundSql boundSql) {  
+    if (closed) throw new ExecutorException("Executor was closed.");  
+    CacheKey cacheKey = new CacheKey();  
+    //1.statementId  
+    cacheKey.update(ms.getId());  
+    //2. rowBounds.offset  
+    cacheKey.update(rowBounds.getOffset());  
+    //3. rowBounds.limit  
+    cacheKey.update(rowBounds.getLimit());  
+    //4. SQL语句  
+    cacheKey.update(boundSql.getSql());  
+    //5. 将每一个要传递给JDBC的参数值也更新到CacheKey中  
+    List<ParameterMapping> parameterMappings = boundSql.getParameterMappings();  
+    TypeHandlerRegistry typeHandlerRegistry = ms.getConfiguration().getTypeHandlerRegistry();  
+    for (int i = 0; i < parameterMappings.size(); i++) { // mimic DefaultParameterHandler logic  
+        ParameterMapping parameterMapping = parameterMappings.get(i);  
+        if (parameterMapping.getMode() != ParameterMode.OUT) {  
+            Object value;  
+            String propertyName = parameterMapping.getProperty();  
+            if (boundSql.hasAdditionalParameter(propertyName)) {  
+                value = boundSql.getAdditionalParameter(propertyName);  
+            } else if (parameterObject == null) {  
+                value = null;  
+            } else if (typeHandlerRegistry.hasTypeHandler(parameterObject.getClass())) {  
+                value = parameterObject;  
+            } else {  
+                MetaObject metaObject = configuration.newMetaObject(parameterObject);  
+                value = metaObject.getValue(propertyName);  
+            }  
+            //将每一个要传递给JDBC的参数值也更新到CacheKey中  
+            cacheKey.update(value);  
+        }  
+    }  
+    return cacheKey;  
+}
+```
+- CacheKey的hashcode生成算法
+
+刚才已经提到，Cache接口的实现，本质上是使用的`HashMap<k,v>`,而构建CacheKey的目的就是为了作为`HashMap<k,v>`中的key值。而HashMap是通过key值的hashcode 来组织和存储的，那么，构建CacheKey的过程实际上就是构造其hashCode的过程。下面的代码就是CacheKey的核心hashcode生成算法，感兴趣的话可以看一下：
+```java
+public void update(Object object) {  
+    if (object != null && object.getClass().isArray()) {  
+        int length = Array.getLength(object);  
+        for (int i = 0; i < length; i++) {  
+            Object element = Array.get(object, i);  
+            doUpdate(element);  
+        }  
+    } else {  
+        doUpdate(object);  
+    }  
+}  
+ 
+private void doUpdate(Object object) {  
+ 
+    //1. 得到对象的hashcode;    
+    int baseHashCode = object == null ? 1 : object.hashCode();  
+    //对象计数递增  
+    count++;  
+    checksum += baseHashCode;  
+    //2. 对象的hashcode 扩大count倍  
+    baseHashCode *= count;  
+    //3. hashCode * 拓展因子（默认37）+拓展扩大后的对象hashCode值  
+    hashcode = multiplier * hashcode + baseHashCode;  
+    updateList.add(object);  
+} 
+```
+MyBatis认为的完全相同的查询，不是指使用sqlSession查询时传递给算起来Session的所有参数值完完全全相同，你只要保证statementId，rowBounds,最后生成的SQL语句，以及这个SQL语句所需要的参数完全一致就可以了。
+
+### 12.1.6 一级缓存的性能分析
+
+- **MyBatis对会话（Session）级别的一级缓存设计的比较简单，就简单地使用了HashMap来维护，并没有对HashMap的容量和大小进行限制**
+
+读者有可能就觉得不妥了：如果我一直使用某一个SqlSession对象查询数据，这样会不会导致HashMap太大，而导致 java.lang.OutOfMemoryError错误啊？ 读者这么考虑也不无道理，不过MyBatis的确是这样设计的。
+
+MyBatis这样设计也有它自己的理由：
+
+- 一般而言SqlSession的生存时间很短。一般情况下使用一个SqlSession对象执行的操作不会太多，执行完就会消亡；
+
+- 对于某一个SqlSession对象而言，只要执行update操作（update、insert、delete），都会将这个SqlSession对象中对应的一级缓存清空掉，所以一般情况下不会出现缓存过大，影响JVM内存空间的问题；
+
+- 可以手动地释放掉SqlSession对象中的缓存。
+
+- **一级缓存是一个粗粒度的缓存，没有更新缓存和缓存过期的概念**
+
+MyBatis的一级缓存就是使用了简单的HashMap，MyBatis只负责将查询数据库的结果存储到缓存中去， 不会去判断缓存存放的时间是否过长、是否过期，因此也就没有对缓存的结果进行更新这一说了。
+
+根据一级缓存的特性，在使用的过程中，我认为应该注意：
+
+- 对于数据变化频率很大，并且需要高时效准确性的数据要求，我们使用SqlSession查询的时候，要控制好SqlSession的生存时间， SqlSession的生存时间越长，它其中缓存的数据有可能就越旧，从而造成和真实数据库的误差；同时对于这种情况，用户也可以手动地适时清空SqlSession中的缓存；
+- 对于只执行、并且频繁执行大范围的select操作的SqlSession对象，SqlSession对象的生存时间不应过长。
+# 十三、MyBatis详解 - 二级缓存实现机制
+> MyBatis的二级缓存是Application级别的缓存，它可以提高对数据库查询的效率，以提高应用的性能。
+## 13.1 MyBatis二级缓存实现
+MyBatis的二级缓存是Application级别的缓存，它可以提高对数据库查询的效率，以提高应用的性能。
+
+### 13.1.1 MyBatis的缓存机制整体设计以及二级缓存的工作模式
+![44.mybatis-y-cache-7.png](../../assets/images/04-主流框架/Mybatis/44.mybatis-y-cache-7.png)
+
+如图所示，当开一个会话时，一个SqlSession对象会使用一个Executor对象来完成会话操作，MyBatis的二级缓存机制的关键就是对这个Executor对象做文章。如果用户配置了"cacheEnabled=true"，那么MyBatis在为SqlSession对象创建Executor对象时，会对Executor对象加上一个装饰者：CachingExecutor，这时SqlSession使用CachingExecutor对象来完成操作请求。CachingExecutor对于查询请求，会先判断该查询请求在Application级别的二级缓存中是否有缓存结果，如果有查询结果，则直接返回缓存结果；如果缓存中没有，再交给真正的Executor对象来完成查询操作，之后CachingExecutor会将真正Executor返回的查询结果放置到缓存中，然后在返回给用户。
+![45.mybatis-y-cache-8.png](../../assets/images/04-主流框架/Mybatis/45.mybatis-y-cache-8.png)
+
+CachingExecutor是Executor的装饰者，以增强Executor的功能，使其具有缓存查询的功能，这里用到了设计模式中的装饰者模式，CachingExecutor和Executor的接口的关系如下类图所示：
+![46.mybatis-y-cache-9.png](../../assets/images/04-主流框架/Mybatis/46.mybatis-y-cache-9.png)
+### 13.1.2 MyBatis二级缓存的划分
+MyBatis并不是简单地对整个Application就只有一个Cache缓存对象，它将缓存划分的更细，即是Mapper级别的，即每一个Mapper都可以拥有一个Cache对象，具体如下：
+
+- 为每一个Mapper分配一个Cache缓存对象（使用`<cache>`节点配置）
+
+MyBatis将Application级别的二级缓存细分到Mapper级别，即对于每一个Mapper.xml,如果在其中使用了`<cache>` 节点，则MyBatis会为这个Mapper创建一个Cache缓存对象，如下图所示：
+![47.mybatis-y-cache-10.png](../../assets/images/04-主流框架/Mybatis/47.mybatis-y-cache-10.png)
+
+注：上述的每一个Cache对象，都会有一个自己所属的namespace命名空间，并且会将Mapper的 namespace作为它们的ID；
+
+- 多个Mapper共用一个Cache缓存对象（使用`<cache-ref>`节点配置）
+如果你想让多个Mapper公用一个Cache的话，你可以使用`<cache-ref namespace="">`节点，来指定你的这个Mapper使用到了哪一个Mapper的Cache缓存。
+![48.mybatis-y-cache-11.png](../../assets/images/04-主流框架/Mybatis/48.mybatis-y-cache-11.png)
+### 13.1.3 用二级缓存，必须要具备的条件
+MyBatis对二级缓存的支持粒度很细，它会指定某一条查询语句是否使用二级缓存。
+
+虽然在Mapper中配置了`<cache>`,并且为此Mapper分配了Cache对象，这并不表示我们使用Mapper中定义的查询语句查到的结果都会放置到Cache对象之中，我们必须指定Mapper中的某条选择语句是否支持缓存，即如下所示，在`<select>` 节点中配置useCache="true"，Mapper才会对此Select的查询支持缓存特性，否则，不会对此Select查询，不会经过Cache缓存。如下所示，Select语句配置了useCache="true"，则表明这条Select语句的查询会使用二级缓存。
+```xml
+<select id="selectByMinSalary" resultMap="BaseResultMap" parameterType="java.util.Map" useCache="true">
+```
+总之，要想使某条Select查询支持二级缓存，你需要保证：
+
+- MyBatis支持二级缓存的总开关：全局配置变量参数 cacheEnabled=true
+- 该select语句所在的Mapper，配置了`<cache> `或`<cached-ref>`节点，并且有效
+- 该select语句的参数 useCache=true
+### 13.1.4 一级缓存和二级缓存的使用顺序
+请注意，如果你的MyBatis使用了二级缓存，并且你的Mapper和select语句也配置使用了二级缓存，那么在执行select查询的时候，MyBatis会先从二级缓存中取输入，其次才是一级缓存，即**MyBatis查询数据的顺序是：二级缓存 ———> 一级缓存 ——> 数据库。**
+
+### 13.1.5 二级缓存实现的选择
+MyBatis对二级缓存的设计非常灵活，它自己内部实现了一系列的Cache缓存实现类，并提供了各种缓存刷新策略如LRU，FIFO等等；另外，MyBatis还允许用户自定义Cache接口实现，用户是需要实现org.apache.ibatis.cache.Cache接口，然后将Cache实现类配置在`<cache type="">`节点的type属性上即可；除此之外，MyBatis还支持跟第三方内存缓存库如Memecached的集成，总之，使用MyBatis的二级缓存有三个选择:
+
+- MyBatis自身提供的缓存实现；
+- 用户自定义的Cache接口实现；
+- 跟第三方内存缓存库的集成；
+### 13.1.6 MyBatis自身提供的二级缓存的实现
+> MyBatis自身提供了丰富的，并且功能强大的二级缓存的实现，它拥有一系列的Cache接口装饰者，可以满足各种对缓存操作和更新的策略。
+
+MyBatis定义了大量的Cache的装饰器来增强Cache缓存的功能，如下类图所示。
+![49.mybatis-y-cache-12.png](../../assets/images/04-主流框架/Mybatis/49.mybatis-y-cache-12.png)
+
+对于每个Cache而言，都有一个容量限制，MyBatis各供了各种策略来对Cache缓存的容量进行控制，以及对Cache中的数据进行刷新和置换。MyBatis主要提供了以下几个刷新和置换策略：
+
+- LRU：（Least Recently Used）,最近最少使用算法，即如果缓存中容量已经满了，会将缓存中最近最少被使用的缓存记录清除掉，然后添加新的记录；
+- FIFO：（First in first out）,先进先出算法，如果缓存中的容量已经满了，那么会将最先进入缓存中的数据清除掉；
+- Scheduled：指定时间间隔清空算法，该算法会以指定的某一个时间间隔将Cache缓存中的数据清空；
+## 13.2 如何细粒度地控制你的MyBatis二级缓存
+### 13.2.1 一个关于MyBatis的二级缓存的实际问题
+现有AMapper.xml中定义了对数据库表 ATable 的CRUD操作，BMapper定义了对数据库表BTable的CRUD操作；
+
+假设 MyBatis 的二级缓存开启，并且 AMapper 中使用了二级缓存，AMapper对应的二级缓存为ACache；
+
+除此之外，AMapper 中还定义了一个跟BTable有关的查询语句，类似如下所述：
+```xml
+<select id="selectATableWithJoin" resultMap="BaseResultMap" useCache="true">  
+      select * from ATable left join BTable on ....  
+</select>
+```
+执行以下操作：
+
+- 执行AMapper中的"selectATableWithJoin" 操作，此时会将查询到的结果放置到AMapper对应的二级缓存ACache中；
+- 执行BMapper中对BTable的更新操作(update、delete、insert)后，BTable的数据更新；
+- 再执行1完全相同的查询，这时候会直接从AMapper二级缓存ACache中取值，将ACache中的值直接返回；
+
+好，**问题就出现在第3步**上：
+
+由于AMapper的“selectATableWithJoin” 对应的SQL语句需要和BTable进行join查找，而在第 2 步BTable的数据已经更新了，但是第 3 步查询的值是第 1 步的缓存值，已经极有可能跟真实数据库结果不一样，即ACache中缓存数据过期了！
+
+总结来看，就是：
+
+对于某些使用了 join连接的查询，如果其关联的表数据发生了更新，join连接的查询由于先前缓存的原因，导致查询结果和真实数据不同步；
+
+从MyBatis的角度来看，这个问题可以这样表述：
+
+**对于某些表执行了更新(update、delete、insert)操作后，如何去清空跟这些表有关联的查询语句所造成的缓存**
+
+### 13.2.2 当前MyBatis二级缓存的工作机制
+> MyBatis二级缓存的一个重要特点：即松散的Cache缓存管理和维护
+![50.mybatis-y-cache-21.png](../../assets/images/04-主流框架/Mybatis/50.mybatis-y-cache-21.png)
+
+一个Mapper中定义的增删改查操作只能影响到自己关联的Cache对象。如上图所示的Mapper namespace1中定义的若干CRUD语句，产生的缓存只会被放置到相应关联的Cache1中，即Mapper namespace2,namespace3,namespace4 中的CRUD的语句不会影响到Cache1。
+
+可以看出，**Mapper之间的缓存关系比较松散，相互关联的程度比较弱。**
+
+现在再回到上面描述的问题，如果我们将AMapper和BMapper共用一个Cache对象，那么，当BMapper执行更新操作时，可以清空对应Cache中的所有的缓存数据，这样的话，数据不是也可以保持最新吗？
+
+确实这个也是一种解决方案，不过，它会使缓存的使用效率变的很低！AMapper和BMapper的任意的更新操作都会将共用的Cache清空，会频繁地清空Cache，导致Cache实际的命中率和使用率就变得很低了，所以这种策略实际情况下是不可取的。
+
+最理想的解决方案就是：
+
+**对于某些表执行了更新(update、delete、insert)操作后，去清空跟这些指定的表有关联的查询语句所造成的缓存**; 这样，就是以很细的粒度管理MyBatis内部的缓存，使得缓存的使用率和准确率都能大大地提升。
+## 13.3 补充：
+
+### 13.3.1. 二级缓存的生命周期
+
+**二级缓存的生命周期与SqlSession无关，它是应用级别的：**
+
+- **创建时机**：当首次访问配置了`<cache>`的Mapper时创建
+- **作用范围**：整个应用范围内共享（多个SqlSession共享）
+- **销毁时机**：
+  - 应用重启或关闭时自动销毁
+  - 手动调用`SqlSession.clearCache()`只会清空一级缓存，不影响二级缓存
+  - 可以通过`Cache`接口的`clear()`方法手动清空特定二级缓存
+  - 基于容量策略（LRU、FIFO）自动淘汰过期数据
+
+**与一级缓存的对比：**
+- 一级缓存：SqlSession级别，会话结束即销毁
+- 二级缓存：Application级别，应用运行期间持续存在
+
+### 13.3.2. 细粒度缓存清空的实现方案
+
+MyBatis**没有现成的内置机制**来实现"更新操作后清空关联查询缓存"的功能，但可以通过以下方式实现：
+
+#### 13.3.2.1 方案一：自定义Cache实现（推荐）
+```java
+public class RelationAwareCache implements Cache {
+    private final Cache delegate;
+    // 维护表与缓存key的关联关系
+    private final Map<String, Set<Object>> tableToKeysMap = new ConcurrentHashMap<>();
+    
+    @Override
+    public void putObject(Object key, Object value) {
+        // 解析SQL，识别涉及的表
+        Set<String> tables = parseTablesFromKey(key);
+        for (String table : tables) {
+            tableToKeysMap.computeIfAbsent(table, k -> ConcurrentHashMap.newKeySet())
+                         .add(key);
+        }
+        delegate.putObject(key, value);
+    }
+    
+    @Override
+    public Object getObject(Object key) {
+        return delegate.getObject(key);
+    }
+    
+    // 当某张表发生更新时，清空相关缓存
+    public void clearOnTableUpdate(String tableName) {
+        Set<Object> keys = tableToKeysMap.get(tableName);
+        if (keys != null) {
+            for (Object key : keys) {
+                delegate.removeObject(key);
+            }
+            keys.clear();
+        }
+    }
+    
+    private Set<String> parseTablesFromKey(Object key) {
+        // 解析缓存key，提取涉及的表名
+        // 实际实现需要根据MyBatis的缓存key结构来解析
+        return new HashSet<>();
+    }
+}
+```
+
+#### 13.3.2.2 方案二：使用缓存注解和AOP
+```java
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface CacheEvictOnTables {
+    String[] value(); // 需要清空缓存的表名
+}
+
+@Component
+@Aspect
+public class CacheEvictAspect {
+    @Autowired
+    private SqlSessionTemplate sqlSessionTemplate;
+    
+    @After("@annotation(cacheEvict)")
+    public void evictCache(CacheEvictOnTables cacheEvict) {
+        Configuration configuration = sqlSessionTemplate.getConfiguration();
+        for (String table : cacheEvict.value()) {
+            // 获取所有相关的Cache并清空
+            clearCachesRelatedToTable(configuration, table);
+        }
+    }
+}
+
+// 在更新方法上使用注解
+@CacheEvictOnTables({"ATable", "BTable"})
+public void updateBTable(BTable entity) {
+    bMapper.update(entity);
+}
+```
+
+### 13.3.3. Spring Boot中二级缓存的配置
+
+#### 13.3.3.1 默认状态
+**Spring Boot默认关闭二级缓存**，需要显式开启。
+
+#### 13.3.3.2 开启二级缓存的完整配置
+
+##### 13.3.3.2.1 步骤1：application.yml配置
+```yaml
+mybatis:
+  configuration:
+    cache-enabled: true  # 开启二级缓存
+    # 其他配置...
+```
+
+##### 13.3.3.2.2 步骤2：Mapper接口上添加注解
+```java
+@CacheNamespace // 开启该Mapper的二级缓存
+public interface UserMapper {
+    // 方法定义...
+}
+```
+
+##### 13.3.3.2.3 步骤3：或者在XML中配置
+```xml
+<!-- UserMapper.xml -->
+<mapper namespace="com.example.mapper.UserMapper">
+    <cache 
+        eviction="LRU"
+        flushInterval="60000"
+        size="512"
+        readOnly="true"/>
+    
+    <select id="selectById" resultType="User" useCache="true">
+        SELECT * FROM user WHERE id = #{id}
+    </select>
+</mapper>
+```
+
+##### 13.3.3.2.4 步骤4：实体类实现Serializable接口
+```java
+public class User implements Serializable {
+    private static final long serialVersionUID = 1L;
+    // 属性和方法...
+}
+```
+
+#### 13.3.3.4 缓存相关配置参数
+```yaml
+mybatis:
+  configuration:
+    cache-enabled: true           # 二级缓存总开关
+    local-cache-scope: session    # 一级缓存范围：session/statement
+  mapper-locations: classpath:mapper/*.xml
+```
+
+### 13.3.4 总结建议
+
+1. **二级缓存使用要谨慎**，特别是在多表关联查询的场景下
+2. **对于读写频繁的场景**，建议关闭二级缓存或使用更短的生命周期
+3. **考虑使用Redis等分布式缓存**替代MyBatis二级缓存，获得更好的控制和性能
+4. **在涉及多表更新的业务中**，建议实现自定义的缓存清理逻辑
+
+# 十四、▶扩展：ShardingSphere详解 - 整体架构设计
+> Apache ShardingSphere 5.x 版本开始致力于可插拔架构，项目的功能组件能够灵活的以可插拔的方式进行扩展。 目前，数据分片、读写分离、数据库高可用、数据加密、影子库压测等功能，以及对 MySQL、PostgreSQL、SQLServer、Oracle 等 SQL 与协议的支持，均通过插件的方式织入项目; 在 Apache ShardingSphere 中，很多功能实现类的加载方式是通过 SPI（Service Provider Interface） 注入的方式完成的。 SPI 是一种为了被第三方实现或扩展的 API，它可以用于实现框架扩展或组件替换。
+
+## 14.1 ShardingSphere产品定位
+> Apache ShardingSphere 产品定位为 Database Plus，旨在构建多模数据库上层的标准和生态。 它关注如何充分合理地利用数据库的计算和存储能力，而并非实现一个全新的数据库。ShardingSphere 站在数据库的上层视角，关注他们之间的协作多于数据库自身。
+
+- **连接、增量和可插拔是 Apache ShardingSphere 的核心概念。**
+
+  - 连接：通过对数据库协议、SQL 方言以及数据库存储的灵活适配，快速的连接应用与多模式的异构数据库；
+
+  - 增量：获取数据库的访问流量，并提供流量重定向（数据分片、读写分离、影子库）、流量变形（数据加密、数据脱敏）、流量鉴权（安全、审计、权限）、流量治理（熔断、限流）以及流量分析（服务质量分析、可观察性）等透明化增量功能；
+
+  - 可插拔：项目采用微内核 + 三层可插拔模型，使内核、功能组件以及生态对接完全能够灵活的方式进行插拔式扩展，开发者能够像使用积木一样定制属于自己的独特系统。
+![51.sharding-x-arch-1.png](../../assets/images/04-主流框架/Mybatis/51.sharding-x-arch-1.png)
+- 线路规划
+![52.sharding-x-arch-6.png](../../assets/images/04-主流框架/Mybatis/52.sharding-x-arch-6.png)
+## 14.2 ShardingSphere组成简介
+> Apache ShardingSphere 由 JDBC、Proxy 和 Sidecar（规划中）这 3 款既能够独立部署，又支持混合部署配合使用的产品组成。 它们均提供标准化的基于数据库作为存储节点的增量功能，可适用于如 Java 同构、异构语言、云原生等各种多样化的应用场景。
+
+关系型数据库当今依然占有巨大市场份额，是企业核心系统的基石，未来也难于撼动，我们更加注重在原有基础上提供增量，而非颠覆。
+
+| 特性 | ShardingSphere-JDBC | ShardingSphere-Proxy |
+|------|---------------------|----------------------|
+| 数据库支持 | 任意 | MySQL/PostgreSQL |
+| 连接消耗数 | 高 | 低 |
+| 异构语言支持 | 仅 Java | 任意 |
+| 性能损耗 | 低 | 略高 |
+| 无中心化 | 是 | 否 |
+| 静态入口 | 无 | 有 |
+### 14.2.1 ShardingSphere-JDBC
+> 定位为轻量级 Java 框架，在 Java 的 JDBC 层提供的额外服务。 它使用客户端直连数据库，以 jar 包形式提供服务，无需额外部署和依赖，可理解为增强版的 JDBC 驱动，完全兼容 JDBC 和各种 ORM 框架。
+
+- 适用于任何基于 JDBC 的 ORM 框架，如：JPA, Hibernate, Mybatis, Spring JDBC Template 或直接使用 JDBC；
+- 支持任何第三方的数据库连接池，如：DBCP, C3P0, BoneCP, HikariCP 等；
+- 支持任意实现 JDBC 规范的数据库，目前支持 MySQL，PostgreSQL，Oracle，SQLServer 以及任何可使用 JDBC 访问的数据库。
+![54.sharding-x-arch-2.png](../../assets/images/04-主流框架/Mybatis/54.sharding-x-arch-2.png)
+
+### 14.2.2 ShardingSphere-Proxy
+> 定位为透明化的数据库代理端，提供封装了数据库二进制协议的服务端版本，用于完成对异构语言的支持。 目前提供 MySQL 和 PostgreSQL（兼容 openGauss 等基于 PostgreSQL 的数据库）版本，它可以使用任何兼容 MySQL/PostgreSQL 协议的访问客户端（如：MySQL Command Client, MySQL Workbench, Navicat 等）操作数据，对 DBA 更加友好。
+
+- 向应用程序完全透明，可直接当做 MySQL/PostgreSQL 使用；
+- 适用于任何兼容 MySQL/PostgreSQL 协议的的客户端。
+![55.sharding-x-arch-3.png](../../assets/images/04-主流框架/Mybatis/55.sharding-x-arch-3.png)
+### 14.2.3 ShardingSphere-Sidecar（TODO）
+> 定位为 Kubernetes 的云原生数据库代理，以 Sidecar 的形式代理所有对数据库的访问。 通过无中心、零侵入的方案提供与数据库交互的啮合层，即 Database Mesh，又可称数据库网格。
+
+Database Mesh 的关注重点在于如何将分布式的数据访问应用与数据库有机串联起来，它更加关注的是交互，是将杂乱无章的应用与数据库之间的交互进行有效地梳理。 使用 Database Mesh，访问数据库的应用和数据库终将形成一个巨大的网格体系，应用和数据库只需在网格体系中对号入座即可，它们都是被啮合层所治理的对象。
+![56.sharding-x-arch-4.png](../../assets/images/04-主流框架/Mybatis/56.sharding-x-arch-4.png)
+
+## 14.3 混合架构
+> Apache ShardingSphere 是多接入端共同组成的生态圈。 通过混合使用 ShardingSphere-JDBC 和 ShardingSphere-Proxy，并采用同一注册中心统一配置分片策略，能够灵活的搭建适用于各种场景的应用系统，使得架构师更加自由地调整适合于当前业务的最佳系统架构。
+
+- ShardingSphere-JDBC 采用无中心化架构，与应用程序共享资源，适用于 Java 开发的高性能的轻量级 OLTP 应用；
+- ShardingSphere-Proxy 提供静态入口以及异构语言的支持，独立于应用程序部署，适用于 OLAP 应用以及对分片数据库进行管理和运维的场景。
+![57.sharding-x-arch-5.png](../../assets/images/04-主流框架/Mybatis/57.sharding-x-arch-5.png)
+
+## 14.4 ShardingSphere可插拔架构
+> 让开发者能够像使用积木一样定制属于自己的独特系统，是 Apache ShardingSphere 可插拔架构的设计目标。
+
+在 Apache ShardingSphere 中，很多功能实现类的加载方式是通过 SPI（Service Provider Interface） 注入的方式完成的。 SPI 是一种为了被第三方实现或扩展的 API，它可以用于实现框架扩展或组件替换。
+
+SPI相关的文章请参考：Java常用机制 - SPI机制
+
+## 14.5 挑战
+
+可插拔架构对程序架构设计的要求非常高，需要将各个模块相互独立，互不感知，并且通过一个可插拔内核，以叠加的方式将各种功能组合使用。 设计一套将功能开发完全隔离的架构体系，既可以最大限度的将开源社区的活力激发出来，也能够保障项目的质量。
+
+Apache ShardingSphere 5.x 版本开始致力于可插拔架构，项目的功能组件能够灵活的以可插拔的方式进行扩展。 目前，数据分片、读写分离、数据库高可用、数据加密、影子库压测等功能，以及对 MySQL、PostgreSQL、SQLServer、Oracle 等 SQL 与协议的支持，均通过插件的方式织入项目。 Apache ShardingSphere 目前已提供数十个 SPI 作为系统的扩展点，而且仍在不断增加中。
+
+![58.sharding-x-arch-7.png](../../assets/images/04-主流框架/Mybatis/58.sharding-x-arch-7.png)
+
+## 14.6 实现
+> Apache ShardingSphere 的可插拔架构划分为 3 层，它们是：L1 内核层、L2 功能层、L3 生态层。
+
+### 14.6.1 L1 内核层
+是数据库基本能力的抽象，其所有组件均必须存在，但具体实现方式可通过可插拔的方式更换。 主要包括查询优化器、分布式事务引擎、分布式执行引擎、权限引擎和调度引擎等。
+
+### 14.6.2 L2 功能层
+用于提供增量能力，其所有组件均是可选的，可以包含零至多个组件。组件之间完全隔离，互无感知，多组件可通过叠加的方式相互配合使用。 主要包括数据分片、读写分离、数据库高可用、数据加密、影子库等。用户自定义功能可完全面向 Apache ShardingSphere 定义的顶层接口进行定制化扩展，而无需改动内核代码。
+
+### 14.6.3 L3 生态层
+用于对接和融入现有数据库生态，包括数据库协议、SQL 解析器和存储适配器，分别对应于 Apache ShardingSphere 以数据库协议提供服务的方式、SQL 方言操作数据的方式以及对接存储节点的数据库类型。
+# 十五、扩展：ShardingSphere详解 - 数据分片的原理
+> 本文主要介绍ShardingSphere最重要的数据分片功能的原理，ShardingSphere的3个产品的数据分片主要流程是完全一致的，Standard 内核流程由 SQL 解析 => SQL 路由 => SQL 改写 => SQL 执行 => 结果归并 组成，主要用于处理标准分片场景下的 SQL 执行。 Federation 执行引擎流程由 SQL 解析 => 逻辑优化 => 物理优化 => 优化执行 => Standard 内核流程 组成。 这篇文章主要转载自<a href='https://shardingsphere.apache.org/document/legacy/4.x/document/cn/features/sharding/'>ShardingSphere官方网站</a>（v4.x版本 + V5.1.0版本），对于进阶数据库中间件或者设计自带Sharding的数据库(真正的分布式SQL数据库)极具参考价值。
+
+## 15.1 背景
+> 透明化读写分离所带来的影响，让使用方尽量像使用一个数据库一样使用主从数据库集群，是ShardingSphere读写分离模块的主要设计目标。
+
+### 15.1.1 需要解决的问题
+传统的将数据集中存储至单一数据节点的解决方案，在性能、可用性和运维成本这三方面已经难于满足互联网的海量数据场景。
+
+从性能方面来说，由于关系型数据库大多采用B+树类型的索引，在数据量超过阈值的情况下，索引深度的增加也将使得磁盘访问的IO次数增加，进而导致查询性能的下降；同时，高并发访问请求也使得集中式数据库成为系统的最大瓶颈。
+
+从可用性方面来讲，服务化的无状态型，能够达到较小成本的随意扩容，这必然导致系统的最终压力都落在数据库之上。而单一的数据节点，或者简单的主从架构，已经越来越难以承担。数据库的可用性，已成为整个系统的关键。
+
+从运维成本方面考虑，当一个数据库实例中的数据达到阈值以上，对于DBA的运维压力就会增大。数据备份和恢复的时间成本都将随着数据量的大小而愈发不可控。一般来讲，单一数据库实例的数据的阈值在1TB之内，是比较合理的范围。
+
+在传统的关系型数据库无法满足互联网场景需要的情况下，将数据存储至原生支持分布式的NoSQL的尝试越来越多。 但NoSQL对SQL的不兼容性以及生态圈的不完善，使得它们在与关系型数据库的博弈中始终无法完成致命一击，而关系型数据库的地位却依然不可撼动。
+
+### 15.1.2 分表分库
+数据分片指按照某个维度将存放在单一数据库中的数据分散地存放至多个数据库或表中以达到提升性能瓶颈以及可用性的效果。 数据分片的有效手段是对关系型数据库进行分库和分表。分库和分表均可以有效的避免由数据量超过可承受阈值而产生的查询瓶颈。 除此之外，分库还能够用于有效的分散对数据库单点的访问量；分表虽然无法缓解数据库压力，但却能够提供尽量将分布式事务转化为本地事务的可能，一旦涉及到跨库的更新操作，分布式事务往往会使问题变得复杂。 使用多主多从的分片方式，可以有效的避免数据单点，从而提升数据架构的可用性。
+
+通过分库和分表进行数据的拆分来使得各个表的数据量保持在阈值以下，以及对流量进行疏导应对高访问量，是应对高并发和海量数据系统的有效手段。
+
+数据分片的拆分方式又分为垂直分片和水平分片。
+
+#### 15.1.2.1 垂直分片
+按照业务拆分的方式称为垂直分片，又称为纵向拆分，它的核心理念是专库专用。 在拆分之前，一个数据库由多个数据表构成，每个表对应着不同的业务。而拆分之后，则是按照业务将表进行归类，分布到不同的数据库中，从而将压力分散至不同的数据库。 下图展示了根据业务需要，将用户表和订单表垂直分片到不同的数据库的方案。
+![59.sharding-x-shard-16.png](../../assets/images/04-主流框架/Mybatis/59.sharding-x-shard-16.png)
+
+
+垂直分片往往需要对架构和设计进行调整。通常来讲，是来不及应对互联网业务需求快速变化的；而且，它也并无法真正的解决单点瓶颈。 垂直拆分可以缓解数据量和访问量带来的问题，但无法根治。如果垂直拆分之后，表中的数据量依然超过单节点所能承载的阈值，则需要水平分片来进一步处理。
+
+#### 15.1.2.2 水平分片
+水平分片又称为横向拆分。 相对于垂直分片，它不再将数据根据业务逻辑分类，而是通过某个字段（或某几个字段），根据某种规则将数据分散至多个库或表中，每个分片仅包含数据的一部分。 例如：根据主键分片，偶数主键的记录放入0库（或表），奇数主键的记录放入1库（或表），如下图所示。
+![60.sharding-x-shard-17.png](../../assets/images/04-主流框架/Mybatis/60.sharding-x-shard-17.png)
+
+
+水平分片从理论上突破了单机数据量处理的瓶颈，并且扩展相对自由，是分库分表的标准解决方案。
+
+## 15.2 整体流程
+> ShardingSphere 的 3 个产品的数据分片主要流程是完全一致的，按照是否进行查询优化，可以分为 Standard 内核流程和 Federation 执行引擎流程。 Standard 内核流程由 SQL 解析 => SQL 路由 => SQL 改写 => SQL 执行 => 结果归并 组成，主要用于处理标准分片场景下的 SQL 执行。 Federation 执行引擎流程由 SQL 解析 => 逻辑优化 => 物理优化 => 优化执行 => Standard 内核流程 组成，Federation 执行引擎内部进行逻辑优化和物理优化，在优化执行阶段依赖 Standard 内核流程，对优化后的逻辑 SQL 进行路由、改写、执行和归并。
+![61.sharding-x-shard-18.png](../../assets/images/04-主流框架/Mybatis/61.sharding-x-shard-18.png)
+
+
+- SQL解析
+
+分为词法解析和语法解析。 先通过词法解析器将SQL拆分为一个个不可再分的单词。再使用语法解析器对SQL进行理解，并最终提炼出解析上下文。 解析上下文包括表、选择项、排序项、分组项、聚合函数、分页信息、查询条件以及可能需要修改的占位符的标记。
+
+- SQL路由
+
+根据解析上下文匹配用户配置的分片策略，并生成路由路径。目前支持分片路由和广播路由。
+
+- SQL改写
+
+将SQL改写为在真实数据库中可以正确执行的语句。SQL改写分为正确性改写和优化改写。
+
+- SQL执行
+
+通过多线程执行器异步执行。
+
+- 结果归并
+
+将多个执行结果集归并以便于通过统一的JDBC接口输出。结果归并包括流式归并、内存归并和使用装饰者模式的追加归并这几种方式。
+
+- 查询优化
+
+由 Federation 执行引擎（开发中）提供支持，对关联查询、子查询等复杂查询进行优化，同时支持跨多个数据库实例的分布式查询，内部使用关系代数优化查询计划，通过最优计划查询出结果。
+
+## 15.3 解析引擎
+> 相对于其他编程语言，SQL是比较简单的。 不过，它依然是一门完善的编程语言，因此对SQL的语法进行解析，与解析其他编程语言（如：Java语言、C语言、Go语言等）并无本质区别。
+
+### 15.3.1 抽象语法树
+解析过程分为词法解析和语法解析。 词法解析器用于将SQL拆解为不可再分的原子符号，称为Token。并根据不同数据库方言所提供的字典，将其归类为关键字，表达式，字面量和操作符。 再使用语法解析器将SQL转换为抽象语法树。
+
+例如，以下SQL：
+```sql
+SELECT id, name FROM t_user WHERE status = 'ACTIVE' AND age > 18
+```
+解析之后的为抽象语法树见下图。
+![62.sharding-x-shard-2.png](../../assets/images/04-主流框架/Mybatis/62.sharding-x-shard-2.png)
+
+
+为了便于理解，抽象语法树中的关键字的Token用绿色表示，变量的Token用红色表示，灰色表示需要进一步拆分。
+
+最后，通过对抽象语法树的遍历去提炼分片所需的上下文，并标记有可能需要改写的位置。 供分片使用的解析上下文包含查询选择项（Select Items）、表信息（Table）、分片条件（Sharding Condition）、自增主键信息（Auto increment Primary Key）、排序信息（Order By）、分组信息（Group By）以及分页信息（Limit、Rownum、Top）。 SQL的一次解析过程是不可逆的，一个个Token的按SQL原本的顺序依次进行解析，性能很高。 考虑到各种数据库SQL方言的异同，在解析模块提供了各类数据库的SQL方言字典。
+
+### 15.3.2 SQL解析引擎
+SQL解析作为分库分表类产品的核心，其性能和兼容性是最重要的衡量指标。 ShardingSphere的SQL解析器经历了3代产品的更新迭代。
+
+第一代SQL解析器为了追求性能与快速实现，在1.4.x之前的版本使用Druid作为SQL解析器。经实际测试，它的性能远超其它解析器。
+
+第二代SQL解析器从1.5.x版本开始，ShardingSphere采用完全自研的SQL解析引擎。 由于目的不同，ShardingSphere并不需要将SQL转为一颗完全的抽象语法树，也无需通过访问器模式进行二次遍历。它采用对SQL半理解的方式，仅提炼数据分片需要关注的上下文，因此SQL解析的性能和兼容性得到了进一步的提高。
+
+第三代SQL解析器则从3.0.x版本开始，ShardingSphere尝试使用ANTLR作为SQL解析的引擎，并计划根据DDL -> TCL -> DAL –> DCL -> DML –>DQL这个顺序，依次替换原有的解析引擎，目前仍处于替换迭代中。 使用ANTLR的原因是希望ShardingSphere的解析引擎能够更好的对SQL进行兼容。对于复杂的表达式、递归、子查询等语句，虽然ShardingSphere的分片核心并不关注，但是会影响对于SQL理解的友好度。 经过实例测试，ANTLR解析SQL的性能比自研的SQL解析引擎慢3-10倍左右。为了弥补这一差距，ShardingSphere将使用PreparedStatement的SQL解析的语法树放入缓存。 因此建议采用PreparedStatement这种SQL预编译的方式提升性能。
+
+第三代SQL解析引擎的整体结构划分如下图所示。
+![63.sharding-x-shard-3.png](../../assets/images/04-主流框架/Mybatis/63.sharding-x-shard-3.png)
+
+
+## 15.4 路由引擎
+> 根据解析上下文匹配数据库和表的分片策略，并生成路由路径。 对于携带分片键的SQL，根据分片键的不同可以划分为单片路由(分片键的操作符是等号)、多片路由(分片键的操作符是IN)和范围路由(分片键的操作符是BETWEEN)。 不携带分片键的SQL则采用广播路由。
+
+分片策略通常可以采用由数据库内置或由用户方配置。 数据库内置的方案较为简单，内置的分片策略大致可分为尾数取模、哈希、范围、标签、时间等。 由用户方配置的分片策略则更加灵活，可以根据使用方需求定制复合分片策略。 如果配合数据自动迁移来使用，可以做到无需用户关注分片策略，自动由数据库中间层分片和平衡数据即可，进而做到使分布式数据库具有的弹性伸缩的能力。 在ShardingSphere的线路规划中，弹性伸缩将于4.x开启。
+
+路由引擎的整体结构划分如下图。
+![64.sharding-x-shard-4.png](../../assets/images/04-主流框架/Mybatis/64.sharding-x-shard-4.png)
+
+
+### 15.4.1 分片路由
+用于根据分片键进行路由的场景，又细分为直接路由、标准路由和笛卡尔积路由这3种类型。
+
+#### 15.4.1.1 直接路由
+满足直接路由的条件相对苛刻，它需要通过Hint（使用HintAPI直接指定路由至库表）方式分片，并且是**只分库不分表**的前提下，则可以避免SQL解析和之后的结果归并。 因此它的兼容性最好，可以执行包括子查询、自定义函数等复杂情况的任意SQL。直接路由还可以用于分片键不在SQL中的场景。例如，设置用于数据库分片的键为3，
+```java
+hintManager.setDatabaseShardingValue(3);
+```
+假如路由算法为value % 2，当一个逻辑库t_order对应2个真实库t_order_0和t_order_1时，路由后SQL将在t_order_1上执行。下方是使用API的代码样例：
+```java
+String sql = "SELECT * FROM t_order";
+try (
+        HintManager hintManager = HintManager.getInstance();
+        Connection conn = dataSource.getConnection();
+        PreparedStatement pstmt = conn.prepareStatement(sql)) {
+    hintManager.setDatabaseShardingValue(3);
+    try (ResultSet rs = pstmt.executeQuery()) {
+        while (rs.next()) {
+            //...
+        }
+    }
+}
+```
+- **原因**：直接路由不依赖于 SQL 解析，而是通过编程方式强制指定分片值（如分库键的值），从而绕过 ShardingSphere 的自动路由逻辑。这需要开发者在代码中主动调用 Hint API（如 `HintManager.setDatabaseShardingValue()`）来设置分片值。  
+- **关键点**：  
+  - 直接路由适用于分片键不在 SQL 中的场景（如上述示例的 SQL 没有 `WHERE` 条件），或需要执行复杂 SQL（如子查询、自定义函数）的情况。  
+  - 如果不使用 Hint API，ShardingSphere 会尝试通过 SQL 解析来自动路由（可能走标准路由或笛卡尔路由），而无法实现直接路由。
+#### 15.4.1.2 标准路由
+标准路由是ShardingSphere最为推荐使用的分片方式，它的适用范围是不包含关联查询或仅包含绑定表之间关联查询的SQL。 当分片运算符是等于号时，路由结果将落入单库（表），当分片运算符是BETWEEN或IN时，则路由结果不一定落入唯一的库（表），因此一条逻辑SQL最终可能被拆分为多条用于执行的真实SQL。 举例说明，如果按照order_id的奇数和偶数进行数据分片，一个单表查询的SQL如下：
+```sql
+SELECT * FROM t_order WHERE order_id IN (1, 2);
+```
+那么路由的结果应为：
+```sql
+SELECT * FROM t_order_0 WHERE order_id IN (1, 2);
+SELECT * FROM t_order_1 WHERE order_id IN (1, 2);
+```
+绑定表的关联查询与单表查询复杂度和性能相当。举例说明，如果一个包含绑定表的关联查询的SQL如下：
+```sql
+SELECT * FROM t_order o JOIN t_order_item i ON o.order_id=i.order_id  WHERE order_id IN (1, 2);
+```
+那么路由的结果应为：
+```sql
+SELECT * FROM t_order_0 o JOIN t_order_item_0 i ON o.order_id=i.order_id  WHERE order_id IN (1, 2);
+SELECT * FROM t_order_1 o JOIN t_order_item_1 i ON o.order_id=i.order_id  WHERE order_id IN (1, 2);
+```
+可以看到，SQL拆分的数目与单表是一致的。
+- **前提**：将 `t_order` 和 `t_order_item` 配置为绑定表（在 ShardingSphere 配置中声明它们的分片规则一致）。  
+#### 15.4.1.3 笛卡尔路由
+笛卡尔路由是最复杂的情况，它无法根据绑定表的关系定位分片规则，因此非绑定表之间的关联查询需要拆解为笛卡尔积组合执行。 如果上个示例中的SQL并未配置绑定表关系，那么路由的结果应为：
+```sql
+SELECT * FROM t_order_0 o JOIN t_order_item_0 i ON o.order_id=i.order_id  WHERE order_id IN (1, 2);
+SELECT * FROM t_order_0 o JOIN t_order_item_1 i ON o.order_id=i.order_id  WHERE order_id IN (1, 2);
+SELECT * FROM t_order_1 o JOIN t_order_item_0 i ON o.order_id=i.order_id  WHERE order_id IN (1, 2);
+SELECT * FROM t_order_1 o JOIN t_order_item_1 i ON o.order_id=i.order_id  WHERE order_id IN (1, 2);
+```
+笛卡尔路由查询性能较低，需谨慎使用。
+- **前提**：`t_order` 和 `t_order_item` 未配置为绑定表（例如，`t_order_item` 使用了不同的分片键，或分片算法不一致）。  
+
+- 那么如何指定表质检的绑定规则呢？
+
+在 ShardingSphere 中声明绑定表关系是通过配置文件来完成的。以下是详细的配置方法和示例：
+
+1. YAML 配置文件方式
+
+- 完整配置示例
+```yaml
+dataSources:
+  ds_0:
+    url: jdbc:mysql://127.0.0.1:3306/ds_0
+    username: root
+    password: 
+  ds_1:
+    url: jdbc:mysql://127.0.0.1:3306/ds_1
+    username: root
+    password: 
+
+rules:
+- !SHARDING
+  tables:
+    t_order:
+      actualDataNodes: ds_${0..1}.t_order_${0..1}
+      databaseStrategy:
+        standard:
+          shardingColumn: order_id
+          shardingAlgorithmName: database_inline
+      tableStrategy:
+        standard:
+          shardingColumn: order_id
+          shardingAlgorithmName: table_inline
+      keyGenerateStrategy:
+        column: order_id
+        keyGeneratorName: snowflake
+    
+    t_order_item:
+      actualDataNodes: ds_${0..1}.t_order_item_${0..1}
+      databaseStrategy:
+        standard:
+          shardingColumn: order_id
+          shardingAlgorithmName: database_inline
+      tableStrategy:
+        standard:
+          shardingColumn: order_id
+          shardingAlgorithmName: table_inline
+      keyGenerateStrategy:
+        column: order_item_id
+        keyGeneratorName: snowflake
+  
+  # 关键配置：声明绑定表关系
+  bindingTables:
+    - t_order, t_order_item  # 将这两个表声明为绑定表
+  
+  # 分片算法配置
+  shardingAlgorithms:
+    database_inline:
+      type: INLINE
+      props:
+        algorithm-expression: ds_${order_id % 2}
+    table_inline:
+      type: INLINE
+      props:
+        algorithm-expression: t_order_${order_id % 2}
+  
+  keyGenerators:
+    snowflake:
+      type: SNOWFLAKE
+```
+
+2. Spring Boot 配置文件方式
+
+- application.yml 配置
+```yaml
+spring:
+  shardingsphere:
+    datasource:
+      names: ds_0, ds_1
+      ds_0:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://127.0.0.1:3306/ds_0
+        username: root
+        password: 
+      ds_1:
+        type: com.zaxxer.hikari.HikariDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        jdbc-url: jdbc:mysql://127.0.0.1:3306/ds_1
+        username: root
+        password: 
+    
+    rules:
+      sharding:
+        # 绑定表配置
+        binding-tables: t_order, t_order_item
+        
+        tables:
+          t_order:
+            actual-data-nodes: ds_${0..1}.t_order_${0..1}
+            database-strategy:
+              standard:
+                sharding-column: order_id
+                sharding-algorithm-name: database-inline
+            table-strategy:
+              standard:
+                sharding-column: order_id
+                sharding-algorithm-name: table-inline
+            key-generate-strategy:
+              column: order_id
+              key-generator-name: snowflake
+          
+          t_order_item:
+            actual-data-nodes: ds_${0..1}.t_order_item_${0..1}
+            database-strategy:
+              standard:
+                sharding-column: order_id
+                sharding-algorithm-name: database-inline
+            table-strategy:
+              standard:
+                sharding-column: order_id
+                sharding-algorithm-name: table-inline
+            key-generate-strategy:
+              column: order_item_id
+              key-generator-name: snowflake
+        
+        sharding-algorithms:
+          database-inline:
+            type: INLINE
+            props:
+              algorithm-expression: ds_${order_id % 2}
+          table-inline:
+            type: INLINE
+            props:
+              algorithm-expression: t_order_${order_id % 2}
+        
+        key-generators:
+          snowflake:
+            type: SNOWFLAKE
+```
+
+3. Java 代码配置方式
+
+```java
+@Configuration
+public class ShardingSphereConfig {
+    
+    @Bean
+    public DataSource dataSource() throws SQLException {
+        // 数据源配置
+        Map<String, DataSource> dataSourceMap = new HashMap<>();
+        
+        HikariDataSource ds0 = new HikariDataSource();
+        ds0.setJdbcUrl("jdbc:mysql://127.0.0.1:3306/ds_0");
+        ds0.setUsername("root");
+        ds0.setPassword("");
+        dataSourceMap.put("ds_0", ds0);
+        
+        HikariDataSource ds1 = new HikariDataSource();
+        ds1.setJdbcUrl("jdbc:mysql://127.0.0.1:3306/ds_1");
+        ds1.setUsername("root");
+        ds1.setPassword("");
+        dataSourceMap.put("ds_1", ds1);
+        
+        // 分片规则配置
+        ShardingRuleConfiguration shardingRuleConfig = new ShardingRuleConfiguration();
+        
+        // 配置 t_order 表规则
+        ShardingTableRuleConfiguration orderTableRuleConfig = new ShardingTableRuleConfiguration(
+                "t_order", "ds_${0..1}.t_order_${0..1}");
+        orderTableRuleConfig.setTableShardingStrategy(
+                new StandardShardingStrategyConfiguration("order_id", "table-inline"));
+        orderTableRuleConfig.setDatabaseShardingStrategy(
+                new StandardShardingStrategyConfiguration("order_id", "database-inline"));
+        orderTableRuleConfig.setKeyGenerateStrategy(
+                new KeyGenerateStrategyConfiguration("order_id", "snowflake"));
+        
+        // 配置 t_order_item 表规则
+        ShardingTableRuleConfiguration orderItemTableRuleConfig = new ShardingTableRuleConfiguration(
+                "t_order_item", "ds_${0..1}.t_order_item_${0..1}");
+        orderItemTableRuleConfig.setTableShardingStrategy(
+                new StandardShardingStrategyConfiguration("order_id", "table-inline"));
+        orderItemTableRuleConfig.setDatabaseShardingStrategy(
+                new StandardShardingStrategyConfiguration("order_id", "database-inline"));
+        orderItemTableRuleConfig.setKeyGenerateStrategy(
+                new KeyGenerateStrategyConfiguration("order_item_id", "snowflake"));
+        
+        shardingRuleConfig.getTables().add(orderTableRuleConfig);
+        shardingRuleConfig.getTables().add(orderItemTableRuleConfig);
+        
+        // 关键配置：声明绑定表关系
+        shardingRuleConfig.getBindingTableGroups().add("t_order, t_order_item");
+        
+        // 配置分片算法
+        Properties databaseInlineProps = new Properties();
+        databaseInlineProps.setProperty("algorithm-expression", "ds_${order_id % 2}");
+        shardingRuleConfig.getShardingAlgorithms().put("database-inline", 
+                new ShardingSphereAlgorithmConfiguration("INLINE", databaseInlineProps));
+        
+        Properties tableInlineProps = new Properties();
+        tableInlineProps.setProperty("algorithm-expression", "t_order_${order_id % 2}");
+        shardingRuleConfig.getShardingAlgorithms().put("table-inline", 
+                new ShardingSphereAlgorithmConfiguration("INLINE", tableInlineProps));
+        
+        // 配置分布式序列算法
+        shardingRuleConfig.getKeyGenerators().put("snowflake", 
+                new ShardingSphereAlgorithmConfiguration("SNOWFLAKE", new Properties()));
+        
+        return ShardingSphereDataSourceFactory.createDataSource(dataSourceMap, 
+                Collections.singleton(shardingRuleConfig), new Properties());
+    }
+}
+```
+
+- 绑定表配置的关键要点
+
+1. **分片规则必须一致**：绑定表必须使用相同的分片键和分片算法
+2. **配置位置**：在 `bindingTables` 或 `binding-tables` 配置项中声明
+3. **语法格式**：用逗号分隔表名，如 `t_order, t_order_item`
+4. **多组绑定表**：可以配置多个绑定表组
+   ```yaml
+   bindingTables:
+     - t_order, t_order_item
+     - t_user, t_user_detail, t_user_log
+   ```
+
+- 验证绑定表是否生效
+
+配置完成后，执行关联查询时，ShardingSphere 会自动识别绑定表关系，使用标准路由而不是笛卡尔积路由，从而提升查询性能。
+
+**没有绑定表配置**：4条SQL（笛卡尔积）
+**有绑定表配置**：2条SQL（标准路由）
+
+### 15.4.2 广播路由
+对于不携带分片键的SQL，则采取广播路由的方式。根据SQL类型又可以划分为全库表路由、全库路由、全实例路由、单播路由和阻断路由这5种类型。
+
+#### 15.4.2.1 全库表路由
+全库表路由用于处理对数据库中与其逻辑表相关的所有真实表的操作，主要包括不带分片键的DQL和DML，以及DDL等。例如：
+```sql
+SELECT * FROM t_order WHERE good_prority IN (1, 10);
+```
+则会遍历所有数据库中的所有表，逐一匹配逻辑表和真实表名，能够匹配得上则执行。路由后成为
+```sql
+SELECT * FROM t_order_0 WHERE good_prority IN (1, 10);
+SELECT * FROM t_order_1 WHERE good_prority IN (1, 10);
+SELECT * FROM t_order_2 WHERE good_prority IN (1, 10);
+SELECT * FROM t_order_3 WHERE good_prority IN (1, 10);
+```
+#### 15.4.2.2 全库路由
+全库路由用于处理对数据库的操作，包括用于库设置的SET类型的数据库管理命令，以及TCL这样的事务控制语句。 在这种情况下，会根据逻辑库的名字遍历所有符合名字匹配的真实库，并在真实库中执行该命令，例如：
+```sql
+SET autocommit=0;
+```
+在t_order中执行，t_order有2个真实库。则实际会在t_order_0和t_order_1上都执行这个命令。
+
+#### 15.4.2.3 全实例路由
+全实例路由用于DCL操作，授权语句针对的是数据库的实例。无论一个实例中包含多少个Schema，每个数据库的实例只执行一次。例如：
+```sql
+CREATE USER customer@127.0.0.1 identified BY '123';
+```
+这个命令将在所有的真实数据库实例中执行，以确保customer用户可以访问每一个实例。
+
+#### 15.4.2.4 单播路由
+单播路由用于获取某一真实表信息的场景，它仅需要从任意库中的任意真实表中获取数据即可。例如：
+```sql
+DESCRIBE t_order;
+```
+t_order的两个真实表t_order_0，t_order_1的描述结构相同，所以这个命令在任意真实表上选择执行一次。
+
+#### 15.4.2.5 阻断路由
+阻断路由用于屏蔽SQL对数据库的操作，例如：
+```sql
+USE order_db;
+```
+这个命令不会在真实数据库中执行，因为ShardingSphere采用的是逻辑Schema的方式，无需将切换数据库Schema的命令发送至数据库中。
+
+## 15.5 改写引擎
+> 工程师面向逻辑库与逻辑表书写的SQL，并不能够直接在真实的数据库中执行，SQL改写用于将逻辑SQL改写为在真实数据库中可以正确执行的SQL。 它包括正确性改写和优化改写两部分。
+
+改写引擎的整体结构划分如下图所示。
+![65.sharding-x-shard-7.png](../../assets/images/04-主流框架/Mybatis/65.sharding-x-shard-7.png)
+
+### 15.5.1 正确性改写
+在包含分表的场景中，需要将分表配置中的逻辑表名称改写为路由之后所获取的真实表名称。仅分库则不需要表名称的改写。除此之外，还包括补列和分页信息修正等内容。
+
+#### 15.5.1.1 标识符改写
+**需要改写的标识符包括表名称、索引名称以及Schema名称。**
+
+表名称改写是指将找到逻辑表在原始SQL中的位置，并将其改写为真实表的过程。表名称改写是一个典型的需要对SQL进行解析的场景。 从一个最简单的例子开始，若逻辑SQL为：
+```sql
+SELECT order_id FROM t_order WHERE order_id=1;
+```
+假设该SQL配置分片键order_id，并且order_id=1的情况，将路由至分片表1。那么改写之后的SQL应该为：
+```sql
+SELECT order_id FROM t_order_1 WHERE order_id=1;
+```
+在这种最简单的SQL场景中，是否将SQL解析为抽象语法树似乎无关紧要，只要通过字符串查找和替换就可以达到SQL改写的效果。 但是下面的场景，就无法仅仅通过字符串的查找替换来正确的改写SQL了：
+```sql
+SELECT order_id FROM t_order WHERE order_id=1 AND remarks=' t_order xxx';
+```
+正确改写的SQL应该是：
+```sql
+SELECT order_id FROM t_order_1 WHERE order_id=1 AND remarks=' t_order xxx';
+```
+而非：
+```sql
+SELECT order_id FROM t_order_1 WHERE order_id=1 AND remarks=' t_order_1 xxx';
+```
+由于表名之外可能含有表名称的类似字符，因此不能通过简单的字符串替换的方式去改写SQL。
+
+下面再来看一个更加复杂的SQL改写场景：
+```sql
+SELECT t_order.order_id FROM t_order WHERE t_order.order_id=1 AND remarks=' t_order xxx';
+```
+上面的SQL将表名作为字段的标识符，因此在SQL改写时需要一并修改：
+```sql
+SELECT t_order_1.order_id FROM t_order_1 WHERE t_order_1.order_id=1 AND remarks=' t_order xxx';
+```
+而如果SQL中定义了表的别名，则无需连同别名一起修改，即使别名与表名相同亦是如此。例如：
+```sql
+SELECT t_order.order_id FROM t_order AS t_order WHERE t_order.order_id=1 AND remarks=' t_order xxx';
+```
+SQL改写则仅需要改写表名称就可以了：
+```sql
+SELECT t_order.order_id FROM t_order_1 AS t_order WHERE t_order.order_id=1 AND remarks=' t_order xxx';
+```
+索引名称是另一个有可能改写的标识符。 在某些数据库中（如MySQL、SQLServer），索引是以表为维度创建的，在不同的表中的索引是可以重名的； 而在另外的一些数据库中（如PostgreSQL、Oracle），索引是以数据库为维度创建的，即使是作用在不同表上的索引，它们也要求其名称的唯一性。
+
+在ShardingSphere中，管理Schema的方式与管理表如出一辙，它采用逻辑Schema去管理一组数据源。 因此，ShardingSphere需要将用户在SQL中书写的逻辑Schema替换为真实的数据库Schema。
+
+ShardingSphere目前还不支持在DQL和DML语句中使用Schema。 它目前仅支持在数据库管理语句中使用Schema，例如：
+```sql
+SHOW COLUMNS FROM t_order FROM order_ds;
+```
+Schema的改写指的是将逻辑Schema采用单播路由的方式，改写为随机查找到的一个正确的真实Schema。
+
+#### 15.5.1.2 补列
+需要在查询语句中补列通常由两种情况导致。 第一种情况是ShardingSphere需要在结果归并时获取相应数据，但该数据并未能通过查询的SQL返回。 这种情况主要是针对GROUP BY和ORDER BY。结果归并时，需要根据GROUP BY和ORDER BY的字段项进行分组和排序，但如果原始SQL的选择项中若并未包含分组项或排序项，则需要对原始SQL进行改写。 先看一下原始SQL中带有结果归并所需信息的场景：
+```sql
+SELECT order_id, user_id FROM t_order ORDER BY user_id;
+```
+由于使用user_id进行排序，在结果归并中需要能够获取到user_id的数据，而上面的SQL是能够获取到user_id数据的，因此无需补列。
+
+如果选择项中不包含结果归并时所需的列，则需要进行补列，如以下SQL：
+```sql
+SELECT order_id FROM t_order ORDER BY user_id;
+```
+由于原始SQL中并不包含需要在结果归并中需要获取的user_id，因此需要对SQL进行补列改写。补列之后的SQL是：
+```sql
+SELECT order_id, user_id AS ORDER_BY_DERIVED_0 FROM t_order ORDER BY user_id;
+```
+值得一提的是，补列只会补充缺失的列，不会全部补充，而且，在SELECT语句中包含*的SQL，也会根据表的元数据信息选择性补列。下面是一个较为复杂的SQL补列场景：
+```sql
+SELECT o.* FROM t_order o, t_order_item i WHERE o.order_id=i.order_id ORDER BY user_id, order_item_id;
+```
+我们假设只有t_order_item表中包含order_item_id列，那么根据表的元数据信息可知，在结果归并时，排序项中的user_id是存在于t_order表中的，无需补列；order_item_id并不在t_order中，因此需要补列。 补列之后的SQL是：
+```sql
+SELECT o.*, order_item_id AS ORDER_BY_DERIVED_0 FROM t_order o, t_order_item i WHERE o.order_id=i.order_id ORDER BY user_id, order_item_id;
+```
+补列的另一种情况是使用AVG聚合函数。在分布式的场景中，使用avg1 + avg2 + avg3 / 3计算平均值并不正确，需要改写为 (sum1 + sum2 + sum3) / (count1 + count2 + count3)。 这就需要将包含AVG的SQL改写为SUM和COUNT，并在结果归并时重新计算平均值。例如以下SQL：
+```sql
+SELECT AVG(price) FROM t_order WHERE user_id=1;
+```
+需要改写为：
+```sql
+SELECT COUNT(price) AS AVG_DERIVED_COUNT_0, SUM(price) AS AVG_DERIVED_SUM_0 FROM t_order WHERE user_id=1;
+```
+然后才能够通过结果归并正确的计算平均值。
+
+最后一种补列是在执行INSERT的SQL语句时，如果使用数据库自增主键，是无需写入主键字段的。 但数据库的自增主键是无法满足分布式场景下的主键唯一的，因此ShardingSphere提供了分布式自增主键的生成策略，并且可以通过补列，让使用方无需改动现有代码，即可将分布式自增主键透明的替换数据库现有的自增主键。 分布式自增主键的生成策略将在下文中详述，这里只阐述与SQL改写相关的内容。 举例说明，假设表t_order的主键是order_id，原始的SQL为：
+```sql
+INSERT INTO t_order (`field1`, `field2`) VALUES (10, 1);
+```
+可以看到，上述SQL中并未包含自增主键，是需要数据库自行填充的。ShardingSphere配置自增主键后，SQL将改写为：
+```sql
+INSERT INTO t_order (`field1`, `field2`, order_id) VALUES (10, 1, xxxxx);
+```
+改写后的SQL将在INSERT FIELD和INSERT VALUE的最后部分增加主键列名称以及自动生成的自增主键值。上述SQL中的xxxxx表示自动生成的自增主键值。
+
+如果INSERT的SQL中并未包含表的列名称，ShardingSphere也可以根据判断参数个数以及表元信息中的列数量对比，并自动生成自增主键。例如，原始的SQL为：
+```sql
+INSERT INTO t_order VALUES (10, 1);
+```
+改写的SQL将只在主键所在的列顺序处增加自增主键即可：
+```sql
+INSERT INTO t_order VALUES (xxxxx, 10, 1);
+```
+自增主键补列时，如果使用占位符的方式书写SQL，则只需要改写参数列表即可，无需改写SQL本身。
+
+#### 15.5.1.3 分页修正
+从多个数据库获取分页数据与单数据库的场景是不同的。 假设每10条数据为一页，取第2页数据。在分片环境下获取LIMIT 10, 10，归并之后再根据排序条件取出前10条数据是不正确的。 举例说明，若SQL为：
+```sql
+SELECT score FROM t_score ORDER BY score DESC LIMIT 1, 2;
+```
+下图展示了不进行SQL的改写的分页执行结果。
+![66.sharding-x-shard-5.png](../../assets/images/04-主流框架/Mybatis/66.sharding-x-shard-5.png)
+
+
+通过图中所示，想要取得两个表中共同的按照分数排序的第2条和第3条数据，应该是95和90。 由于执行的SQL只能从每个表中获取第2条和第3条数据，即从t_score_0表中获取的是90和80；从t_score_0表中获取的是85和75。 因此进行结果归并时，只能从获取的90，80，85和75之中进行归并，**那么结果归并无论怎么实现，都不可能获得正确的结果。**
+
+正确的做法是将分页条件改写为LIMIT 0, 3，取出所有前两页数据，再结合排序条件计算出正确的数据。 下图展示了进行SQL改写之后的分页执行结果。
+![67.sharding-x-shard-6.png](../../assets/images/04-主流框架/Mybatis/67.sharding-x-shard-6.png)
+
+
+越获取偏移量位置靠后数据，使用LIMIT分页方式的效率就越低。 有很多方法可以避免使用LIMIT进行分页。比如构建行记录数量与行偏移量的二级索引，或使用上次分页数据结尾ID作为下次查询条件的分页方式等。
+
+分页信息修正时，如果使用占位符的方式书写SQL，则只需要改写参数列表即可，无需改写SQL本身。
+
+#### 15.5.1.4 批量拆分
+在使用批量插入的SQL时，如果插入的数据是跨分片的，那么需要对SQL进行改写来防止将多余的数据写入到数据库中。 插入操作与查询操作的不同之处在于，查询语句中即使用了不存在于当前分片的分片键，也不会对数据产生影响；而插入操作则必须将多余的分片键删除。 举例说明，如下SQL：
+```sql
+INSERT INTO t_order (order_id, xxx) VALUES (1, 'xxx'), (2, 'xxx'), (3, 'xxx');
+```
+假设数据库仍然是按照order_id的奇偶值分为两片的，仅将这条SQL中的表名进行修改，然后发送至数据库完成SQL的执行 ，则两个分片都会写入相同的记录。 虽然只有符合分片查询条件的数据才能够被查询语句取出，但存在冗余数据的实现方案并不合理。因此需要将SQL改写为：
+```sql
+INSERT INTO t_order_0 (order_id, xxx) VALUES (2, 'xxx');
+INSERT INTO t_order_1 (order_id, xxx) VALUES (1, 'xxx'), (3, 'xxx');
+```
+使用IN的查询与批量插入的情况相似，不过IN操作并不会导致数据查询结果错误。通过对IN查询的改写，可以进一步的提升查询性能。如以下SQL：
+```sql
+SELECT * FROM t_order WHERE order_id IN (1, 2, 3);
+```
+改写为：
+```sql
+SELECT * FROM t_order_0 WHERE order_id IN (2);
+SELECT * FROM t_order_1 WHERE order_id IN (1, 3);
+```
+可以进一步的提升查询性能。ShardingSphere暂时还未实现此改写策略，目前的改写结果是：
+```sql
+SELECT * FROM t_order_0 WHERE order_id IN (1, 2, 3);
+SELECT * FROM t_order_1 WHERE order_id IN (1, 2, 3);
+```
+虽然SQL的执行结果是正确的，但并未达到最优的查询效率。
+
+### 15.5.2 优化改写
+优化改写的目的是在不影响查询正确性的情况下，对性能进行提升的有效手段。它分为单节点优化和流式归并优化。
+
+#### 15.5.2.1 单节点优化
+路由至单节点的SQL，则无需优化改写。 当获得一次查询的路由结果后，如果是路由至唯一的数据节点，则无需涉及到结果归并。因此补列和分页信息等改写都没有必要进行。 尤其是分页信息的改写，无需将数据从第1条开始取，大量的降低了对数据库的压力，并且节省了网络带宽的无谓消耗。
+
+#### 15.5.2.2 流式归并优化
+它仅为包含GROUP BY的SQL增加ORDER BY以及和分组项相同的排序项和排序顺序，用于将内存归并转化为流式归并。 在结果归并的部分中，将对流式归并和内存归并进行详细说明。
+
+## 15.6 执行引擎
+> ShardingSphere采用一套自动化的执行引擎，负责将路由和改写完成之后的真实SQL安全且高效发送到底层数据源执行。 它不是简单地将SQL通过JDBC直接发送至数据源执行；也并非直接将执行请求放入线程池去并发执行。它更关注平衡数据源连接创建以及内存占用所产生的消耗，以及最大限度地合理利用并发等问题。 执行引擎的目标是自动化的平衡资源控制与执行效率。
+
+执行引擎的整体结构划分如下图所示。
+![68.sharding-x-shard-10.png](../../assets/images/04-主流框架/Mybatis/68.sharding-x-shard-10.png)
+
+### 15.6.1 连接模式
+从资源控制的角度看，业务方访问数据库的连接数量应当有所限制。 它能够有效地防止某一业务操作过多的占用资源，从而将数据库连接的资源耗尽，以致于影响其他业务的正常访问。 特别是在一个数据库实例中存在较多分表的情况下，一条不包含分片键的逻辑SQL将产生落在同库不同表的大量真实SQL，如果每条真实SQL都占用一个独立的连接，那么一次查询无疑将会占用过多的资源。
+
+从执行效率的角度看，为每个分片查询维持一个独立的数据库连接，可以更加有效的利用多线程来提升执行效率。 为每个数据库连接开启独立的线程，可以将I/O所产生的消耗并行处理。为每个分片维持一个独立的数据库连接，还能够避免过早的将查询结果数据加载至内存。 独立的数据库连接，能够持有查询结果集游标位置的引用，在需要获取相应数据时移动游标即可。
+
+以结果集游标下移进行结果归并的方式，称之为流式归并，它无需将结果数据全数加载至内存，可以有效的节省内存资源，进而减少垃圾回收的频次。 当无法保证每个分片查询持有一个独立数据库连接时，则需要在复用该数据库连接获取下一张分表的查询结果集之前，将当前的查询结果集全数加载至内存。 因此，即使可以采用流式归并，在此场景下也将退化为内存归并。
+
+一方面是对数据库连接资源的控制保护，一方面是采用更优的归并模式达到对中间件内存资源的节省，如何处理好两者之间的关系，是ShardingSphere执行引擎需要解决的问题。 具体来说，如果一条SQL在经过ShardingSphere的分片后，需要操作某数据库实例下的200张表。 那么，是选择创建200个连接并行执行，还是选择创建一个连接串行执行呢？效率与资源控制又应该如何抉择呢？
+
+针对上述场景，ShardingSphere提供了一种解决思路。 它提出了连接模式（Connection Mode）的概念，将其划分为内存限制模式（MEMORY_STRICTLY）和连接限制模式（CONNECTION_STRICTLY）这两种类型。
+
+#### 15.6.1.1 内存限制模式
+用此模式的前提是，ShardingSphere对一次操作所耗费的数据库连接数量不做限制。 如果实际执行的SQL需要对某数据库实例中的200张表做操作，则对每张表创建一个新的数据库连接，并通过多线程的方式并发处理，以达成执行效率最大化。 并且在SQL满足条件情况下，优先选择流式归并，以防止出现内存溢出或避免频繁垃圾回收情况。
+
+#### 15.6.1.2 连接限制模式
+使用此模式的前提是，ShardingSphere严格控制对一次操作所耗费的数据库连接数量。 如果实际执行的SQL需要对某数据库实例中的200张表做操作，那么只会创建唯一的数据库连接，并对其200张表串行处理。 如果一次操作中的分片散落在不同的数据库，仍然采用多线程处理对不同库的操作，但每个库的每次操作仍然只创建一个唯一的数据库连接。 这样即可以防止对一次请求对数据库连接占用过多所带来的问题。该模式始终选择内存归并。
+
+内存限制模式适用于OLAP操作，可以通过放宽对数据库连接的限制提升系统吞吐量； 连接限制模式适用于OLTP操作，OLTP通常带有分片键，会路由到单一的分片，因此严格控制数据库连接，以保证在线系统数据库资源能够被更多的应用所使用，是明智的选择。
+
+### 15.6.2 自动化执行引擎
+ShardingSphere最初将使用何种模式的决定权交由用户配置，让开发者依据自己业务的实际场景需求选择使用内存限制模式或连接限制模式。
+
+这种解决方案将两难的选择的决定权交由用户，使得用户必须要了解这两种模式的利弊，并依据业务场景需求进行选择。 这无疑增加了用户对ShardingSphere的学习和使用的成本，并非最优方案。
+
+这种一分为二的处理方案，将两种模式的切换交由静态的初始化配置，是缺乏灵活应对能力的。在实际的使用场景中，面对不同SQL以及占位符参数，每次的路由结果是不同的。 这就意味着某些操作可能需要使用内存归并，而某些操作则可能选择流式归并更优，具体采用哪种方式不应该由用户在ShardingSphere启动之前配置好，而是应该根据SQL和占位符参数的场景，来动态的决定连接模式。
+
+为了降低用户的使用成本以及连接模式动态化这两个问题，ShardingSphere提炼出自动化执行引擎的思路，在其内部消化了连接模式概念。 用户无需了解所谓的内存限制模式和连接限制模式是什么，而是交由执行引擎根据当前场景自动选择最优的执行方案。
+
+自动化执行引擎将连接模式的选择粒度细化至每一次SQL的操作。 针对每次SQL请求，自动化执行引擎都将根据其路由结果，进行实时的演算和权衡，并自主地采用恰当的连接模式执行，以达到资源控制和效率的最优平衡。 针对自动化的执行引擎，用户只需配置maxConnectionSizePerQuery即可，该参数表示一次查询时每个数据库所允许使用的最大连接数。
+
+执行引擎分为准备和执行两个阶段。
+
+#### 15.6.2.1 准备阶段
+顾名思义，此阶段用于准备执行的数据。它分为结果集分组和执行单元创建两个步骤。
+
+结果集分组是实现内化连接模式概念的关键。执行引擎根据maxConnectionSizePerQuery配置项，结合当前路由结果，选择恰当的连接模式。 具体步骤如下：
+
+1. 将SQL的路由结果按照数据源的名称进行分组。
+
+2. 通过下图的公式，可以获得每个数据库实例在maxConnectionSizePerQuery的允许范围内，每个连接需要执行的SQL路由结果组，并计算出本次请求的最优连接模式。
+![69.sharding-x-shard-8.png](../../assets/images/04-主流框架/Mybatis/69.sharding-x-shard-8.png)
+
+
+在maxConnectionSizePerQuery允许的范围内，当一个连接需要执行的请求数量大于1时，意味着当前的数据库连接无法持有相应的数据结果集，则必须采用内存归并； 反之，当一个连接需要执行的请求数量等于1时，意味着当前的数据库连接可以持有相应的数据结果集，则可以采用流式归并。
+
+每一次的连接模式的选择，是针对每一个物理数据库的。也就是说，在同一次查询中，如果路由至一个以上的数据库，每个数据库的连接模式不一定一样，它们可能是混合存在的形态。
+
+通过上一步骤获得的路由分组结果创建执行的单元。 当数据源使用数据库连接池等控制数据库连接数量的技术时，在获取数据库连接时，如果不妥善处理并发，则有一定几率发生死锁。 在多个请求相互等待对方释放数据库连接资源时，将会产生饥饿等待，造成交叉的死锁问题。
+
+举例说明，假设一次查询需要在某一数据源上获取两个数据库连接，并路由至同一个数据库的两个分表查询。 则有可能出现查询A已获取到该数据源的1个数据库连接，并等待获取另一个数据库连接；而查询B也已经在该数据源上获取到的一个数据库连接，并同样等待另一个数据库连接的获取。 如果数据库连接池的允许最大连接数是2，那么这2个查询请求将永久的等待下去。下图描绘了死锁的情况。
+![70.sharding-x-shard-9.png](../../assets/images/04-主流框架/Mybatis/70.sharding-x-shard-9.png)
+
+ShardingSphere为了避免死锁的出现，在获取数据库连接时进行了同步处理。 它在创建执行单元时，以原子性的方式一次性获取本次SQL请求所需的全部数据库连接，杜绝了每次查询请求获取到部分资源的可能。 由于对数据库的操作非常频繁，每次获取数据库连接时时都进行锁定，会降低ShardingSphere的并发。因此，ShardingSphere在这里进行了2点优化：
+
+避免锁定一次性只需要获取1个数据库连接的操作。因为每次仅需要获取1个连接，则不会发生两个请求相互等待的场景，无需锁定。 对于大部分OLTP的操作，都是使用分片键路由至唯一的数据节点，这会使得系统变为完全无锁的状态，进一步提升了并发效率。 除了路由至单分片的情况，读写分离也在此范畴之内。
+
+仅针对内存限制模式时才进行资源锁定。在使用连接限制模式时，所有的查询结果集将在装载至内存之后释放掉数据库连接资源，因此不会产生死锁等待的问题。
+
+#### 15.6.2.2 执行阶段
+该阶段用于真正的执行SQL，它分为分组执行和归并结果集生成两个步骤。
+
+分组执行将准备执行阶段生成的执行单元分组下发至底层并发执行引擎，并针对执行过程中的每个关键步骤发送事件。 如：执行开始事件、执行成功事件以及执行失败事件。执行引擎仅关注事件的发送，它并不关心事件的订阅者。 ShardingSphere的其他模块，如：分布式事务、调用链路追踪等，会订阅感兴趣的事件，并进行相应的处理。
+
+ShardingSphere通过在执行准备阶段的获取的连接模式，生成内存归并结果集或流式归并结果集，并将其传递至结果归并引擎，以进行下一步的工作。
+
+## 15.7 归并引擎
+> 将从各个数据节点获取的多数据结果集，组合成为一个结果集并正确的返回至请求客户端，称为结果归并。ShardingSphere支持的结果归并从功能上分为遍历、排序、分组、分页和聚合5种类型，它们是组合而非互斥的关系。 从结构划分，可分为流式归并、内存归并和装饰者归并。流式归并和内存归并是互斥的，装饰者归并可以在流式归并和内存归并之上做进一步的处理。
+
+由于从数据库中返回的结果集是逐条返回的，并不需要将所有的数据一次性加载至内存中，因此，在进行结果归并时，沿用数据库返回结果集的方式进行归并，能够极大减少内存的消耗，是归并方式的优先选择。
+
+流式归并是指每一次从结果集中获取到的数据，都能够通过逐条获取的方式返回正确的单条数据，它与数据库原生的返回结果集的方式最为契合。遍历、排序以及流式分组都属于流式归并的一种。
+
+内存归并则是需要将结果集的所有数据都遍历并存储在内存中，再通过统一的分组、排序以及聚合等计算之后，再将其封装成为逐条访问的数据结果集返回。
+
+装饰者归并是对所有的结果集归并进行统一的功能增强，目前装饰者归并有分页归并和聚合归并这2种类型。
+
+归并引擎的整体结构划分如下图。
+![71.sharding-x-shard-15.png](../../assets/images/04-主流框架/Mybatis/71.sharding-x-shard-15.png)
+### 15.7.1 遍历归并
+它是最为简单的归并方式。 只需将多个数据结果集合并为一个单向链表即可。在遍历完成链表中当前数据结果集之后，将链表元素后移一位，继续遍历下一个数据结果集即可。
+
+### 15.7.2 排序归并
+由于在SQL中存在ORDER BY语句，因此每个数据结果集自身是有序的，因此只需要将数据结果集当前游标指向的数据值进行排序即可。 这相当于对多个有序的数组进行排序，归并排序是最适合此场景的排序算法。
+
+ShardingSphere在对排序的查询进行归并时，将每个结果集的当前数据值进行比较（通过实现Java的Comparable接口完成），并将其放入优先级队列。 每次获取下一条数据时，只需将队列顶端结果集的游标下移，并根据新游标重新进入优先级排序队列找到自己的位置即可。
+
+通过一个例子来说明ShardingSphere的排序归并，下图是一个通过分数进行排序的示例图。 图中展示了3张表返回的数据结果集，每个数据结果集已经根据分数排序完毕，但是3个数据结果集之间是无序的。 将3个数据结果集的当前游标指向的数据值进行排序，并放入优先级队列，t_score_0的第一个数据值最大，t_score_2的第一个数据值次之，t_score_1的第一个数据值最小，因此优先级队列根据t_score_0，t_score_2和t_score_1的方式排序队列。
+![72.sharding-x-shard-11.png](../../assets/images/04-主流框架/Mybatis/72.sharding-x-shard-11.png)
+
+下图则展现了进行next调用的时候，排序归并是如何进行的。 通过图中我们可以看到，当进行第一次next调用时，排在队列首位的t_score_0将会被弹出队列，并且将当前游标指向的数据值（也就是100）返回至查询客户端，并且将游标下移一位之后，重新放入优先级队列。 而优先级队列也会根据t_score_0的当前数据结果集指向游标的数据值（这里是90）进行排序，根据当前数值，t_score_0排列在队列的最后一位。 之前队列中排名第二的t_score_2的数据结果集则自动排在了队列首位。
+
+在进行第二次next时，只需要将目前排列在队列首位的t_score_2弹出队列，并且将其数据结果集游标指向的值返回至客户端，并下移游标，继续加入队列排队，以此类推。 当一个结果集中已经没有数据了，则无需再次加入队列。
+![73.sharding-x-shard-12.png](../../assets/images/04-主流框架/Mybatis/73.sharding-x-shard-12.png)
+
+可以看到，对于每个数据结果集中的数据有序，而多数据结果集整体无序的情况下，ShardingSphere无需将所有的数据都加载至内存即可排序。 它使用的是流式归并的方式，每次next仅获取唯一正确的一条数据，极大的节省了内存的消耗。
+
+从另一个角度来说，ShardingSphere的排序归并，是在维护数据结果集的纵轴和横轴这两个维度的有序性。 纵轴是指每个数据结果集本身，它是天然有序的，它通过包含ORDER BY的SQL所获取。 横轴是指每个数据结果集当前游标所指向的值，它需要通过优先级队列来维护其正确顺序。 每一次数据结果集当前游标的下移，都需要将该数据结果集重新放入优先级队列排序，而只有排列在队列首位的数据结果集才可能发生游标下移的操作。
+
+### 15.7.3 分组归并
+分组归并的情况最为复杂，它分为流式分组归并和内存分组归并。 流式分组归并要求SQL的排序项与分组项的字段以及排序类型（ASC或DESC）必须保持一致，否则只能通过内存归并才能保证其数据的正确性。
+
+举例说明，假设根据科目分片，表结构中包含考生的姓名（为了简单起见，不考虑重名的情况）和分数。通过SQL获取每位考生的总分，可通过如下SQL：
+```sql
+SELECT name, SUM(score) FROM t_score GROUP BY name ORDER BY name;
+```
+在分组项与排序项完全一致的情况下，取得的数据是连续的，分组所需的数据全数存在于各个数据结果集的当前游标所指向的数据值，因此可以采用流式归并。如下图所示。
+![74.sharding-x-shard-13.png](../../assets/images/04-主流框架/Mybatis/74.sharding-x-shard-13.png)
+
+进行归并时，逻辑与排序归并类似。 下图展现了进行next调用的时候，流式分组归并是如何进行的。
+![75.sharding-x-shard-14.png](../../assets/images/04-主流框架/Mybatis/75.sharding-x-shard-14.png)
+
+通过图中我们可以看到，当进行第一次next调用时，排在队列首位的t_score_java将会被弹出队列，并且将分组值同为“Jetty”的其他结果集中的数据一同弹出队列。 在获取了所有的姓名为“Jetty”的同学的分数之后，进行累加操作，那么，在第一次next调用结束后，取出的结果集是“Jetty”的分数总和。 与此同时，所有的数据结果集中的游标都将下移至数据值“Jetty”的下一个不同的数据值，并且根据数据结果集当前游标指向的值进行重排序。 因此，包含名字顺着第二位的“John”的相关数据结果集则排在的队列的前列。
+
+**流式分组归并与排序归并的区别仅仅在于两点：**
+
+1. 它会一次性的将多个数据结果集中的分组项相同的数据全数取出。
+2. 它需要根据聚合函数的类型进行聚合计算。
+
+对于分组项与排序项不一致的情况，由于需要获取分组的相关的数据值并非连续的，因此无法使用流式归并，需要将所有的结果集数据加载至内存中进行分组和聚合。 例如，若通过以下SQL获取每位考生的总分并按照分数从高至低排序：
+```sql
+SELECT name, SUM(score) FROM t_score GROUP BY name ORDER BY score DESC;
+```
+
+那么各个数据结果集中取出的数据与排序归并那张图的上半部分的表结构的原始数据一致，是无法进行流式归并的。
+
+当SQL中只包含分组语句时，根据不同数据库的实现，其排序的顺序不一定与分组顺序一致。 但由于排序语句的缺失，则表示此SQL并不在意排序顺序。 因此，ShardingSphere通过SQL优化的改写，自动增加与分组项一致的排序项，使其能够从消耗内存的内存分组归并方式转化为流式分组归并方案。
+
+### 15.7.4 聚合归并
+无论是流式分组归并还是内存分组归并，对聚合函数的处理都是一致的。 除了分组的SQL之外，不进行分组的SQL也可以使用聚合函数。 因此，聚合归并是在之前介绍的归并类的之上追加的归并能力，即装饰者模式。聚合函数可以归类为比较、累加和求平均值这3种类型。
+
+比较类型的聚合函数是指MAX和MIN。它们需要对每一个同组的结果集数据进行比较，并且直接返回其最大或最小值即可。
+
+累加类型的聚合函数是指SUM和COUNT。它们需要将每一个同组的结果集数据进行累加。
+
+求平均值的聚合函数只有AVG。它必须通过SQL改写的SUM和COUNT进行计算，相关内容已在SQL改写的内容中涵盖，不再赘述。
+
+### 15.7.5 分页归并
+上文所述的所有归并类型都可能进行分页。 分页也是追加在其他归并类型之上的装饰器，ShardingSphere通过装饰者模式来增加对数据结果集进行分页的能力。 分页归并负责将无需获取的数据过滤掉。
+
+ShardingSphere的分页功能比较容易让使用者误解，用户通常认为分页归并会占用大量内存。 在分布式的场景中，将LIMIT 10000000, 10改写为LIMIT 0, 10000010，才能保证其数据的正确性。 用户非常容易产生ShardingSphere会将大量无意义的数据加载至内存中，造成内存溢出风险的错觉。 其实，通过流式归并的原理可知，会将数据全部加载到内存中的只有内存分组归并这一种情况。 而通常来说，进行OLAP的分组SQL，不会产生大量的结果数据，它更多的用于大量的计算，以及少量结果产出的场景。 除了内存分组归并这种情况之外，其他情况都通过流式归并获取数据结果集，因此ShardingSphere会通过结果集的next方法将无需取出的数据全部跳过，并不会将其存入内存。
+
+但同时需要注意的是，由于排序的需要，大量的数据仍然需要传输到ShardingSphere的内存空间。 因此，采用LIMIT这种方式分页，并非最佳实践。 由于LIMIT并不能通过索引查询数据，因此如果可以保证ID的连续性，通过ID进行分页是比较好的解决方案，例如：
+```sql
+SELECT * FROM t_order WHERE id > 100000 AND id <= 100010 ORDER BY id;
+```
+或通过记录上次查询结果的最后一条记录的ID进行下一页的查询，例如：
+```sql
+SELECT * FROM t_order WHERE id > 10000000 LIMIT 10;
+```
+# 十六、扩展：ShardingSpherex详解 - 数据脱敏(加密)详解
+## 16.1 背景
+> 根据业界对加密的需求及业务改造痛点，提供了一套完整、安全、透明化、低改造成本的数据加密整合解决方案，是 Apache ShardingSphere 数据加密模块的主要设计目标。
+
+安全控制一直是治理的重要环节，数据加密属于安全控制的范畴。 无论对互联网公司还是传统行业来说，数据安全一直是极为重视和敏感的话题。 数据加密是指对某些敏感信息通过加密规则进行数据的变形，实现敏感隐私数据的可靠保护。 涉及客户安全数据或者一些商业性敏感数据，如身份证号、手机号、卡号、客户号等个人信息按照相关部门规定，都需要进行数据加密。
+
+对于数据加密的需求，在现实的业务场景中一般分为两种情况：
+
+- 新业务上线，安全部门规定需将涉及用户敏感信息，例如银行、手机号码等进行加密后存储到数据库，在使用的时候再进行解密处理。因为是全新系统，因而没有存量数据清洗问题，所以实现相对简单。
+
+- 已上线业务，之前一直将明文存储在数据库中。相关部门突然需要对已上线业务进行加密整改。这种场景一般需要处理 3 个问题：
+
+  - 历史数据需要如何进行加密处理，即洗数。
+  - 如何能在不改动业务 SQL 和逻辑情况下，将新增数据进行加密处理，并存储到数据库；在使用时，再进行解密取出。
+  - 如何较为安全、无缝、透明化地实现业务系统在明文与密文数据间的迁移。
+- 挑战
+
+在真实业务场景中，相关业务开发团队则往往需要针对公司安全部门需求，自行实行并维护一套加解密系统。 而当加密场景发生改变时，自行维护的加密系统往往又面临着重构或修改风险。 此外，对于已经上线的业务，在不修改业务逻辑和 SQL 的情况下，透明化、安全低风险地实现无缝进行加密改造也相对复杂。
+
+## 16.2 处理流程详解
+Apache ShardingSphere 通过对用户输入的 SQL 进行解析，并依据用户提供的加密规则对 SQL 进行改写，从而实现对原文数据进行加密，并将原文数据（可选）及密文数据同时存储到底层数据库。 在用户查询数据时，它仅从数据库中取出密文数据，并对其解密，最终将解密后的原始数据返回给用户。 Apache ShardingSphere 自动化 & 透明化了数据加密过程，让用户无需关注数据加密的实现细节，像使用普通数据那样使用加密数据。 此外，无论是已在线业务进行加密改造，还是新上线业务使用加密功能，Apache ShardingSphere 都可以提供一套相对完善的解决方案。
+
+### 16.2.1 整体架构
+![76.sharding-x-encrpt-1.png](../../assets/images/04-主流框架/Mybatis/76.sharding-x-encrpt-1.png)
+
+加密模块将用户发起的 SQL 进行拦截，并通过 SQL 语法解析器进行解析、理解 SQL 行为，再依据用户传入的加密规则，找出需要加密的字段和所使用的加解密算法对目标字段进行加解密处理后，再与底层数据库进行交互。 Apache ShardingSphere 会将用户请求的明文进行加密后存储到底层数据库；并在用户查询时，将密文从数据库中取出进行解密后返回给终端用户。 通过屏蔽对数据的加密处理，使用户无需感知解析 SQL、数据加密、数据解密的处理过程，就像在使用普通数据一样使用加密数据。
+
+### 16.2.2 加密规则
+在详解整套流程之前，我们需要先了解下加密规则与配置，这是认识整套流程的基础。加密配置主要分为四部分：数据源配置，加密算法配置，加密表配置以及查询属性配置，其详情如下图所示：
+![77.sharding-x-encrpt-2.png](../../assets/images/04-主流框架/Mybatis/77.sharding-x-encrpt-2.png)
+
+- **数据源配置**：指数据源配置。
+
+- **加密算法配置**：指使用什么加密算法进行加解密。目前ShardingSphere内置了三种加解密算法：AES，MD5 和 RC4。用户还可以通过实现ShardingSphere提供的接口，自行实现一套加解密算法。
+
+- **加密表配置**：用于告诉ShardingSphere数据表里哪个列用于存储密文数据（cipherColumn）、哪个列用于存储明文数据（plainColumn）以及用户想使用哪个列进行SQL编写（logicColumn）。
+- **查询属性的配置**：当底层数据库表里同时存储了明文数据、密文数据后，该属性开关用于决定是直接查询数据库表里的明文数据进行返回，还是查询密文数据通过 Apache ShardingSphere 解密后返回。
+
+> 如何理解用户想使用哪个列进行SQL编写（logicColumn）？
+
+> 我们可以从加密模块存在的意义来理解。加密模块最终目的是希望屏蔽底层对数据的加密处理，也就是说我们不希望用户知道数据是如何被加解密的、如何将明文数据存储到 plainColumn，将密文数据存储到 cipherColumn。 换句话说，我们不希望用户知道 plainColumn 和 cipherColumn 的存在和使用。 所以，我们需要给用户提供一个概念意义上的列，这个列可以脱离底层数据库的真实列，它可以是数据库表里的一个真实列，也可以不是，从而使得用户可以随意改变底层数据库的 plainColumn 和 cipherColumn 的列名。 或者删除 plainColumn，选择永远不再存储明文，只存储密文。 只要用户的 SQL 面向这个逻辑列进行编写，并在加密规则里给出 logicColumn 和 plainColumn、cipherColumn 之间正确的映射关系即可。
+
+> 为什么要这么做呢？答案在文章后面，即为了让已上线的业务能无缝、透明、安全地进行数据加密迁移。
+### 16.2.3 加密处理过程
+举例说明，假如数据库里有一张表叫做 t_user，这张表里实际有两个字段 pwd_plain，用于存放明文数据、pwd_cipher，用于存放密文数据，同时定义 logicColumn 为 pwd。 那么，用户在编写 SQL 时应该面向 logicColumn 进行编写，即 INSERT INTO t_user SET pwd = '123'。 Apache ShardingSphere 接收到该 SQL，通过用户提供的加密配置，发现 pwd 是 logicColumn，于是便对逻辑列及其对应的明文数据进行加密处理。 **Apache ShardingSphere 将面向用户的逻辑列与面向底层数据库的明文列和密文列进行了列名以及数据的加密映射转换**。 如下图所示：
+![78.sharding-x-encrpt-3.png](../../assets/images/04-主流框架/Mybatis/78.sharding-x-encrpt-3.png)
+
+即依据用户提供的加密规则，将用户 SQL 与底层数据表结构割裂开来，使得用户的 SQL 编写不再依赖于真实的数据库表结构。 而用户与底层数据库之间的衔接、映射、转换交由 Apache ShardingSphere 进行处理。
+
+下方图片展示了使用加密模块进行增删改查时，其中的处理流程和转换逻辑，如下图所示。
+![79.sharding-x-encrpt-4.png](../../assets/images/04-主流框架/Mybatis/79.sharding-x-encrpt-4.png)
+## 16.3 解决方案详解
+> 在了解了 Apache ShardingSphere 加密处理流程后，即可将加密配置、加密处理流程与实际场景进行结合。 所有的设计开发都是为了解决业务场景遇到的痛点。那么面对之前提到的业务场景需求，又应该如何使用 Apache ShardingSphere 这把利器来满足业务需求呢？
+
+### 16.3.1 新上线业务
+**业务场景分析**：新上线业务由于一切从零开始，不存在历史数据清洗问题，所以相对简单。
+
+**解决方案说明**：选择合适的加密算法，如 AES 后，只需配置逻辑列（面向用户编写 SQL ）和密文列（数据表存密文数据）即可，逻辑列和密文列可以相同也可以不同。建议配置如下（YAML 格式展示）：
+```yml
+-!ENCRYPT
+  encryptors:
+    aes_encryptor:
+      type: AES
+      props:
+        aes-key-value: 123456abc
+  tables:
+    t_user:
+      columns:
+        pwd:
+          cipherColumn: pwd
+          encryptorName: aes_encryptor
+```
+使用这套配置， Apache ShardingSphere 只需将 logicColumn 和 cipherColumn 进行转换，底层数据表不存储明文，只存储了密文，这也是安全审计部分的要求所在。 如果用户希望将明文、密文一同存储到数据库，只需添加 plainColumn 配置即可。整体处理流程如下图所示：
+![80.sharding-x-encrpt-5.png](../../assets/images/04-主流框架/Mybatis/80.sharding-x-encrpt-5.png)
+### 16.3.2 已上线业务改造
+**业务场景分析**：由于业务已经在线上运行，数据库里必然存有大量明文历史数据。现在的问题是如何让历史数据得以加密清洗、如何让增量数据得以加密处理、如何让业务在新旧两套数据系统之间进行无缝、透明化迁移。
+
+**解决方案说明**：在提供解决方案之前，我们先来头脑风暴一下：首先，既然是旧业务需要进行加密改造，那一定存储了非常重要且敏感的信息。这些信息含金量高且业务相对基础重要。 不应该采用停止业务禁止新数据写入，再找个加密算法把历史数据全部加密清洗，再把之前重构的代码部署上线，使其能把存量和增量数据进行在线加密解密。
+
+那么**另一种相对安全的做法**是：重新搭建一套和生产环境一模一样的预发环境，然后通过相关迁移洗数工具把生产环境的存量原文数据加密后存储到预发环境， 而新增数据则通过例如 MySQL 主从复制及业务方自行开发的工具加密后存储到预发环境的数据库里，再把重构后可以进行加解密的代码部署到预发环境。 这样生产环境是一套以明文为核心的查询修改的环境；预发环境是一套以密文为核心加解密查询修改的环境。 在对比一段时间无误后，可以夜间操作将生产流量切到预发环境中。 此方案相对安全可靠，只是时间、人力、资金、成本较高，主要包括：预发环境搭建、生产代码整改、相关辅助工具开发等。
+
+**业务开发人员最希望的做法**是：减少资金费用的承担、最好不要修改业务代码、能够安全平滑迁移系统。于是，ShardingSphere的加密功能模块便应运而生。可分为 3 步进行：
+
+#### 16.3.2.1 系统迁移前
+假设系统需要对 t_user 的 pwd 字段进行加密处理，业务方使用 Apache ShardingSphere 来代替标准化的 JDBC 接口，此举基本不需要额外改造（我们还提供了 Spring Boot Starter，Spring 命名空间，YAML 等接入方式，满足不同业务方需求）。 另外，提供一套加密配置规则，如下所示：
+```yml
+-!ENCRYPT
+  encryptors:
+    aes_encryptor:
+      type: AES
+      props:
+        aes-key-value: 123456abc
+  tables:
+    t_user:
+      columns:
+        pwd:
+          plainColumn: pwd
+          cipherColumn: pwd_cipher
+          encryptorName: aes_encryptor
+  queryWithCipherColumn: false
+```
+依据上述加密规则可知，首先需要在数据库表 t_user 里新增一个字段叫做 pwd_cipher，即 cipherColumn，用于存放密文数据，同时我们把 plainColumn 设置为 pwd，用于存放明文数据，而把 logicColumn 也设置为 pwd。 由于之前的代码 SQL 就是使用 pwd 进行编写，即面向逻辑列进行 SQL 编写，所以业务代码无需改动。 通过 Apache ShardingSphere，针对新增的数据，会把明文写到pwd列，并同时把明文进行加密存储到 pwd_cipher 列。 此时，由于 queryWithCipherColumn 设置为 false，对业务应用来说，依旧使用 pwd 这一明文列进行查询存储，却在底层数据库表 pwd_cipher 上额外存储了新增数据的密文数据，其处理流程如下图所示：
+![81.sharding-x-encrpt-6.png](../../assets/images/04-主流框架/Mybatis/81.sharding-x-encrpt-6.png)
+
+新增数据在插入时，就通过 Apache ShardingSphere 加密为密文数据，并被存储到了 cipherColumn。而现在就需要处理历史明文存量数据。 **由于Apache ShardingSphere 目前并未提供相关迁移洗数工具，此时需要业务方自行将 pwd 中的明文数据进行加密处理存储到 pwd_cipher。**
+
+#### 16.3.2.2 系统迁移中
+新增的数据已被 Apache ShardingSphere 将密文存储到密文列，明文存储到明文列；历史数据被业务方自行加密清洗后，将密文也存储到密文列。 也就是说现在的数据库里即存放着明文也存放着密文，只是由于配置项中的 queryWithCipherColumn = false，所以密文一直没有被使用过。 现在我们为了让系统能切到密文数据进行查询，需要将加密配置中的 queryWithCipherColumn 设置为 true。 在重启系统后，我们发现系统业务一切正常，但是 Apache ShardingSphere 已经开始从数据库里取出密文列的数据，解密后返回给用户； 而对于用户的增删改需求，则依旧会把原文数据存储到明文列，加密后密文数据存储到密文列。
+
+虽然现在业务系统通过将密文列的数据取出，解密后返回；但是，在存储的时候仍旧会存一份原文数据到明文列，这是为什么呢？ 答案是：为了能够进行系统回滚。 因为只要密文和明文永远同时存在，我们就可以通过开关项配置自由将业务查询切换到 cipherColumn 或 plainColumn。 也就是说，如果将系统切到密文列进行查询时，发现系统报错，需要回滚。那么只需将 queryWithCipherColumn = false，Apache ShardingSphere 将会还原，即又重新开始使用 plainColumn 进行查询。 处理流程如下图所示：
+![82.sharding-x-encrpt-7.png](../../assets/images/04-主流框架/Mybatis/82.sharding-x-encrpt-7.png)
+
+#### 16.3.2.3 系统迁移后
+由于安全审计部门要求，业务系统一般不可能让数据库的明文列和密文列永久同步保留，我们需要在系统稳定后将明文列数据删除。 即我们需要在系统迁移后将 plainColumn，即pwd进行删除。那问题来了，现在业务代码都是面向pwd进行编写 SQL 的，把底层数据表中的存放明文的 pwd 删除了， 换用 pwd_cipher 进行解密得到原文数据，那岂不是意味着业务方需要整改所有 SQL，从而不使用即将要被删除的 pwd 列？还记得我们 Apache ShardingSphere 的核心意义所在吗？
+
+> 提示
+
+> 这也正是 Apache ShardingSphere 核心意义所在，即依据用户提供的加密规则，将用户 SQL 与底层数据库表结构割裂开来，使得用户的SQL编写不再依赖于真实的数据库表结构。 而用户与底层数据库之间的衔接、映射、转换交由 Apache ShardingSphere 进行处理。
+
+是的，因为有 logicColumn 存在，用户的编写 SQL 都面向这个虚拟列，Apache ShardingSphere 就可以把这个逻辑列和底层数据表中的密文列进行映射转换。于是迁移后的加密配置即为：
+```yml
+-!ENCRYPT
+  encryptors:
+    aes_encryptor:
+      type: AES
+      props:
+        aes-key-value: 123456abc
+  tables:
+    t_user:
+      columns:
+        pwd: # pwd 与 pwd_cipher 的转换映射
+          cipherColumn: pwd_cipher
+          encryptorName: aes_encryptor
+```
+其处理流程如下：
+![83.sharding-x-encrpt-8.png](../../assets/images/04-主流框架/Mybatis/83.sharding-x-encrpt-8.png)
+
+至此，已在线业务加密整改解决方案全部叙述完毕。我们提供了 Java、YAML、Spring Boot Starter、Spring 命名空间多种方式供用户选择接入，力求满足业务不同的接入需求。 该解决方案目前已在京东数科不断落地上线，提供对内基础服务支撑。
+
+## 16.4 中间件加密服务优势
+- 自动化&透明化数据加密过程，用户无需关注加密中间实现细节。
+- 提供多种内置、第三方(AKS)的加密算法，用户仅需简单配置即可使用。
+- 提供加密算法 API 接口，用户可实现接口，从而使用自定义加密算法进行数据加密。
+- 支持切换不同的加密算法。
+- 针对已上线业务，可实现明文数据与密文数据同步存储，并通过配置决定使用明文列还是密文列进行查询。可实现在不改变业务查询 SQL 前提下，已上线系统对加密前后数据进行安全、透明化迁移。
+## 16.5 加密算法解析
+> Apache ShardingSphere 提供了两种加密算法用于数据加密，这两种策略分别对应 Apache ShardingSphere 的两种加解密的接口，即 EncryptAlgorithm 和 QueryAssistedEncryptAlgorithm。
+
+一方面，Apache ShardingSphere 为用户提供了内置的加解密实现类，用户只需进行配置即可使用； 另一方面，为了满足用户不同场景的需求，我们还开放了相关加解密接口，用户可依据这两种类型的接口提供具体实现类。 再进行简单配置，即可让 Apache ShardingSphere 调用用户自定义的加解密方案进行数据加密。
+
+### 16.5.1 EncryptAlgorithm
+该解决方案通过提供encrypt(), decrypt()两种方法对需要加密的数据进行加解密。 在用户进行INSERT, DELETE, UPDATE时，ShardingSphere会按照用户配置，对SQL进行解析、改写、路由，并调用encrypt()将数据加密后存储到数据库, 而在SELECT时，则调用decrypt()方法将从数据库中取出的加密数据进行逆向解密，最终将原始数据返回给用户。
+
+当前，Apache ShardingSphere 针对这种类型的加密解决方案提供了三种具体实现类，分别是 MD5(不可逆)，AES(可逆)，RC4(可逆)，用户只需配置即可使用这三种内置的方案。
+
+### 16.5.2 QueryAssistedEncryptAlgorithm
+相比较于第一种加密方案，该方案更为安全和复杂。它的理念是：即使是相同的数据，如两个用户的密码相同，它们在数据库里存储的加密数据也应当是不一样的。这种理念更有利于保护用户信息，防止撞库成功。
+
+它提供三种函数进行实现，分别是encrypt(), decrypt(), queryAssistedEncrypt()。在encrypt()阶段，用户通过设置某个变动种子，例如时间戳。 针对原始数据+变动种子组合的内容进行加密，就能保证即使原始数据相同，也因为有变动种子的存在，致使加密后的加密数据是不一样的。在decrypt()可依据之前规定的加密算法，利用种子数据进行解密。
+
+虽然这种方式确实可以增加数据的保密性，但是另一个问题却随之出现：相同的数据在数据库里存储的内容是不一样的，那么当用户按照这个加密列进行等值查询(SELECT FROM table WHERE encryptedColumnn = ?)时会发现无法将所有相同的原始数据查询出来。 为此，我们提出了辅助查询列的概念。 该辅助查询列通过queryAssistedEncrypt()生成，与decrypt()不同的是，该方法通过对原始数据进行另一种方式的加密，但是针对原始数据相同的数据，这种加密方式产生的加密数据是一致的。 将queryAssistedEncrypt()后的数据存储到数据中用于辅助查询真实数据。因此，数据库表中多出这一个辅助查询列。
+
+**由于queryAssistedEncrypt()和encrypt()产生不同加密数据进行存储，而decrypt()可逆，queryAssistedEncrypt()不可逆【这点很重要，例如用MD5进行指纹校验】。 在查询原始数据的时候，我们会自动对SQL进行解析、改写、路由，利用辅助查询列进行WHERE条件的查询，却利用 decrypt()对encrypt()加密后的数据进行解密，并将原始数据返回给用户。** 这一切都是对用户透明化的。
+
+当前，Apache ShardingSphere 针对这种类型的加密解决方案并没有提供具体实现类，却将该理念抽象成接口，提供给用户自行实现。ShardingSphere将调用用户提供的该方案的具体实现类进行数据加密。
+### 16.5.3 MD5加密不可逆
+#### 16.5.3.1. **MD5 的本质是不可逆哈希**
+- MD5 是一种哈希算法（散列算法），而不是加密算法。它的设计初衷是**单向不可逆**的：
+  - `encrypt()` 方法会对数据进行 MD5 哈希计算，生成固定长度的摘要（如 32 位十六进制字符串）。
+  - 但哈希过程丢失了原始数据的部分信息，因此**没有数学上的反向计算可以还原原始数据**。
+- 在 ShardingSphere 中，即使配置了 `decrypt()` 方法，对于 MD5 算法，它也无法真正解密。通常，ShardingSphere 的内置 MD5 实现可能会在 `decrypt()` 中直接返回密文（或原始输入），但**不会得到原始明文**。
+
+#### 16.5.3.2. ShardingSphere 中 MD5 的实际行为
+- 当您使用 MD5 作为加密算法时：
+  - **INSERT/UPDATE**：ShardingSphere 调用 `encrypt()`，将数据转换为 MD5 哈希值后存储到数据库。例如，明文 `"123"` 会变成类似 `"202cb962ac59075b964b07152d234b70"` 的哈希值。
+  - **SELECT**：ShardingSphere 调用 `decrypt()`，但由于 MD5 不可逆，`decrypt()` 通常只能返回存储的哈希值本身（而不是原始数据）。因此，查询结果会是哈希值，而非原始明文。
+- **后果**：如果业务需要读取原始数据（如用户密码验证时需对比哈希），MD5 可以用于一致性校验（如比较哈希值），但**无法用于还原显示原始数据**。例如，您不能期望 SELECT 后得到 `"123"`，而是得到哈希字符串。
+
+#### 16.5.3.3. 何时使用 MD5？
+- **适用场景**：MD5 适合**无需解密**的场景，如：
+  - 密码存储：存储哈希值，登录时对比输入值的哈希。
+  - 数据指纹：校验数据完整性（如文件防篡改）。
+- **不适用场景**：如果需要检索原始数据（如查询用户手机号、地址等），则必须使用可逆加密算法（如 AES 或 RC4）。
+
+#### 16.5.3.4. 建议
+- 如果您需要在 SELECT 后获得原始数据，请选择 ShardingSphere 提供的**可逆算法**（如 AES 或 RC4）。
+- 配置示例（YAML 中选择 AES）：
+  ```yaml
+  rules:
+  - !ENCRYPT
+    tables:
+      t_user:
+        columns:
+          password:
+            cipherColumn: password_cipher  # 加密后存储的列
+            encryptorName: aes_encryptor
+    encryptors:
+      aes_encryptor:
+        type: AES
+        props:
+          aes-key-value: 123456abc  # 密钥
+  ```
+# 十七、ShardingSphere详解 - 事务实现原理之两阶段事务XA
+> 本文主要介绍ShardingSphere分布式事务XA的实现原理; 这篇文章主要转载自<a href='https://shardingsphere.apache.org/document/5.1.0/cn/reference/transaction/base-transaction-seata/'>ShardingSphere官方网站</a>（V5.1.0版本）。
+## 17.1 两阶段事务XA介绍
+两阶段事务提交采用的是 X/OPEN 组织所定义的 DTP 模型所抽象的 AP（应用程序）, TM（事务管理器）和 RM（资源管理器） 概念来保证分布式事务的强一致性。 其中 TM 与 RM 间采用 XA 的协议进行双向通信。 与传统的本地事务相比，XA 事务增加了准备阶段，数据库除了被动接受提交指令外，还可以反向通知调用方事务是否可以被提交。 TM 可以收集所有分支事务的准备结果，并于最后进行原子提交，以保证事务的强一致性。
+![84.sharding-x-trans-xa-2.png](../../assets/images/04-主流框架/Mybatis/84.sharding-x-trans-xa-2.png)
+
+Java 通过定义 JTA 接口实现了 XA 模型，JTA 接口中的 ResourceManager 需要数据库厂商提供 XA 驱动实现， TransactionManager 则需要事务管理器的厂商实现，传统的事务管理器需要同应用服务器绑定，因此使用的成本很高。 而嵌入式的事务管器可以通过 jar 形式提供服务，同 Apache ShardingSphere 集成后，可保证分片后跨库事务强一致性。
+
+通常，只有使用了事务管理器厂商所提供的 XA 事务连接池，才能支持 XA 的事务。 Apache ShardingSphere 在整合 XA 事务时，采用分离 XA 事务管理和连接池管理的方式，做到对应用程序的零侵入。
+
+## 17.2 实现原理
+> XAShardingSphereTransactionManager 为 Apache ShardingSphere 的分布式事务的 XA 实现类。 它主要负责对多数据源进行管理和适配，并且将相应事务的开启、提交和回滚操作委托给具体的 XA 事务管理器。
+![85.sharding-x-trans-xa-1.png](../../assets/images/04-主流框架/Mybatis/85.sharding-x-trans-xa-1.png)
+
+### 17.2.1 开启全局事务
+收到接入端的 set autoCommit=0 时，XAShardingSphereTransactionManager 将调用具体的 XA 事务管理器开启 XA 全局事务，以 XID 的形式进行标记。
+
+### 17.2.2 执行真实分片SQL
+XAShardingSphereTransactionManager 将数据库连接所对应的 XAResource 注册到当前 XA 事务中之后，事务管理器会在此阶段发送 XAResource.start 命令至数据库。 数据库在收到 XAResource.end 命令之前的所有 SQL 操作，会被标记为 XA 事务。
+
+例如:
+```sh
+XAResource1.start             ## Enlist阶段执行
+statement.execute("sql1");    ## 模拟执行一个分片SQL1
+statement.execute("sql2");    ## 模拟执行一个分片SQL2
+XAResource1.end               ## 提交阶段执行
+```
+示例中的 sql1 和 sql2 将会被标记为 XA 事务。
+
+### 17.2.3 提交或回滚事务
+XAShardingSphereTransactionManager 在接收到接入端的提交命令后，会委托实际的 XA 事务管理进行提交动作， 事务管理器将收集到的当前线程中所有注册的 XAResource，并发送 XAResource.end 指令，用以标记此 XA 事务边界。 接着会依次发送 prepare 指令，收集所有参与 XAResource 投票。 若所有 XAResource 的反馈结果均为正确，则调用 commit 指令进行最终提交； 若有任意 XAResource 的反馈结果不正确，则调用 rollback 指令进行回滚。 在事务管理器发出提交指令后，任何 XAResource 产生的异常都会通过恢复日志进行重试，以保证提交阶段的操作原子性，和数据强一致性。
+
+例如:
+```sh
+XAResource1.prepare           ## ack: yes
+XAResource2.prepare           ## ack: yes
+XAResource1.commit
+XAResource2.commit
+
+XAResource1.prepare           ## ack: yes
+XAResource2.prepare           ## ack: no
+XAResource1.rollback
+XAResource2.rollback
+```
+## 17.3 为什么需要XA
+### 17.3.1. 核心问题：为什么需要 XA 事务？
+
+想象一个场景：你的应用需要同时更新两个不同的数据库（比如一个`订单库`和一个`库存库`），这两个操作必须作为一个整体，要么都成功，要么都失败。
+
+-   **本地事务**：只能保证单个数据库内的 ACID。`订单库`提交了，但`库存库`更新失败，就会导致数据不一致（订单生成了但库存没扣）。
+-   **XA 事务**：就是为了解决这种跨数据库的“原子性”问题。它引入了一个“协调者”（**事务管理器 TM**）来统一指挥所有“参与者”（**资源管理器 RM**，即各个数据库），确保大家步调一致。
+
+### 17.3.2. XA 两阶段提交（2PC）详解
+
+顾名思义，XA 事务的提交分为两个阶段：**准备阶段** 和 **提交/回滚阶段**。这个流程就像军队作战：
+
+-   **TM（事务管理器）**： 总指挥部
+-   **RM（资源管理器）**： 各个作战分队（数据库）
+-   **AP（应用程序）**： 下达作战命令的统帅
+
+#### **第一阶段：准备阶段**
+
+这个阶段的目标是 **“询问各个分队是否准备就绪”**。
+
+1.  **总指挥部（TM）** 向所有 **作战分队（RM）** 发送一条命令：“任务内容（要执行的SQL）你们都知道了，现在询问你们，是否一切就绪，可以执行最终提交？请回答是或否。”
+2.  每个分队（RM）收到命令后，会检查自己的状态（如数据是否冲突、约束是否满足等）。
+3.  关键点：此时，SQL 其实已经在每个数据库里执行了，数据修改已经被记录到事务日志中，但**并没有最终生效**（相当于子弹已上膛，但没扣扳机）。其他事务是看不到这个修改的。
+4.  各分队（RM）将检查结果（“就绪”或“未就绪”）投票给总指挥部（TM）。
+
+**对应到您提供的代码示例：**
+```sh
+XAResource1.prepare           ## TM问第一个数据库：准备好了吗？ 回答：是的（ack: yes）
+XAResource2.prepare           ## TM问第二个数据库：准备好了吗？ 回答：是的（ack: yes）
+```
+如果任何一个 RM 返回 “no”（比如因为主键冲突、余额不足等），表示它无法完成最终提交。
+
+#### **第二阶段：提交或回滚阶段**
+
+这个阶段总指挥部（TM）根据第一阶段的投票结果，做出最终决策。
+
+**情况一：所有分队都回答“就绪”（提交）**
+
+1.  **总指挥部（TM）** 判定任务可以执行，于是向所有分队发送 **“正式提交（commit）”** 的命令。
+2.  各分队（RM）收到命令后，才真正地将第一阶段已准备好的数据修改**持久化**，使其对其他事务可见（扣动扳机）。
+3.  只要进入了这个阶段，提交就**必须成功**。即使有分队在提交时网络中断，TM 也会依靠“事务恢复日志”不断重试，直到所有分队都提交成功。
+
+**对应到您提供的代码示例：**
+```sh
+XAResource1.commit  ## TM命令第一个数据库：正式提交！
+XAResource2.commit  ## TM命令第二个数据库：正式提交！
+```
+
+**情况二：有任意一个分队回答“未就绪”（回滚）**
+
+1.  **总指挥部（TM）** 判定任务无法执行，为了确保一致性，必须撤销所有操作。于是向所有分队发送 **“回滚（rollback）”** 的命令。
+2.  各分队（RM）收到命令后，会丢弃掉在第一阶段准备好的数据修改（退膛，收起子弹）。
+
+**对应到您提供的代码示例：**
+```sh
+XAResource1.prepare           ## TM问第一个数据库：准备好了吗？ 回答：是的
+XAResource2.prepare           ## TM问第二个数据库：准备好了吗？ 回答：不行！（ack: no）
+XAResource1.rollback          ## TM命令第一个数据库：任务取消，回滚！
+XAResource2.rollback          ## TM命令第二个数据库：任务取消，回滚！
+```
+
+### 17.3.3. 结合 ShardingSphere 的流程再理解
+
+现在，我们把上面的理论套回 ShardingSphere 的图中：
+
+1.  **开启全局事务**：当你的应用执行 `set autocommit=0` 时，ShardingSphere 的 `XAShardingSphereTransactionManager` 会向 TM 申请一个全局唯一的 **XID**，标志着一个分布式事务开始。
+2.  **执行分片 SQL**：
+    -   当你的应用执行一条 SQL（可能被分片成 `sql1` 和 `sql2` 分别在两个数据库执行）时，ShardingSphere 会做一件重要的事：在真正执行 SQL 前，调用 `XAResource.start()`，告诉数据库：“接下来的操作属于 XID=xxx 的这个全局事务”。
+    -   然后执行 `sql1` 和 `sql2`。
+    -   在所有 SQL 都执行完后，在提交之前，调用 `XAResource.end()`，标记这个数据库上的操作集合结束了。
+    - **注意**：此时 SQL 已经在这两个数据库里“预执行”了，但处于“准备”状态，未提交。
+3.  **提交/回滚**：当你的应用执行 `commit` 时，ShardingSphere 就委托 TM 执行我们上面详解的 **两阶段提交** 流程。
+
+### 17.3.4 总结与类比
+
+**一个简单的比喻：婚礼仪式**
+
+-   **准备阶段（Prepare）**：司仪（TM）问新郎（RM1）和新娘（RM2）：“你愿意娶/嫁给他/她吗？”
+    -   如果两人都回答“我愿意”（ack: yes），仪式进入下一阶段。
+    -   如果有一方回答“不愿意”（ack: no），仪式立刻终止。
+-   **提交阶段（Commit）**：在得到两个“我愿意”后，司仪宣布：“现在你们正式结为夫妻！”（Commit）。这个宣布是最终的，具有法律效力。
+-   **回滚阶段（Rollback）**：如果有一方说“不愿意”，司仪就说：“婚礼取消。”（Rollback），当作什么都没发生过。
+
+**XA 事务的优点**：**强一致性**。只要提交成功，数据就一定是一致的。
+
+**XA 事务的缺点**：
+-   **性能差**：同步阻塞，需要等待所有节点的网络响应，延迟高。
+-   **单点问题**：事务管理器（TM）宕机可能导致资源阻塞。
+-   **数据不一致的极端情况**：在第二阶段，如果 TM 在发送完部分 `commit` 命令后宕机，会导致部分数据库提交，部分数据库未提交，虽然 TM 恢复后会尽力修复，但这是一个脆弱点。
+### 17.3.5  分库 vs 分表的事务需求
+
+#### 单纯分表（同一数据库内）
+- **不需要分布式事务**
+- 所有分表都在同一个数据库实例中
+- 数据库的**本地事务**就能保证 ACID
+- 推荐使用 **LOCAL 事务模式**
+
+#### 分库（跨数据库实例）
+- **需要分布式事务**来保证数据一致性
+- 因为涉及多个数据库实例，本地事务无法跨实例保证原子性
+- 需要选择 **XA** 或 **BASE** 等分布式事务方案
+# 十八、ShardingSphere详解 - 事务实现原理之柔性事务SAGA
+> Apache ShardingSphere 在v5.0版本前还支持柔性事务SAGA，目前看5.x+版本中已经移除了向观众章节，本文主要介绍其实现原理; 这篇文章主要转载自<a href='https://shardingsphere.apache.org/document/legacy/4.x/document/cn/features/transaction/concept/base-transaction-saga/'>ShardingSphere官方网站</a>（V4.x版本）。
+## 18.1 Saga事务
+Saga这个概念来源于三十多年前的一篇数据库论文Sagas ，一个Saga事务是一个有多个短时事务组成的长时的事务。 在分布式事务场景下，我们把一个Saga分布式事务看做是一个由多个本地事务组成的事务，每个本地事务都有一个与之对应的补偿事务。在Saga事务的执行过程中，如果某一步执行出现异常，Saga事务会被终止，同时会调用对应的补偿事务完成相关的恢复操作，这样保证Saga相关的本地事务要么都是执行成功，要么通过补偿恢复成为事务执行之前的状态。
+
+- 自动反向补偿
+
+Saga定义了一个事务中的每个子事务都有一个与之对应的反向补偿操作。由Saga事务管理器根据程序执行结果生成一张有向无环图，并在需要执行回滚操作时，根据该图依次按照相反的顺序调用反向补偿操作。Saga事务管理器只用于控制何时重试，何时补偿，并不负责补偿的内容，补偿的具体操作需要由开发者自行提供。
+
+ShardingSphere采用反向SQL技术，将对数据库进行更新操作的SQL自动生成反向SQL，并交由saga-actuator执行，使用方则无需再关注如何实现补偿方法，将柔性事务管理器的应用范畴成功的定位回了事务的本源——数据库层面。
+
+## 18.2 实现原理
+> Saga柔性事务的实现类为SagaShardingTransactionMananger, ShardingSphere通过Hook的方式拦截逻辑SQL的解析和路由结果，这样，在分片物理SQL执行前，可以生成逆向SQL，在事务提交阶段再把SQL调用链交给Saga引擎处理。
+![86.sharding-x-trans-saga-2.png](../../assets/images/04-主流框架/Mybatis/86.sharding-x-trans-saga-2.png)
+### 18.2.1 Init（Saga引擎初始化）
+包含Saga柔性事务的应用启动时，saga-actuator引擎会根据saga.properties的配置进行初始化的流程。
+
+### 18.2.2 Begin（开启Saga全局事务）
+每次开启Saga全局事务时，将会生成本次全局事务的上下文（SagaTransactionContext），事务上下文记录了所有子事务的正向SQL和逆向SQL，作为生成事务调用链的元数据使用。
+
+### 18.2.3 执行物理SQL
+在物理SQL执行前，ShardingSphere根据SQL的类型生成逆向SQL，这里是通过Hook的方式拦截Parser的解析结果进行实现。
+
+### 18.2.4 Commit/rollback（提交Saga事务）
+提交阶段会生成Saga执行引擎所需的调用链路图，commit操作产生ForwardRecovery（正向SQL补偿）任务，rollback操作产生BackwardRecovery任务（逆向SQL补偿）。
+# 十九、ShardingSphere详解 - 事务实现原理之柔性事务SEATA
+> Apache ShardingSphere 集成了 SEATA 作为柔性事务的使用方案，本文主要介绍其实现原理; 这篇文章主要转载自<a href='https://shardingsphere.apache.org/document/5.1.0/cn/reference/transaction/base-transaction-seata/'>ShardingSphere官方网站</a>（V5.1.0版本）。
+## 19.1 Seata柔性事务
+> Apache ShardingSphere 集成了 SEATA 作为柔性事务的使用方案。
+
+- 柔性事务
+
+柔性事务在 2008 年发表的一篇论文中被最早提到， 它提倡采用最终一致性放宽对强一致性的要求，以达到事务处理并发度的提升。
+
+TCC 和 Saga 是两种常见实现方案。 他们主张开发者自行实现对数据库的反向操作，来达到数据在回滚时仍能够保证最终一致性。
+
+SEATA 实现了 SQL 反向操作的自动生成，可以使柔性事务不再必须由开发者介入才能使用。
+
+- Seata
+
+Seata是阿里集团和蚂蚁金服联合打造的分布式事务框架，截止到0.5.x版本包含了AT事务和TCC事务。其中AT事务的目标是在微服务架构下，提供增量的事务ACID语意，让用户像使用本地事务一样，使用分布式事务，核心理念同ShardingSphere一脉相承。
+
+- Seata AT事务模型
+
+Seata AT事务模型包含TM(事务管理器)，RM(资源管理器)，TC(事务协调器)。其中TC是一个独立的服务需要单独部署，TM和RM以jar包的方式同业务应用部署在一起，它们同TC建立长连接，在整个事务生命周期内，保持RPC通信。 其中全局事务的发起方作为TM，全局事务的参与者作为RM ; TM负责全局事务的begin和commit/rollback，RM负责分支事务的执行结果上报，并且通过TC的协调进行commit/rollback。
+![87.sharding-x-trans-seata-1.png](../../assets/images/04-主流框架/Mybatis/87.sharding-x-trans-seata-1.png)
+## 19.2 实现原理
+> 整合 Seata AT 事务时，需要将 TM，RM 和 TC 的模型融入 Apache ShardingSphere 的分布式事务生态中。 在数据库资源上，Seata 通过对接 DataSource 接口，让 JDBC 操作可以同 TC 进行远程通信。 同样，Apache ShardingSphere 也是面向 DataSource 接口，对用户配置的数据源进行聚合。 因此，将 DataSource 封装为 基于Seata 的 DataSource 后，就可以将 Seata AT 事务融入到 Apache ShardingSphere的分片生态中。
+![88.sharding-x-trans-seata-2.png](../../assets/images/04-主流框架/Mybatis/88.sharding-x-trans-seata-2.png)
+### 19.2.1 引擎初始化
+包含 Seata 柔性事务的应用启动时，用户配置的数据源会根据 seata.conf 的配置，适配为 Seata 事务所需的 DataSourceProxy，并且注册至 RM 中。
+
+### 19.2.2 开启全局事务
+TM 控制全局事务的边界，TM 通过向 TC 发送 Begin 指令，获取全局事务 ID，所有分支事务通过此全局事务 ID，参与到全局事务中；全局事务 ID 的上下文存放在当前线程变量中。
+
+### 19.2.3 执行真实分片SQL
+处于 Seata 全局事务中的分片 SQL 通过 RM 生成 undo 快照，并且发送 participate 指令至 TC，加入到全局事务中。 由于 Apache ShardingSphere 的分片物理 SQL 采取多线程方式执行，因此整合 Seata AT 事务时，需要在主线程和子线程间进行全局事务 ID 的上下文传递。
+
+### 19.2.4 提交或回滚事务
+提交 Seata 事务时，TM 会向 TC 发送全局事务的提交或回滚指令，TC 根据全局事务 ID 协调所有分支事务进行提交或回滚。
+# 二十、SpringBoot集成不同的事务管理器
+
+## 20.1 代码层面对比总结
+
+| 特性 | LOCAL 事务 | XA 事务 | BASE 事务（Seata） |
+|------|------------|---------|-------------------|
+| **代码侵入性** | 无侵入 | 无侵入 | 需要添加注解 |
+| **事务注解** | `@Transactional` | `@Transactional` | `@GlobalTransactional`- Seata 框架提供 |
+| **配置复杂度** | 简单 | 中等 | 较复杂 |
+| **异常处理** | 标准 Spring 方式 | 标准 Spring 方式 | 需要注意全局回滚 |
+
+## 20.1. LOCAL 事务（分表场景）
+
+### 20.1.1 配置
+```yaml
+spring:
+  shardingsphere:
+    props:
+      sql-show: true
+      transaction-type: LOCAL  # 默认就是 LOCAL，可省略
+```
+
+### 20.1.2 代码示例
+```java
+@Service
+@RequiredArgsConstructor
+public class OrderService {
+    
+    private final OrderMapper orderMapper;
+    
+    // 标准的 Spring 事务注解 - 适用于单库分表
+    @Transactional(rollbackFor = Exception.class)
+    public void createOrder(Order order) {
+        // 这些操作都在同一个数据库实例中
+        orderMapper.insert(order);           // 可能插入 t_order_0 表
+        orderMapper.insertOrderDetail(detail); // 可能插入 t_order_detail_1 表
+        updateUserOrderCount(order.getUserId()); // 更新用户表计数
+        
+        // 如果这里抛出异常，所有操作都会回滚
+        if (order.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("订单金额必须大于0");
+        }
+    }
+}
+```
+
+**特点**：代码与普通 Spring 事务完全一样，零侵入。
+
+## 20.2. XA 事务（分库强一致性场景）
+
+### 20.2.1 配置
+```yaml
+spring:
+  shardingsphere:
+    props:
+      sql-show: true
+      transaction-type: XA
+    # 配置 XA 事务管理器（ShardingSphere 内置了 Narayana）
+```
+
+### 20..2.2 代码示例
+```java
+@Service
+@RequiredArgsConstructor
+public class DistributedOrderService {
+    
+    private final OrderMapper orderMapper;
+    private final InventoryMapper inventoryMapper;
+    private final AccountMapper accountMapper;
+    
+    // 代码看起来和 LOCAL 事务一模一样！
+    @Transactional(rollbackFor = Exception.class)
+    public void createDistributedOrder(Order order) {
+        // 这些操作可能分布在不同的数据库实例中
+        orderMapper.insert(order);           // 插入 order_db_0 库
+        inventoryMapper.deduct(order.getProductId(), order.getQuantity()); // 更新 inventory_db 库
+        accountMapper.deductBalance(order.getUserId(), order.getAmount()); // 更新 account_db 库
+        
+        // 业务校验
+        if (order.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("订单金额必须大于0");
+        }
+        
+        // 发送消息到MQ（注意：MQ不属于XA事务范围）
+        // messageSender.sendOrderCreatedEvent(order);
+    }
+}
+```
+
+**关键点**：
+- **代码与 LOCAL 事务完全相同**
+- 区别在于底层：ShardingSphere 会自动将 `@Transactional` 委托给 XA 事务管理器
+- 保证**强一致性**，但性能较低
+
+## 20.3. BASE 事务（Seata - 最终一致性场景）
+### 除了ShardingSphere 还需要引入Seata 框架
+```xml
+<!-- 必须引入Seata依赖 -->
+<dependency>
+    <groupId>io.seata</groupId>
+    <artifactId>seata-spring-boot-starter</artifactId>
+    <version>1.5.0</version>
+</dependency>
+```
+### 20.3.1 配置
+```yaml
+spring:
+  shardingsphere:
+    props:
+      sql-show: true
+      transaction-type: BASE  # 使用 Seata
+  # Seata 配置
+  cloud:
+    alibaba:
+      seata:
+        tx-service-group: my_test_tx_group
+
+# Seata 服务端配置
+seata:
+  enabled: true
+  application-id: order-service
+  tx-service-group: my_test_tx_group
+  service:
+    vgroup-mapping:
+      my_test_tx_group: default
+    enable-degrade: false
+    disable-global-transaction: false
+```
+
+### 20.3.2 代码示例
+```java
+@Service
+@RequiredArgsConstructor
+public class SeataOrderService {
+    
+    private final OrderMapper orderMapper;
+    private final InventoryMapper inventoryMapper;
+    private final AccountMapper accountMapper;
+    
+    // 关键区别：使用 @GlobalTransactional 而不是 @Transactional
+    @GlobalTransactional(name = "create-order", rollbackFor = Exception.class)
+    public void createOrderWithSeata(Order order) {
+        // 本地操作 - 订单服务
+        orderMapper.insert(order);
+        
+        // 远程调用 - 库存服务（通过 Feign 或 RestTemplate）
+        inventoryFeignClient.deduct(order.getProductId(), order.getQuantity());
+        
+        // 远程调用 - 账户服务  
+        accountFeignClient.deductBalance(order.getUserId(), order.getAmount());
+        
+        // 业务校验
+        if (order.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("订单金额必须大于0");
+        }
+    }
+    
+    // 分支事务方法需要 @Transactional 注解
+    @Transactional
+    public void deductInventory(Long productId, Integer quantity) {
+        inventoryMapper.deduct(productId, quantity);
+    }
+}
+```
+
+### 20.3.3 Seata 特有的配置类
+```java
+@Configuration
+public class SeataConfiguration {
+    
+    @Bean
+    public GlobalTransactionScanner globalTransactionScanner() {
+        return new GlobalTransactionScanner("order-service", "my_test_tx_group");
+    }
+}
+```
+
+## 20.4 关键区别总结
+
+### 20.4.1. **注解不同**
+- **LOCAL/XA**：使用 Spring 标准的 `@Transactional`
+- **BASE（Seata）**：需要使用 `@GlobalTransactional`
+
+### 20.4.2. **异常传播机制**
+```java
+// LOCAL/XA - 标准 Spring 异常传播
+@Transactional(rollbackFor = Exception.class)
+public void methodA() {
+    methodB(); // 如果 methodB 抛出异常，整个事务回滚
+}
+
+// Seata - 需要注意全局事务上下文
+@GlobalTransactional
+public void methodA() {
+    orderService.createOrder(); // 本地调用
+    inventoryFeignClient.deduct(); // 远程调用 - 需要确保异常传播
+}
+```
+
+### 20.4.3. **远程调用处理**
+```java
+// XA 事务中 - 所有操作都在事务内
+@Transactional
+public void xaExample() {
+    // 这些都在同一个 XA 事务中
+    updateDatabase1();
+    updateDatabase2(); 
+    // 但无法包含消息队列、Redis等非XA资源
+}
+
+// Seata 事务中 - 可以包含远程服务
+@GlobalTransactional
+public void seataExample() {
+    updateLocalDatabase();
+    // 通过 Feign 调用其他微服务，这些服务也需接入 Seata
+    inventoryService.deduct(productId, quantity);
+    // 可以包含消息队列（通过本地消息表）
+    sendMessageToMQ();
+}
+```
+
+## 20.5 实际项目中的选择建议
+
+### 20.5.1 场景 1：单应用分表
+```java
+// 使用 LOCAL + @Transactional
+@Transactional
+public void singleAppSharding() {
+    // 同一数据库内的多个分表操作
+}
+```
+
+### 20.5.2 场景 2：单应用分库（强一致性要求）
+```java
+// 使用 XA + @Transactional  
+@Transactional  
+public void singleAppMultiDatabase() {
+    // 跨多个数据库的强一致性操作
+}
+```
+
+### 20.5.3 场景 3：微服务架构（最终一致性可接受）
+```java
+// 使用 Seata + @GlobalTransactional
+@GlobalTransactional
+public void microservicesTransaction() {
+    // 跨多个微服务的分布式事务
+    orderService.createOrder();
+    inventoryService.deduct();
+    accountService.deductBalance();
+}
+```
+# 二十一、ShardingSphere详解 - 弹性伸缩原理
+> 支持自定义分片算法，减少数据伸缩及迁移时的业务影响，提供一站式的通用弹性伸缩解决方案，是 Apache ShardingSphere 弹性伸缩的主要设计目标; 这篇文章主要转载自<a href='https://shardingsphere.apache.org/document/5.1.0/cn/features/scaling/'>ShardingSphere官方网站</a>（V5.1.0版本）。
+## 21.1 背景
+> 支持自定义分片算法，减少数据伸缩及迁移时的业务影响，提供一站式的通用弹性伸缩解决方案，是 Apache ShardingSphere 弹性伸缩的主要设计目标。
+
+对于使用单数据库运行的系统来说，如何安全简单地将数据迁移至水平分片的数据库上，一直以来都是一个迫切的需求； 对于已经使用了 Apache ShardingSphere 的用户来说，随着业务规模的快速变化，也可能需要对现有的分片集群进行弹性扩容或缩容。
+
+- 挑战
+
+1. Apache ShardingSphere 在分片算法上提供给用户极大的自由度，但却给弹性伸缩造成了极大的挑战。 找寻既能支持自定义的分片算法，又能高效地将数据节点进行扩缩容的方式，是弹性伸缩面临的第一个挑战；
+
+2. 同时，在伸缩过程中，不应该对正在运行的业务造成影响。 尽可能减少伸缩时数据不可用的时间窗口，甚至做到用户完全无感知，是弹性伸缩的另一个挑战；
+
+3. 最后，弹性伸缩不应该对现有的数据造成影响，如何保证数据的正确性，是弹性伸缩的第三个挑战。
+
+ShardingSphere-Scaling 是一个提供给用户的通用数据接入迁移及弹性伸缩的解决方案。
+![89.sharding-x-scale-1.png](../../assets/images/04-主流框架/Mybatis/89.sharding-x-scale-1.png)
+
+- 状态
+
+ShardingSphere-Scaling 从 4.1.0 版本开始向用户提供。 当前处于 alpha 开发阶段。
+
+## 21.2 原理说明
+> 考虑到 Apache ShardingSphere 的弹性伸缩模块的几个挑战，目前的弹性伸缩解决方案为：**临时地使用两个数据库集群，伸缩完成后切换的方式实现。**
+![90.sharding-x-scale-2.png](../../assets/images/04-主流框架/Mybatis/90.sharding-x-scale-2.png)
+
+这种实现方式有以下优点：
+
+1. 伸缩过程中，原始数据没有任何影响
+2. 伸缩失败无风险
+3. 不受分片策略限制
+
+同时也存在一定的缺点：
+
+1. 在一定时间内存在冗余服务器
+2. 所有数据都需要移动
+
+## 21.3 执行阶段说明
+> 弹性伸缩模块会通过解析旧分片规则，提取配置中的数据源、数据节点等信息，之后创建伸缩作业工作流，将一次弹性伸缩拆解为4个主要阶段
+
+1. 准备阶段
+2. 存量数据迁移阶段
+3. 增量数据同步阶段
+4. 规则切换阶段
+5. 伸缩工作流
+![91.sharding-x-scale-3.png](../../assets/images/04-主流框架/Mybatis/91.sharding-x-scale-3.png)
+
+
+### 21.3.1 准备阶段
+在准备阶段，弹性伸缩模块会进行数据源连通性及权限的校验，同时进行存量数据的统计、日志位点的记录，最后根据数据量和用户设置的并行度，对任务进行分片。
+
+### 21.3.2 存量数据迁移阶段
+执行在准备阶段拆分好的存量数据迁移作业，存量迁移阶段采用 JDBC 查询的方式，直接从数据节点中读取数据，并使用新规则写入到新集群中。
+
+### 21.3.3 增量数据同步阶段
+由于存量数据迁移耗费的时间受到数据量和并行度等因素影响，此时需要对这段时间内业务新增的数据进行同步。 不同的数据库使用的技术细节不同，但总体上均为基于复制协议或 WAL 日志实现的变更数据捕获功能。
+
+1. MySQL：订阅并解析 binlog
+2. PostgreSQL：采用官方逻辑复制 test_decoding
+
+这些捕获的增量数据，同样会由弹性伸缩模块根据新规则写入到新数据节点中。当增量数据基本同步完成时（由于业务系统未停止，增量数据是不断的），则进入规则切换阶段。
+
+### 21.3.4 规则切换阶段
+在此阶段，可能存在一定时间的业务只读窗口期，通过设置数据库只读或ShardingSphere的熔断机制，让旧数据节点中的数据短暂静态，确保增量同步已完全完成。
+
+这个窗口期时间短则数秒，长则数分钟，取决于数据量和用户是否需要对数据进行强校验。 确认完成后，Apache ShardingSphere 可通过配置中心修改配置，将业务导向新规则的集群，弹性伸缩完成。
+# 二十二、ShardingSphere详解 - 通过影子库进行压测
+> Apache ShardingSphere 关注于全链路压测场景下，数据库层面的解决方案。 将压测数据自动路由至用户指定的数据库，是 Apache ShardingSphere 影子库模块的主要设计目标; 这篇文章主要转载自<a href='https://shardingsphere.apache.org/document/5.1.0/cn/reference/shadow/'>ShardingSphere官方网站</a>（V5.1.0版本）。
+## 22.1 背景
+Apache ShardingSphere 关注于全链路压测场景下，数据库层面的解决方案。 将压测数据自动路由至用户指定的数据库，是 Apache ShardingSphere 影子库模块的主要设计目标。
+
+在基于微服务的分布式应用架构下，业务需要多个服务是通过一系列的服务、中间件的调用来完成，所以单个服务的压力测试已无法代表真实场景。 在测试环境中，如果重新搭建一整套与生产环境类似的压测环境，成本过高，并且往往无法模拟线上环境的复杂度以及流量。 因此，业内通常选择全链路压测的方式，即在生产环境进行压测，这样所获得的测试结果能够准确地反应系统真实容量和性能水平。
+
+- 挑战
+
+全链路压测是一项复杂而庞大的工作。 需要各个微服务、中间件之间配合与调整，以应对不同流量以及压测标识的透传。 通常会搭建一整套压测平台以适用不同测试计划。 在数据库层面需要做好数据隔离，为了保证生产数据的可靠性与完整性，需要将压测产生的数据路由到压测环境数据库，防止压测数据对生产数据库中真实数据造成污染。 这就要求业务应用在执行 SQL 前，能够根据透传的压测标识，做好数据分类，将相应的 SQL 路由到与之对应的数据源。
+
+## 22.2 整体架构
+Apache ShardingSphere 通过解析 SQL，对传入的 SQL 进行影子判定，根据配置文件中用户设置的影子规则，路由到生产库或者影子库。
+![92.sharding-x-shadow-1.png](../../assets/images/04-主流框架/Mybatis/92.sharding-x-shadow-1.png)
+## 22.3 影子规则
+影子规则包含影子数据源映射关系，影子表以及影子算法。
+![93.sharding-x-shard-2.png](../../assets/images/04-主流框架/Mybatis/93.sharding-x-shard-2.png)
+
+- 影子库映射：生产数据源名称和影子数据源名称映射关系。
+
+- 影子表：压测相关的影子表。影子表必须存在于指定的影子库中，并且需要指定影子算法。
+
+- 影子算法：SQL 路由影子算法。
+
+- 默认影子算法：默认影子算法。选配项，对于没有配置影子算法表的默认匹配算法。
+
+## 22.4 路由过程
+以 INSERT 语句为例，在写入数据时，Apache ShardingSphere 会对 SQL 进行解析，再根据配置文件中的规则，构造一条路由链。在当前版本的功能中， 影子功能处于路由链中的最后一个执行单元，即，如果有其他需要路由的规则存在，如分片，Apache ShardingSphere 会首先根据分片规则，路由到某一个数据库，再 执行影子路由判定流程，判定执行SQL满足影子规则的配置，数据路由到与之对应的影子库，生产数据则维持不变。
+
+## 22.5 影子判定流程
+> 影子库功能对执行的 SQL 语句进行影子判定。影子判定支持两种类型算法，用户可根据实际业务需求选择一种或者组合使用。
+
+### 22.5.1 DML 语句
+支持两种算法。影子判定会首先判断执行 SQL 相关表与配置的影子表是否有交集。如果有交集，依次判定交集部分影子表关联的影子算法，有任何一个判定成功。SQL 语句路由到影子库。 影子表没有交集或者影子算法判定不成功，SQL 语句路由到生产库。
+
+### 22.5.2 DDL 语句
+仅支持注解影子算法。在压测场景下，DDL 语句一般不需要测试。主要在初始化或者修改影子库中影子表时使用。
+
+影子判定会首先判断执行 SQL 是否包含注解。如果包含注解，影子规则中配置的 HINT 影子算法依次判定。有任何一个判定成功。SQL 语句路由到影子库。 执行 SQL 不包含注解或者 HINT 影子算法判定不成功，SQL 语句路由到生产库。
+
+## 22.6 影子算法
+影子算法详情，请参见内置<a href='https://shardingsphere.apache.org/document/5.1.0/cn/user-manual/shardingsphere-jdbc/builtin-algorithm/shadow/'>影子算法列表</a>
+
+## 22.7 使用案例
+## 22.7.1 场景需求
+假设一个电商网站要对下单业务进行压测。压测相关表 t_order 为影子表，生产数据执行到 ds 生产数据库，压测数据执行到数据库 ds_shadow 影子库。
+
+### 22.7.2 影子库配置
+建议配置如下（YAML 格式展示）：
+```yml
+data-sources:
+  shadow-data-source:
+    source-data-source-name: ds
+    shadow-data-source-name: ds-shadow
+tables:
+  t_order:
+    data-source-names: shadow-data-source
+    shadow-algorithm-names:
+      - simple-hint-algorithm
+      - user-id-value-match-algorithm
+shadow-algorithms:
+  simple-hint-algorithm:
+    type: SIMPLE_HINT
+    props:
+      foo: bar
+  user-id-value-match-algorithm:
+    type: VALUE_MATCH
+    props:
+      operation: insert
+      column: user_id
+      value: 0
+      
+sql-parser:
+  sql-comment-parse-enabled: true
+```
+注意： 如果使用注解影子算法，需要开启解析 SQL 注释配置项 sql-comment-parse-enabled: true。默认关闭。 请参考 SQL 解析配置
+
+### 22.7.3 影子库环境
+- 创建影子库 ds_shadow。
+
+- 创建影子表，表结构与生产环境必须一致。假设在影子库创建 t_order 表。创建表语句需要添加 SQL 注释 /*foo:bar,...*/。即：
+```sql
+CREATE TABLE t_order (order_id INT(11) primary key, user_id int(11) not null, ...) /*foo:bar,...*/
+```
+执行到影子库。
+
+注意：如果使用 MySQL 客户端进行测试，链接需要使用参数：-c 例如：
+```sql
+mysql> mysql -u root -h127.0.0.1 -P3306 -proot -c
+```
+参数说明：保留注释，发送注释到服务端。
+
+执行包含注解 SQL 例如：
+```sql
+SELECT * FROM table_name /*shadow:true,foo:bar*/;
+```
+不使用参数 -c 会被 MySQL 客户端截取注释语句变为:
+```sql
+SELECT * FROM table_name;
+```
+影响测试结果。
+
+### 22.7.4 影子算法使用
+#### 22.7.4.1 列影子算法使用
+假设 t_order 表中包含下单用户ID的 user_id 列。 实现的效果，当用户ID为 0 的用户创建订单产生的数据。 即：
+```sql
+INSERT INTO t_order (order_id, user_id, ...) VALUES (xxx..., 0, ...)
+```
+会执行到影子库，其他数据执行到生产库。
+
+无需修改任何 SQL 或者代码，只需要对压力测试的数据进行控制就可以实现在线的压力测试。
+
+算法配置如下（YAML 格式展示）：
+```yml
+shadow-algorithms:
+  user-id-value-match-algorithm:
+    type: VALUE_MATCH
+    props:
+      operation: insert
+      column: user_id
+      value: 0
+```
+注意：影子表使用列影子算法时，相同类型操作（INSERT, UPDATE, DELETE, SELECT）目前仅支持单个字段。
+
+#### 22.7.4.2 使用 Hint 影子算法
+假设 t_order 表中不包含可以对值进行匹配的列。添加注解 /*foo:bar,...*/ 到执行 SQL 中，即：
+```sql
+SELECT * FROM t_order WHERE order_id = xxx /*foo:bar,...*/
+```
+会执行到影子库，其他数据执行到生产库。
+
+算法配置如下（YAML 格式展示）：
+```yml
+shadow-algorithms:
+  simple-hint-algorithm:
+    type: SIMPLE_HINT
+    props:
+      foo: bar
+```
+#### 22.7.4.3 混合使用影子模式
+假设对 t_order 表压测需要覆盖以上两种场景，即，
+```sql
+INSERT INTO t_order (order_id, user_id, ...) VALUES (xxx..., 0, ...);
+
+SELECT * FROM t_order WHERE order_id = xxx /*foo:bar,...*/;
+```
+都会执行到影子库，其他数据执行到生产库。
+
+算法配置如下（YAML 格式展示）：
+```yml
+shadow-algorithms:
+  user-id-value-match-algorithm:
+    type: VALUE_MATCH
+    props:
+      operation: insert
+      column: user_id
+      value: 0
+  simple-hint-algorithm:
+    type: SIMPLE_HINT
+    props:
+      foo: bar
+```
+#### 22.7.4.4 使用默认影子算法
+假设对 t_order 表压测使用列影子算法，其他相关其他表都需要使用 Hint 影子算法。即,
+```sql
+INSERT INTO t_order (order_id, user_id, ...) VALUES (xxx..., 0, ...);
+
+INSERT INTO t_xxx_1 (order_item_id, order_id, ...) VALUES (xxx..., xxx..., ...) /*foo:bar,...*/;
+
+SELECT * FROM t_xxx_2 WHERE order_id = xxx /*foo:bar,...*/;
+
+SELECT * FROM t_xxx_3 WHERE order_id = xxx /*foo:bar,...*/;
+```
+都会执行到影子库，其他数据执行到生产库。
+
+配置如下（YAML 格式展示）：
+```yml
+data-sources:
+  shadow-data-source:
+    source-data-source-name: ds
+    shadow-data-source-name: ds-shadow
+tables:
+  t_order:
+    data-source-names: shadow-data-source
+    shadow-algorithm-names:
+      - simple-hint-algorithm
+      - user-id-value-match-algorithm
+default-shadow-algorithm-name: simple-note-algorithm
+shadow-algorithms:
+  simple-hint-algorithm:
+    type: SIMPLE_HINT
+    props:
+      foo: bar
+  user-id-value-match-algorithm:
+    type: VALUE_MATCH
+    props:
+      operation: insert
+      column: user_id
+      value: 0
+      
+sql-parser:
+  sql-comment-parse-enabled: true
+```
+注意 默认影子算法仅支持 Hint 影子算法。 使用时必须确保配置文件中 props 的配置项小于等于 SQL 注释中的配置项，且配置文件的具体配置要和 SQL 注释中写的配置一样，配置文件中配置项越少，匹配条件越宽松
+```yml
+simple-note-algorithm:
+  type: SIMPLE_HINT
+  props:
+    foo: bar
+    foo1: bar1
+```
+如当前 props 项中配置了 2 条配置，在 SQL 中可以匹配的写法有如下：
+```sql
+SELECT * FROM t_xxx_2 WHERE order_id = xxx /*foo:bar, foo1:bar1*/
+SELECT * FROM t_xxx_2 WHERE order_id = xxx /*foo:bar, foo1:bar1, foo2:bar2, ...*/
+```
+```yml
+simple-note-algorithm:
+  type: SIMPLE_HINT
+  props:
+    foo: bar
+  ```
+如当前 props 项中配置了 1 条配置，在sql中可以匹配的写法有如下：
+```sql
+SELECT * FROM t_xxx_2 WHERE order_id = xxx /*foo:foo*/
+SELECT * FROM t_xxx_2 WHERE order_id = xxx /*foo:foo, foo1:bar1, ...*/
+```
+## 22.7.5 进一步解释
+我来帮你详细解释ShardingSphere影子库的原理和使用方式。
+
+#### 22.7.5.1 核心原理
+
+**影子库的核心目标**：在生产环境进行压测时，将压测产生的数据自动路由到专门的影子数据库，避免污染真实的生产数据。
+
+#### 22.7.5.2 为什么需要SQL注释？
+
+SQL注释在这里扮演着**压测标识传递**的角色，主要有两个原因：
+
+##### 22.7.5.2.1. 标识压测流量
+在生产环境压测时，需要有一种机制来区分：
+- **正常业务流量** → 路由到生产库
+- **压测流量** → 路由到影子库
+
+SQL注释就是一种轻量级的标识方式，不会影响SQL执行，但能被ShardingSphere识别。
+
+##### 22.7.5.2.2. 灵活的标识传递
+相比修改业务代码或数据库表结构，使用SQL注释更加灵活：
+- **无侵入性**：不需要修改业务逻辑
+- **动态控制**：可以通过注释动态控制路由
+- **易于管理**：压测结束后移除注释即可
+
+#### 22.7.5.3 具体工作原理
+
+##### 22.7.5.3.1 路由判断流程
+```sql
+-- 正常业务SQL（无注释）→ 生产库
+INSERT INTO t_order (order_id, user_id) VALUES (1, 1001);
+
+-- 压测SQL（带注释）→ 影子库  
+INSERT INTO t_order (order_id, user_id) VALUES (1, 1001) /*foo:bar*/;
+```
+
+##### 22.7.5.3.2 两种影子算法详解
+
+###### 22.7.5.3.2.1. 列值匹配算法（VALUE_MATCH）
+```yaml
+shadow-algorithms:
+  user-id-value-match-algorithm:
+    type: VALUE_MATCH
+    props:
+      operation: insert
+      column: user_id
+      value: 0
+```
+**工作原理**：检查SQL中的字段值
+- 当`user_id = 0`时 → 影子库
+- 其他值 → 生产库
+
+**适用场景**：压测用户有特定标识（如user_id=0代表测试用户）
+
+###### 22.7.5.3.2.2. Hint算法（基于注释）
+```yaml
+shadow-algorithms:
+  simple-hint-algorithm:
+    type: SIMPLE_HINT
+    props:
+      foo: bar
+```
+**工作原理**：检查SQL注释中的键值对
+- 注释包含`/*foo:bar*/` → 影子库
+- 无注释或注释不匹配 → 生产库
+
+#### 22.7.5.4 实际应用场景
+
+##### 22.7.5.4.1 场景1：电商压测
+```sql
+-- 生产流量（真实用户）
+INSERT INTO t_order (order_id, user_id) VALUES (10001, 12345);
+
+-- 压测流量（测试用户ID=0）
+INSERT INTO t_order (order_id, user_id) VALUES (20001, 0);
+
+-- 压测流量（带注释）
+INSERT INTO t_order (order_id, user_id) VALUES (30001, 999) /*shadow:true,foo:bar*/;
+```
+
+##### 22.7.5.4.2 场景2：全链路压测
+在微服务架构中，压测标识需要在服务间传递：
+```
+用户请求 → 网关 → 服务A → 服务B → 数据库
+    ↓        ↓       ↓       ↓       ↓
+压测标识 → 压测标识 → 压测标识 → 压测标识 → SQL注释
+```
+
+#### 22.7.5.5 配置要点
+
+##### 22.7.5.5.1 必须开启注释解析
+```yaml
+sql-parser:
+  sql-comment-parse-enabled: true  # 必须开启！
+```
+
+##### 22.7.5.5.2 MySQL客户端注意事项
+```bash
+# 必须使用-c参数，否则客户端会去掉注释
+mysql -u root -h127.0.0.1 -P3306 -proot -c
+```
+
+#### 22.7.5.6 优势总结
+
+1. **数据隔离**：压测数据完全隔离，不影响生产数据
+2. **环境真实**：在生产环境压测，结果更准确
+3. **成本低廉**：无需搭建完整的压测环境
+4. **灵活可控**：通过注释或字段值灵活控制路由
+
+#### 22.7.5.7 简单理解方式
+
+你可以把影子库理解为**数据库层面的流量复制和路由**：
+- **正常流量**走原来的生产数据库
+- **标记为压测的流量**自动被引导到影子数据库
+- **SQL注释**就是给流量贴的"压测标签"
+
+这样既保证了压测的真实性，又确保了生产数据的安全性。
 
 
 
