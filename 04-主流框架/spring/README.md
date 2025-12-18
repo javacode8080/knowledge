@@ -12121,22 +12121,22 @@ java -jar app.jar --server.port=8081 --spring.profiles.active=prod
 export SERVER_PORT=8083
 
 # 4. 打包在jar包外部的特定profile的配置文件
-file:./config/application-{profile}.properties
+file:./config/application-{profile}.properties(注意还有yml格式，同级别的properties优先于yml)
 
 # 5. 打包在jar包内部的特定profile的配置文件
-classpath:/config/application-{profile}.properties
+classpath:/config/application-{profile}.properties(注意还有yml格式，同级别的properties优先于yml)
 
-# 6. 打包在jar包外部的application.properties
+# 6. 打包在jar包外部的application.properties(注意还有yml格式，同级别的properties优先于yml)
 file:./config/application.properties
 
-# 7. 打包在jar包内部的application.properties
+# 7. 打包在jar包内部的application.properties(注意还有yml格式，同级别的properties优先于yml)
 classpath:/config/application.properties
 
-# 8. 打包在jar包外部的application.yml
-file:./application.yml
+# 8. 打包在jar包外部的application.properties(注意还有yml格式，同级别的properties优先于yml)
+file:./application.properties
 
-# 9. 打包在jar包内部的application.yml
-classpath:/application.yml
+# 9. 打包在jar包内部的application.properties(注意还有yml格式，同级别的properties优先于yml)
+classpath:/application.properties
 
 # 10. @PropertySource注解指定的文件（最低优先级）
 ```
@@ -12145,6 +12145,16 @@ classpath:/application.yml
 2. **配置文件层级**：bootstrap.properties、application.properties等（应用上下文初始化时加载）
 3. **自动配置层级**：@EnableAutoConfiguration、@Configuration等（Bean创建阶段，受代码注解控制）
 
+
+**这里值得注意的是，如果达成jar包的META-INF文件夹下面的MAINFEST.MF文件中指定了外部的路径(和启动jar同级别下)。这个路径会添加到 JAR 的 classpath 中。由于是当前目录，优先级高于classpath，所以优先级更高。**
+
+这里是因为我的一个项目工程里面再打包的时候配置了
+```xml
+<manifestEntries>
+    <Class-Path>conf/</Class-Path>
+</manifestEntries>
+```
+这个配置再生成MAINFEST.MF文件中指定了外部的路径conf/。然后我再打出完整包的时候conf/目录下放置了application.properties/applicaition-dev.properties。但是我的启动jar的classpath中也有这两个文件，但是还是我的conf/目录下的优先级更高。
 #### 自动配置类的顺序控制
 
 自动配置类可以通过以下注解控制顺序：
