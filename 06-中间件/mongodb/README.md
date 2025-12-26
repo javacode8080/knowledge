@@ -1304,34 +1304,120 @@ Robo 3T前身是Robomongo。支持Windows，MacOS和Linux系统。Robo 3T 1.3为
 - <a href ='https://developer.aliyun.com/article/721720'>更多可以参考这里</a>
 
 # 六、Mongo入门 - 基本使用：Java API
+> 本文为低优先级，只是向你介绍下MongoDB提供的原生的JavaAPI；而大多数公司使用Spring框架，会使用Spring Data对MongoDB原生API的封装，比如JPA，MongoTemplate等。
+
+## 6.1 MongoDB Driver
+```xml
+<!-- https://mvnrepository.com/artifact/org.mongodb/mongo-java-driver -->
+<dependency>
+    <groupId>org.mongodb</groupId>
+    <artifactId>mongo-java-driver</artifactId>
+    <version>3.12.6</version>
+</dependency>
+```
+## 6.2 代码测试
+例子请参考 <a href='https://mongodb.github.io/mongo-java-driver/3.12/driver/getting-started/quick-start/'>mongo-java-driver</a> 例子
+```java
+private static final String MONGO_HOST = "xxx.xxx.xxx.xxx";
+
+    private static final Integer MONGO_PORT = 27017;
+
+    private static final String MONGO_DB = "testdb";
 
 
+    public static void main(String args[]) {
+        try {
+            // 连接到 mongodb 服务
+            MongoClient mongoClient = new MongoClient(MONGO_HOST, MONGO_PORT);
 
+            // 连接到数据库
+            MongoDatabase mongoDatabase = mongoClient.getDatabase(MONGO_DB);
+            System.out.println("Connect to database successfully");
 
+            // 创建Collection
+            mongoDatabase.createCollection("test");
+            System.out.println("create collection");
 
+            // 获取collection
+            MongoCollection<Document> collection = mongoDatabase.getCollection("test");
 
+            // 插入document
+            Document doc = new Document("name", "MongoDB")
+                    .append("type", "database")
+                    .append("count", 1)
+                    .append("info", new Document("x", 203).append("y", 102));
+            collection.insertOne(doc);
 
+            // 统计count
+            System.out.println(collection.countDocuments());
 
+            // query - first
+            Document myDoc = collection.find().first();
+            System.out.println(myDoc.toJson());
 
+            // query - loop all
+            MongoCursor<Document> cursor = collection.find().iterator();
+            try {
+                while (cursor.hasNext()) {
+                    System.out.println(cursor.next().toJson());
+                }
+            } finally {
+                cursor.close();
+            }
 
+        } catch (Exception e) {
+            System.err.println(e.getClass().getName() + ": " + e.getMessage());
+        }
+    }
+```
+# 七、Mongo入门 - 基本使用：Spring集成
+> 本文为主要介绍Spring Data对MongoDB原生API的封装，比如Spring-data-mongo，MongoTemplate等。以及原生API和Spring data系列之间的关系。
+## 7.1 Spring Data 与 MongoDB
+> 在初学使用者而言，常会分不清Spring-data-jpa, spring-data-mongo, springboot-data-mongo-starter以及mongo-driver之间的关联关系， 本节将带你理解它们之间的关系。
 
+### 7.1.1 Spring Data的层次结构
+首先让我们回顾下Spring runtime体系：
 
+![42.mongo-x-usage-spring-4.png](../../assets/images/06-中间件/mongodb/42.mongo-x-usage-spring-4.png)
 
+Spring Data是基于Spring runtime体系的：
 
+> 下面这个图能够直观反映出它们之间的依赖关系，以及包中类之间的以来关系。
 
+![43.mongo-x-usage-spring-5.png](../../assets/images/06-中间件/mongodb/43.mongo-x-usage-spring-5.png)
 
+### 7.1.2 springboot-data-mongo层次结构
 
+我们通过引入`springboot-data-mongo-starter`包来看它们之间的层次结构：
 
+![44.mongo-x-usage-spring-1.png](../../assets/images/06-中间件/mongodb/44.mongo-x-usage-spring-1.png)
 
+## 7.2 mongodb+Java用法
+所以通过上面分析我们可以得到基于mongodb+Java的常见用法：
 
+### 7.2.1 使用方式及依赖包的引入
+- 引入`mongodb-driver`, 使用最原生的方式通过Java调用mongodb提供的Java driver;
+- 引入`spring-data-mongo`, 自行配置使用`spring data` 提供的对MongoDB的封装
+  - 使用`MongoTemplate` 的方式
+  - 使用`MongoRespository` 的方式
+- 引入`spring-data-mongo-starter`, 采用`spring autoconfig`机制自动装配，然后再使用`MongoTemplate`或者`MongoRespository`方式。
+### 7.2.2 具体使用中文档的参考
+<a href='[spring-data/mongodb 官方的参考文档](https://docs.spring.io/spring-data/mongodb/docs/3.0.3.RELEASE/reference/html/#preface)'>spring-data/mongodb 官方的参考文档</a>
 
+![45.mongo-x-usage-spring-2.png](../../assets/images/06-中间件/mongodb/45.mongo-x-usage-spring-2.png)
 
+### 7.2.3 一些案例的参考
+- **原生方式**
 
+前文我们展示的Java通过mongodb-driver操作mongodb示例。
 
+官方mongo-java-driver 例子
 
+- **spring-data-mongo**
 
+<a href='https://spring.io/projects/spring-data-mongodb/#samples'>官方spring-data-mongodb 例子</a>
 
-
+![46.mongo-x-usage-spring-3.png](../../assets/images/06-中间件/mongodb/46.mongo-x-usage-spring-3.png)
 
 
 
