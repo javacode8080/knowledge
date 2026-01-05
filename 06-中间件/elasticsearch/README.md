@@ -697,7 +697,7 @@ GET /bank/_search
 
 ![25.es-usage-6.png](../../assets/images/06-中间件/elasticsearch/25.es-usage-6.png)
 
-### 4.3.5 多条件查询: bool
+### 4.3.5 <a id='多条件查询: bool'>多条件查询: bool</a>
 如果要构造更复杂的查询，可以使用bool查询来组合多个查询条件。
 
 例如，以下请求在bank索引中搜索40岁客户的帐户，但不包括居住在爱达荷州（ID）的任何人
@@ -1356,143 +1356,1360 @@ LIMIT 10  -- 注意：terms聚合默认返回前10个分组
 **"请统计bank索引中每个州（state）分别有多少个账户，并按账户数从多到少排序，只返回统计结果，不返回具体账户信息。"**
 
 # 五、ES详解 - 索引：索引管理详解
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+> 了解基本使用后，我们从索引操作的角度看看如何对索引进行管理。
+## 5.1 索引管理的引入
+我们在前文中增加文档时，如下的语句会动态创建一个customer的index：
+```sh
+PUT /customer/_doc/1
+{
+  "name": "John Doe"
+}
+```
+而这个index实际上已经自动创建了它里面的字段（name）的类型。我们不妨看下它自动创建的mapping(对应的是数据库的表结构schema)：
+```json
+{
+  "mappings": {
+    "_doc": {
+      "properties": {
+        "name": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+那么如果我们需要对这个建立索引的过程做更多的控制：比如想要确保这个索引有数量适中的主分片，并且在我们索引任何数据之前，分析器和映射已经被建立好。那么就会引入两点：第一个**禁止自动创建索引**，第二个是**手动创建索引**。
+
+- 禁止自动创建索引
+
+可以通过在 config/elasticsearch.yml 的每个节点下添加下面的配置：
+```sh
+action.auto_create_index: false
+```
+手动创建索引就是接下来文章的内容。
+
+## 5.2 索引的格式
+在请求体里面传入设置或类型映射，如下所示：
+```sh
+PUT /my_index
+{
+    "settings": { ... any settings ... },
+    "mappings": {
+        "properties": { ... any properties ... }
+    }
+}
+```
+- `settings`: 用来设置分片,副本等配置信息
+- `mappings`: 字段映射，类型等
+  - `properties`: 由于type在后续版本中会被Deprecated, 所以无需被type嵌套
+## 5.3 索引管理操作
+> 我们通过kibana的devtool来学习索引的管理操作。
+
+### 5.3.1 创建索引
+我们创建一个user 索引`test-index-users`，其中包含三个属性：name，age, remarks; 存储在一个分片一个副本上。
+```sh
+PUT /test-index-users
+{
+  "settings": {
+		"number_of_shards": 1,
+		"number_of_replicas": 1
+	},
+  "mappings": {
+    "properties": {
+      "name": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "age": {
+        "type": "long"
+      },
+      "remarks": {
+        "type": "text"
+      }
+    }
+  }
+}
+```
+执行结果
+
+![32.es-index-manage-1.png](../../assets/images/06-中间件/elasticsearch/32.es-index-manage-1.png)
+
+- **插入测试数据**
+```sh
+POST /test-index-users/_doc
+{
+  "name":"sunjian",
+  "age":28,
+  "remarks":"hello world"
+}
+```
+![33.es-index-manage-2.png](../../assets/images/06-中间件/elasticsearch/33.es-index-manage-2.png)
+
+- **查看数据**
+
+![34.es-index-manage-3.png](../../assets/images/06-中间件/elasticsearch/34.es-index-manage-3.png)
+
+- **我们再测试下不匹配的数据类型**(age)：
+```sh
+POST /test-index-users/_doc
+{
+  "name": "test user",
+  "age": "error_age",
+  "remarks": "hello eeee"
+}
+```
+你可以看到无法类型不匹配的错误：
+
+![35.es-index-manage-4.png](../../assets/images/06-中间件/elasticsearch/35.es-index-manage-4.png)
+
+### 5.3.2 修改索引
+查看刚才的索引,`curl -u elastic:密码 "http://localhost:9200/_cat/indices?v" | grep users`
+```sh
+yellow open test-index-users                          LSaIB57XSC6uVtGQHoPYxQ 1 1     1    0   4.4kb   4.4kb
+```
+我们注意到刚创建的索引的状态是yellow的，因为我测试的环境是单点环境，无法创建副本，但是在上述number_of_replicas配置中设置了副本数是1； 所以在这个时候我们需要修改索引的配置。
+
+修改副本数量为0
+```sh
+PUT /test-index-users/_settings
+{
+  "settings": {
+    "number_of_replicas": 0
+  }
+}
+```
+![36.es-index-manage-5.png](../../assets/images/06-中间件/elasticsearch/36.es-index-manage-5.png)
+
+再次查看状态：
+```sh
+green open test-index-users                          LSaIB57XSC6uVtGQHoPYxQ 1 1     1    0   4.4kb   4.4kb
+```
+### 5.3.3 打开/关闭索引
+- **关闭索引**
+```sh
+POST /test-index-users/_close
+```
+一旦索引被关闭，那么这个索引只能显示元数据信息，**不能够进行读写操作**。
+
+![37.es-index-manage-7.png](../../assets/images/06-中间件/elasticsearch/37.es-index-manage-7.png)
+
+当关闭以后，再插入数据时：
+
+![38.es-index-manage-8.png](../../assets/images/06-中间件/elasticsearch/38.es-index-manage-8.png)
+
+- **打开索引**
+```sh
+POST /test-index-users/_open
+```
+![39.es-index-manage-9.png](../../assets/images/06-中间件/elasticsearch/39.es-index-manage-9.png)
+
+打开后又可以重新写数据了
+
+![40.es-index-manage-10.png](../../assets/images/06-中间件/elasticsearch/40.es-index-manage-10.png)
+
+### 5.3.4 删除索引
+最后我们将创建的test-index-users删除。
+```sh
+DELETE /test-index-users
+```
+![41.es-index-manage-11.png](../../assets/images/06-中间件/elasticsearch/41.es-index-manage-11.png)
+
+### 5.3.5 查看索引
+由于test-index-users被删除，所以我们看下之前bank的索引的信息
+- **mapping**
+```sh
+GET /bank/_mapping
+```
+![42.es-index-manage-12.png](../../assets/images/06-中间件/elasticsearch/42.es-index-manage-12.png)
+
+- **settings**
+
+```sh
+GET /bank/_settings
+```
+![43.es-index-manage-13.png](../../assets/images/06-中间件/elasticsearch/43.es-index-manage-13.png)
+
+## 5.4 Kibana管理索引
+在Kibana如下路径，我们可以查看和管理索引
+
+![44.es-index-manage-6.png](../../assets/images/06-中间件/elasticsearch/44.es-index-manage-6.png)
+
+# 六、ES详解 - 索引：索引模板(Index Template)详解
+> 前文介绍了索引的一些操作，特别是手动创建索引，但是批量和脚本化必然需要提供一种模板方式快速构建和管理索引，这就是本文要介绍的索引模板(Index Template)，它是一种告诉Elasticsearch在创建索引时如何配置索引的方法。为了更好的复用性，在7.8中还引入了组件模板。
+## 6.1 索引模板
+> 索引模板是一种告诉Elasticsearch在创建索引时如何配置索引的方法。
+
+- **使用方式**
+
+在创建索引之前可以先配置模板，这样在创建索引（手动创建索引或通过对文档建立索引）时，模板设置将用作创建索引的基础。
+
+### 6.1.1 模板类型
+模板有两种类型：**索引模板**和**组件模板**。
+
+1. **组件模板是**可重用的构建块，用于配置映射，设置和别名；它们不会直接应用于一组索引。
+2. **索引模板**可以包含组件模板的集合，也可以直接指定设置，映射和别名。
+### 6.1.2 索引模板中的优先级
+1. 可组合模板优先于旧模板。如果没有可组合模板匹配给定索引，则旧版模板可能仍匹配并被应用。
+2. 如果使用显式设置创建索引并且该索引也与索引模板匹配，则创建索引请求中的设置将优先于索引模板及其组件模板中指定的设置。
+3. 如果新数据流或索引与多个索引模板匹配，则使用优先级最高的索引模板。
+### 6.1.3 内置索引模板
+Elasticsearch具有内置索引模板，每个索引模板的优先级为100，适用于以下索引模式：
+
+1. logs-*-*
+2. metrics-*-*
+3. synthetics-*-*
+
+所以在涉及内建索引模板时，要避免索引模式冲突。更多可以参考<a href='https://www.elastic.co/docs/manage-data/data-store/templates'>这里</a>
+
+### 6.1.4 案例
+- 首先**创建两个索引组件模板**：
+```sh
+PUT _component_template/component_template1
+{
+  "template": {
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        }
+      }
+    }
+  }
+}
+```
+```sh
+PUT _component_template/runtime_component_template
+{
+  "template": {
+    "mappings": {
+      "runtime": { 
+        "day_of_week": {
+          "type": "keyword",
+          "script": {
+            "source": "emit(doc['@timestamp'].value.dayOfWeekEnum.getDisplayName(TextStyle.FULL, Locale.ROOT))"
+          }
+        }
+      }
+    }
+  }
+}
+```
+执行结果如下
+
+![45.es-index-template-1.png](../../assets/images/06-中间件/elasticsearch/45.es-index-template-1.png)
+
+- **创建使用组件模板的索引模板**
+```sh
+PUT _index_template/template_1
+{
+  "index_patterns": ["bar*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1
+    },
+    "mappings": {
+      "_source": {
+        "enabled": true
+      },
+      "properties": {
+        "host_name": {
+          "type": "keyword"
+        },
+        "created_at": {
+          "type": "date",
+          "format": "EEE MMM dd HH:mm:ss Z yyyy"
+        }
+      }
+    },
+    "aliases": {
+      "mydata": { }
+    }
+  },
+  "priority": 500,
+  "composed_of": ["component_template1", "runtime_component_template"], 
+  "version": 3,
+  "_meta": {
+    "description": "my custom"
+  }
+}
+```
+执行结果如下
+
+![46.es-index-template-2.png](../../assets/images/06-中间件/elasticsearch/46.es-index-template-2.png)
+
+- **创建一个匹配bar*的索引bar-test**
+```sh
+PUT /bar-test
+```
+- **然后获取mapping**
+```sh
+GET /bar-test/_mapping
+```
+执行结果如下
+
+![47.es-index-template-3.png](../../assets/images/06-中间件/elasticsearch/47.es-index-template-3.png)
+
+### 6.1.5 进一步讲解
+
+#### 什么是索引模板？
+
+**索引模板就像是"索引的蓝图"** - 它告诉Elasticsearch："以后创建符合某个命名模式的索引时，请按照我这个蓝图来配置"。
+
+#### 类比理解
+
+##### 🏗️ **建筑行业类比**
+- **索引模板** = 建筑图纸（蓝图）
+- **索引** = 实际建造的房子
+- **组件模板** = 标准化的建筑模块（如门窗、楼梯等）
+
+有了图纸，每次建新房子时就不用重新设计，直接按图纸施工即可。
+
+##### 📝 **办公文档类比**
+- **索引模板** = Word文档模板（.dotx文件）
+- **索引** = 基于模板创建的具体文档（.docx文件）
+- **组件模板** = 模板中的页眉、页脚、样式等可复用部分
+
+#### 为什么要用索引模板？
+
+##### 场景1：日志管理
+```bash
+# 没有模板：每天手动创建日志索引，重复配置
+PUT /logs-2024-01-01
+{
+  "settings": { "number_of_shards": 3 },
+  "mappings": { ... }  # 每次都要写一遍
+}
+
+PUT /logs-2024-01-02
+{
+  "settings": { "number_of_shards": 3 },  # 重复配置！
+  "mappings": { ... }  # 重复配置！
+}
+```
+
+```bash
+# 使用模板：一次配置，自动应用
+PUT _index_template/logs_template
+{
+  "index_patterns": ["logs-*"],  # 匹配所有 logs- 开头的索引
+  "template": {
+    "settings": { "number_of_shards": 3 },
+    "mappings": { ... }
+  }
+}
+
+# 以后创建索引时自动应用模板配置
+PUT /logs-2024-01-01  # 自动应用模板！
+PUT /logs-2024-01-02  # 自动应用模板！
+```
+
+##### 场景2：电商商品索引
+```bash
+# 定义商品索引模板
+PUT _index_template/product_template
+{
+  "index_patterns": ["product-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 2,
+      "number_of_replicas": 1
+    },
+    "mappings": {
+      "properties": {
+        "name": { "type": "text" },
+        "price": { "type": "float" },
+        "category": { "type": "keyword" },
+        "created_at": { "type": "date" }
+      }
+    }
+  }
+}
+
+# 创建不同分类的商品索引（都自动应用模板）
+PUT /product-electronics    # 电子产品索引
+PUT /product-clothing       # 服装索引
+PUT /product-books          # 图书索引
+# 所有这些索引都会自动拥有相同的结构和配置
+```
+
+#### 实际案例演示
+
+让我用您的环境演示一个简单的例子：
+
+##### 步骤1：创建一个简单的索引模板
+```bash
+# 创建测试模板
+curl -u elastic:hcm13579 -X PUT "http://localhost:9200/_index_template/my_test_template" \
+-H "Content-Type: application/json" \
+-d '{
+  "index_patterns": ["test-*"],
+  "priority": 1,
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "properties": {
+        "title": { "type": "text" },
+        "description": { "type": "text" },
+        "price": { "type": "float" },
+        "created_at": { "type": "date" }
+      }
+    }
+  }
+}'
+```
+
+##### 步骤2：查看模板是否创建成功
+```bash
+# 查看所有模板
+curl -u elastic:hcm13579 "http://localhost:9200/_index_template?pretty"
+
+# 查看特定模板
+curl -u elastic:hcm13579 "http://localhost:9200/_index_template/my_test_template?pretty"
+```
+
+##### 步骤3：测试模板效果
+```bash
+# 创建匹配模板模式的索引（会自动应用模板配置）
+curl -u elastic:hcm13579 -X PUT "http://localhost:9200/test-products"
+
+# 查看索引的映射（应该看到模板中定义的字段）
+curl -u elastic:hcm13579 "http://localhost:9200/test-products/_mapping?pretty"
+```
+
+##### 步骤4：向索引中添加数据
+```bash
+# 添加文档（会自动使用模板定义的字段类型）
+curl -u elastic:hcm13579 -X POST "http://localhost:9200/test-products/_doc" \
+-H "Content-Type: application/json" \
+-d '{
+  "title": "笔记本电脑",
+  "description": "高性能游戏笔记本", 
+  "price": 5999.99,
+  "created_at": "2024-01-05T10:00:00"
+}'
+```
+
+##### 步骤5：验证模板的自动应用
+```bash
+# 再创建一个匹配模板的索引
+curl -u elastic:hcm13579 -X PUT "http://localhost:9200/test-books"
+
+# 查看这个新索引的映射（应该和test-products一样）
+curl -u elastic:hcm13579 "http://localhost:9200/test-books/_mapping?pretty"
+```
+
+#### 索引模板的核心价值
+
+1. **一致性**：确保相同类型的索引有统一的结构
+2. **效率**：避免重复配置，减少人为错误
+3. **自动化**：新索引自动应用预定义配置
+4. **维护性**：修改模板即可影响所有相关索引
+
+#### 组件模板的作用
+
+组件模板让模板更加模块化：
+- 可以创建通用的"基础配置"组件
+- 创建专门的"日期字段"组件  
+- 创建"业务特定字段"组件
+- 然后在索引模板中组合这些组件
+
+就像搭积木一样，更加灵活和可复用。
+
+#### 总结
+
+**索引模板就是"索引的标准化工厂"**：
+- 你定义好产品规格（模板）
+- 工厂（Elasticsearch）按规格自动生产产品（索引）
+- 确保每个产品都符合质量标准（一致的配置）
+
+
+#### 1. 第一个组件模板：`component_template1`
+
+```sh
+PUT _component_template/component_template1
+{
+  "template": {
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        }
+      }
+    }
+  }
+}
+```
+
+##### 语法详解：
+
+- **`PUT _component_template/component_template1`**
+  - `PUT`: HTTP方法，表示创建或更新资源
+  - `_component_template/`: Elasticsearch的组件模板API端点
+  - `component_template1`: 给这个模板起的名字
+
+- **`"template": { ... }`**: 模板配置的主体部分
+
+- **`"mappings": { ... }`**: 定义索引的字段映射（数据结构）
+
+- **`"properties": { ... }`**: 具体的字段定义
+
+- **`"@timestamp": { "type": "date" }`**:
+  - `@timestamp`: 字段名称（常用作时间戳字段）
+  - `"type": "date"`: 字段类型为日期类型
+
+##### 实际作用：
+这个模板定义了一个**标准的日期字段**，任何使用这个组件模板的索引都会自动拥有一个`@timestamp`日期字段。
+
+---
+
+#### 2. 第二个组件模板：`runtime_component_template`
+
+```sh
+PUT _component_template/runtime_component_template
+{
+  "template": {
+    "mappings": {
+      "runtime": { 
+        "day_of_week": {
+          "type": "keyword",
+          "script": {
+            "source": "emit(doc['@timestamp'].value.dayOfWeekEnum.getDisplayName(TextStyle.FULL, Locale.ROOT))"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+##### 语法详解：
+
+- **`"runtime": { ... }`**: 定义**运行时字段**（Runtime Fields）
+  - 运行时字段是**查询时计算**的字段，不存储在索引中
+  - 节省存储空间，动态计算字段值
+
+- **`"day_of_week": { ... }`**: 运行时字段名称
+
+- **`"script": { ... }`**: 定义如何计算字段值的脚本
+  - `"source"`: Painless脚本语言代码
+  - `doc['@timestamp'].value`: 获取`@timestamp`字段的值
+  - `.dayOfWeekEnum.getDisplayName(TextStyle.FULL, Locale.ROOT)`: 
+    - 将日期转换为星期几的全名（如"Monday"、"Tuesday"）
+    - `TextStyle.FULL`: 完整格式
+    - `Locale.ROOT`: 英语区域设置
+
+- **`"type": "keyword"`**: 计算结果作为关键字类型
+
+##### 实际作用：
+这个模板创建了一个**智能的星期几字段**，它会根据`@timestamp`自动计算出对应的星期几，比如"2024-01-05"会自动变成"Friday"。
+
+---
+
+#### 3. 索引模板：`template_1`
+
+```sh
+PUT _index_template/template_1
+{
+  "index_patterns": ["bar*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1
+    },
+    "mappings": {
+      "_source": {
+        "enabled": true
+      },
+      "properties": {
+        "host_name": {
+          "type": "keyword"
+        },
+        "created_at": {
+          "type": "date",
+          "format": "EEE MMM dd HH:mm:ss Z yyyy"
+        }
+      }
+    },
+    "aliases": {
+      "mydata": { }
+    }
+  },
+  "priority": 500,
+  "composed_of": ["component_template1", "runtime_component_template"], 
+  "version": 3,
+  "_meta": {
+    "description": "my custom"
+  }
+}
+```
+
+##### 语法详解：
+
+- **`PUT _index_template/template_1`**: 创建索引模板
+
+- **`"index_patterns": ["bar*"]`**: 
+  - 匹配规则：所有以"bar"开头的索引名
+  - 例如：`bar-test`, `bar-log`, `bar-data`都会自动应用这个模板
+
+- **`"template": { ... }`**: 直接定义的配置
+  - `"settings"`: 索引设置
+    - `"number_of_shards": 1`: 主分片数量为1
+  - `"mappings"`: 字段映射
+    - `"_source": {"enabled": true}`: 存储原始文档内容
+    - `"properties"`: 自定义字段
+      - `"host_name": {"type": "keyword"}`: 主机名字段，关键字类型
+      - `"created_at": {"type": "date", "format": "EEE MMM dd HH:mm:ss Z yyyy"}`: 
+        - 日期字段，指定日期格式（如"Fri Jan 05 15:30:00 +0800 2024"）
+  - `"aliases": {"mydata": { }}`: 为索引创建别名`mydata`
+
+- **`"priority": 500`**: 模板优先级（数字越大优先级越高）
+
+- **`"composed_of": ["component_template1", "runtime_component_template"]`**: 
+  - 组合使用前面两个组件模板
+  - 相当于"继承"了它们的配置
+
+- **`"version": 3`**: 模板版本号
+
+- **`"_meta": {"description": "my custom"}`**: 元数据描述
+
+---
+
+#### 整体效果演示
+
+让我用您的环境实际测试一下：
+
+##### 步骤1：创建组件模板
+```bash
+# 创建第一个组件模板
+curl -u elastic:hcm13579 -X PUT "http://localhost:9200/_component_template/component_template1" \
+-H "Content-Type: application/json" \
+-d '{
+  "template": {
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        }
+      }
+    }
+  }
+}'
+
+# 创建第二个组件模板（运行时字段）
+curl -u elastic:hcm13579 -X PUT "http://localhost:9200/_component_template/runtime_component_template" \
+-H "Content-Type: application/json" \
+-d '{
+  "template": {
+    "mappings": {
+      "runtime": { 
+        "day_of_week": {
+          "type": "keyword",
+          "script": {
+            "source": "emit(doc['@timestamp'].value.dayOfWeekEnum.getDisplayName(TextStyle.FULL, Locale.ROOT))"
+          }
+        }
+      }
+    }
+  }
+}'
+```
+
+##### 步骤2：创建索引模板
+```bash
+# 创建索引模板（组合两个组件模板）
+curl -u elastic:hcm13579 -X PUT "http://localhost:9200/_index_template/template_1" \
+-H "Content-Type: application/json" \
+-d '{
+  "index_patterns": ["bar*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1
+    },
+    "mappings": {
+      "_source": {
+        "enabled": true
+      },
+      "properties": {
+        "host_name": {
+          "type": "keyword"
+        },
+        "created_at": {
+          "type": "date",
+          "format": "EEE MMM dd HH:mm:ss Z yyyy"
+        }
+      }
+    },
+    "aliases": {
+      "mydata": { }
+    }
+  },
+  "priority": 500,
+  "composed_of": ["component_template1", "runtime_component_template"], 
+  "version": 3,
+  "_meta": {
+    "description": "my custom"
+  }
+}'
+```
+
+##### 步骤3：测试模板效果
+```bash
+# 创建匹配模板的索引
+curl -u elastic:hcm13579 -X PUT "http://localhost:9200/bar-test"
+
+# 查看索引的完整映射（应该包含所有字段）
+curl -u elastic:hcm13579 "http://localhost:9200/bar-test/_mapping?pretty"
+```
+
+##### 步骤4：添加数据测试运行时字段
+```bash
+# 添加文档
+curl -u elastic:hcm13579 -X POST "http://localhost:9200/bar-test/_doc" \
+-H "Content-Type: application/json" \
+-d '{
+  "host_name": "server-01",
+  "created_at": "Fri Jan 05 15:30:00 +0800 2024",
+  "@timestamp": "2024-01-05T07:30:00Z"
+}'
+
+# 查询时使用运行时字段（自动计算星期几）
+curl -u elastic:hcm13579 -X GET "http://localhost:9200/bar-test/_search" \
+-H "Content-Type: application/json" \
+-d '{
+  "query": {
+    "term": {
+      "day_of_week": "Friday"
+    }
+  },
+  "fields": ["day_of_week"]
+}'
+```
+
+#### 关键概念总结
+
+1. **组件模板**：可重用的配置模块（如"日期字段模块"、"运行时字段模块"）
+2. **索引模板**：组合多个组件模板，定义完整的索引配置
+3. **运行时字段**：查询时动态计算的字段，不占用存储空间
+4. **索引模式匹配**：自动应用于符合命名规则的索引
+
+## 6.2 模拟多组件模板
+> 由于模板不仅可以由多个组件模板组成，还可以由索引模板自身组成；那么最终的索引设置将是什么呢？ElasticSearch设计者考虑到这个，提供了API进行模拟组合后的模板的配置。
+
+### 6.2.1 模拟某个索引结果
+比如上面的template_1, 我们不用创建bar*的索引(这里模拟bar-pdai-test)，也可以模拟计算出索引的配置：
+```sh
+POST /_index_template/_simulate_index/bar-pdai-test
+```
+执行结果如下
+
+![48.es-index-template-4.png](../../assets/images/06-中间件/elasticsearch/48.es-index-template-4.png)
+
+### 6.2.2 模拟组件模板结果
+当然，由于template_1模板是由两个组件模板组合的，我们也可以模拟出template_1被组合后的索引配置：
+```sh
+POST /_index_template/_simulate/template_1
+```
+执行结果如下：
+```sh
+{
+  "template" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "1"
+      }
+    },
+    "mappings" : {
+      "runtime" : {
+        "day_of_week" : {
+          "type" : "keyword",
+          "script" : {
+            "source" : "emit(doc['@timestamp'].value.dayOfWeekEnum.getDisplayName(TextStyle.FULL, Locale.ROOT))",
+            "lang" : "painless"
+          }
+        }
+      },
+      "properties" : {
+        "@timestamp" : {
+          "type" : "date"
+        },
+        "created_at" : {
+          "type" : "date",
+          "format" : "EEE MMM dd HH:mm:ss Z yyyy"
+        },
+        "host_name" : {
+          "type" : "keyword"
+        }
+      }
+    },
+    "aliases" : {
+      "mydata" : { }
+    }
+  },
+  "overlapping" : [ ]
+}
+```
+### 6.2.3 模拟组件模板和自身模板结合后的结果
+- **新建两个模板**
+```sh
+PUT /_component_template/ct1
+{
+  "template": {
+    "settings": {
+      "index.number_of_shards": 2
+    }
+  }
+}
+```
+```sh
+PUT /_component_template/ct2
+{
+  "template": {
+    "settings": {
+      "index.number_of_replicas": 0
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        }
+      }
+    }
+  }
+}
+```
+模拟在两个组件模板的基础上，添加自身模板的配置
+
+```sh
+POST /_index_template/_simulate
+{
+  "index_patterns": ["my*"],
+  "template": {
+    "settings" : {
+        "index.number_of_shards" : 3
+    }
+  },
+  "composed_of": ["ct1", "ct2"]
+}
+```
+执行的结果如下
+```sh
+{
+  "template" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "3",
+        "number_of_replicas" : "0"
+      }
+    },
+    "mappings" : {
+      "properties" : {
+        "@timestamp" : {
+          "type" : "date"
+        }
+      }
+    },
+    "aliases" : { }
+  },
+  "overlapping" : [ ]
+}
+```
+![49.es-index-template-5.png](../../assets/images/06-中间件/elasticsearch/49.es-index-template-5.png)
+
+# 七、ES详解 - 查询：DSL查询之复合查询详解
+> 在查询中会有多种条件组合的查询，在ElasticSearch中叫复合查询。它提供了5种复合查询方式：**bool query(布尔查询)**、**boosting query(提高查询)**、**constant_score（固定分数查询）**、**dis_max(最佳匹配查询)**、**function_score(函数查询)**。
+
+## 7.1 复合查询引入
+在<a href='#多条件查询: bool'>前文</a>中，我们使用`bool`查询来组合多个查询条件。
+
+比如之前介绍的语句
+```sh
+GET /bank/_search
+{
+  "query": {
+    "bool": {
+      "must": [
+        { "match": { "age": "40" } }
+      ],
+      "must_not": [
+        { "match": { "state": "ID" } }
+      ]
+    }
+  }
+}
+```
+这种查询就是本文要介绍的**复合查询**，并且bool查询只是复合查询一种。
+
+## 7.2 bool query(布尔查询)
+> 通过布尔逻辑将较小的查询组合成较大的查询。
+
+### 7.2.1 概念
+Bool查询语法有以下特点
+
+- 子查询可以任意顺序出现
+- 可以嵌套多个查询，包括bool查询
+- 如果bool查询中没有must条件，should中必须至少满足一条才会返回结果。
+
+bool查询包含四种操作符，分别是must,should,must_not,filter。他们均是一种数组，数组里面是对应的判断条件。
+
+- `must`： 必须匹配。贡献算分
+- `must_not`：过滤子句，必须不能匹配，但不贡献算分
+- `should`： 选择性匹配，至少满足一条。贡献算分
+- `filter`： 过滤子句，必须匹配，但不贡献算分
+### 7.2.2 一些例子
+看下官方举例
+
+- **例子1**
+```sh
+POST _search
+{
+  "query": {
+    "bool" : {
+      "must" : {
+        "term" : { "user.id" : "kimchy" }
+      },
+      "filter": {
+        "term" : { "tags" : "production" }
+      },
+      "must_not" : {
+        "range" : {
+          "age" : { "gte" : 10, "lte" : 20 }
+        }
+      },
+      "should" : [
+        { "term" : { "tags" : "env1" } },
+        { "term" : { "tags" : "deployed" } }
+      ],
+      "minimum_should_match" : 1,
+      "boost" : 1.0
+    }
+  }
+}
+```
+在filter元素下指定的查询对评分没有影响 , 评分返回为0。分数仅受已指定查询的影响。
+
+- **例子2**
+```sh
+GET _search
+{
+  "query": {
+    "bool": {
+      "filter": {
+        "term": {
+          "status": "active"
+        }
+      }
+    }
+  }
+}
+```
+这个例子查询查询为所有文档分配0分，因为没有指定评分查询。
+
+- **例子3**
+```sh
+GET _search
+{
+  "query": {
+    "bool": {
+      "must": {
+        "match_all": {}
+      },
+      "filter": {
+        "term": {
+          "status": "active"
+        }
+      }
+    }
+  }
+}
+```
+此bool查询具有match_all查询，该查询为所有文档指定1.0分。
+
+- **例子4**
+```sh
+GET /_search
+{
+  "query": {
+    "bool": {
+      "should": [
+        { "match": { "name.first": { "query": "shay", "_name": "first" } } },
+        { "match": { "name.last": { "query": "banon", "_name": "last" } } }
+      ],
+      "filter": {
+        "terms": {
+          "name.last": [ "banon", "kimchy" ],
+          "_name": "test"
+        }
+      }
+    }
+  }
+}
+```
+每个query条件都可以有一个`_name`属性，用来追踪搜索出的数据到底match了哪个条件。
+
+## 7.3 boosting query(提高查询)
+> 不同于bool查询，bool查询中只要一个子查询条件不匹配那么搜索的数据就不会出现。而boosting query则是降低显示的权重/优先级（即score)。
+
+### 7.3.1 概念
+比如搜索逻辑是 name = 'apple' and type ='fruit'，对于只满足部分条件的数据，不是不显示，而是降低显示的优先级（即score)
+
+### 7.3.2 例子
+首先创建数据
+```sh
+POST /test-dsl-boosting/_bulk
+{ "index": { "_id": 1 }}
+{ "content":"Apple Mac" }
+{ "index": { "_id": 2 }}
+{ "content":"Apple Fruit" }
+{ "index": { "_id": 3 }}
+{ "content":"Apple employee like Apple Pie and Apple Juice" }
+```
+对匹配`pie`的做降级显示处理
+```sh
+GET /test-dsl-boosting/_search
+{
+  "query": {
+    "boosting": {
+      "positive": {
+        "term": {
+          "content": "apple"
+        }
+      },
+      "negative": {
+        "term": {
+          "content": "pie"
+        }
+      },
+      "negative_boost": 0.5
+    }
+  }
+}
+```
+执行结果如下
+
+![50.es-dsl-com-2.png](../../assets/images/06-中间件/elasticsearch/50.es-dsl-com-2.png)
+
+## 7.4 constant_score（固定分数查询）
+> 查询某个条件时，固定的返回指定的score；显然当不需要计算score时，只需要filter条件即可，因为filter context忽略score。
+
+### 7.4.1 例子
+首先创建数据
+```sh
+POST /test-dsl-constant/_bulk
+{ "index": { "_id": 1 }}
+{ "content":"Apple Mac" }
+{ "index": { "_id": 2 }}
+{ "content":"Apple Fruit" }
+```
+查询apple
+```sh
+GET /test-dsl-constant/_search
+{
+  "query": {
+    "constant_score": {
+      "filter": {
+        "term": { "content": "apple" }
+      },
+      "boost": 1.2
+    }
+  }
+}
+```
+执行结果如下
+
+![51.es-dsl-com-3.png](../../assets/images/06-中间件/elasticsearch/51.es-dsl-com-3.png)
+
+## 7.5 dis_max(最佳匹配查询)
+> 分离最大化查询（Disjunction Max Query）指的是： 将任何与任一查询匹配的文档作为结果返回，但只将最佳匹配的评分作为查询的评分结果返回 。
+
+### 7.5.1 例子
+假设有个网站允许用户搜索博客的内容，以下面两篇博客内容文档为例：
+```sh
+POST /test-dsl-dis-max/_bulk
+{ "index": { "_id": 1 }}
+{"title": "Quick brown rabbits","body":  "Brown rabbits are commonly seen."}
+{ "index": { "_id": 2 }}
+{"title": "Keeping pets healthy","body":  "My quick brown fox eats rabbits on a regular basis."}
+```
+用户输入词组 “Brown fox” 然后点击搜索按钮。事先，我们并不知道用户的搜索项是会在 title 还是在 body 字段中被找到，但是，用户很有可能是想搜索相关的词组。用肉眼判断，文档 2 的匹配度更高，因为它同时包括要查找的两个词：
+
+现在运行以下 bool 查询：
+```sh
+GET /test-dsl-dis-max/_search
+{
+    "query": {
+        "bool": {
+            "should": [
+                { "match": { "title": "Brown fox" }},
+                { "match": { "body":  "Brown fox" }}
+            ]
+        }
+    }
+}
+```
+
+![52.es-dsl-dismax-2.png](../../assets/images/06-中间件/elasticsearch/52.es-dsl-dismax-2.png)
+
+**结果是第一条评分高于第二条**，为了理解导致这样的原因，需要看下如何计算评分的
+
+- **should 条件的计算分数**
+```sh
+GET /test-dsl-dis-max/_search
+{
+    "query": {
+        "bool": {
+            "should": [
+                { "match": { "title": "Brown fox" }},
+                { "match": { "body":  "Brown fox" }}
+            ]
+        }
+    }
+}
+```
+**要计算上述分数，首先要计算match的分数**
+
+1. 第一个match 中 brown的分数
+
+doc 1 分数 = 0.6931471
+
+![53.es-dsl-dismax-4.png](../../assets/images/06-中间件/elasticsearch/53.es-dsl-dismax-4.png)
+
+2. title中没有fox，所以第一个match 中 brown fox 的分数 = brown分数 + 0 = 0.6931471
+
+doc 1 分数 = 0.6931471 + 0 = 0.6931471
+
+![54.es-dsl-dismax-5.png](../../assets/images/06-中间件/elasticsearch/54.es-dsl-dismax-5.png)
+
+3. 第二个 match 中 brown分数
+
+doc 1 分数 = 0.21110919
+
+doc 2 分数 = 0.160443
+
+![55.es-dsl-dismax-6.png](../../assets/images/06-中间件/elasticsearch/55.es-dsl-dismax-6.png)
+
+
+4. 第二个 match 中 fox分数
+
+doc 1 分数 = 0
+
+doc 2 分数 = 0.60996956
+
+![56.es-dsl-dismax-7.png](../../assets/images/06-中间件/elasticsearch/56.es-dsl-dismax-7.png)
+
+5. 所以第二个 match 中 brown fox分数 = brown分数 + fox分数
+
+doc 1 分数 = 0.21110919 + 0 = 0.21110919
+
+doc 2 分数 = 0.160443 + 0.60996956 = 0.77041256
+
+![57.es-dsl-dismax-8.png](../../assets/images/06-中间件/elasticsearch/57.es-dsl-dismax-8.png)
+
+7. 所以整个语句分数， should分数 = 第一个match + 第二个match分数
+
+doc 1 分数 = 0.6931471 + 0.21110919 = 0.90425634
+
+doc 2 分数 = 0 + 0.77041256 = 0.77041256
+
+![58.es-dsl-dismax-9.png](../../assets/images/06-中间件/elasticsearch/58.es-dsl-dismax-9.png)
+
+- **引入了dis_max**
+
+不使用 bool 查询，可以使用 dis_max 即分离 最大化查询（Disjunction Max Query） 。分离（Disjunction）的意思是 或（or） ，这与可以把结合（conjunction）理解成 与（and） 相对应。分离最大化查询（Disjunction Max Query）指的是： 将任何与任一查询匹配的文档作为结果返回，但只将最佳匹配的评分作为查询的评分结果返回 ：
+```sh
+GET /test-dsl-dis-max/_search
+{
+    "query": {
+        "dis_max": {
+            "queries": [
+                { "match": { "title": "Brown fox" }},
+                { "match": { "body":  "Brown fox" }}
+            ],
+            "tie_breaker": 0
+        }
+    }
+}
+```
+
+![59.es-dsl-dismax-3.png](../../assets/images/06-中间件/elasticsearch/59.es-dsl-dismax-3.png)
+
+0.77041256怎么来的呢？ 下文给你解释它如何计算出来的。
+
+- **dis_max 条件的计算分数**
+```sh
+## 重点关注
+分数 = max_score + tie_breaker × (其他所有匹配查询的分数之和)
+
+其中：
+- `max_score` = 所有匹配查询中的最高分数
+- `tie_breaker` = 您设置的参数（通常为0到1之间）
+- "其他所有匹配查询的分数之和" = 除了最高分查询外，其他匹配查询的分数总和
+```
+
+```sh
+GET /test-dsl-dis-max/_search
+{
+    "query": {
+        "dis_max": {
+            "queries": [
+                { "match": { "title": "Brown fox" }},
+                { "match": { "body":  "Brown fox" }}
+            ],
+            "tie_breaker": 0
+        }
+    }
+}
+```
+doc 1 分数 = 0.6931471 + 0.21110919 * 0 = 0.6931471
+
+doc 2 分数 = 0.77041256 + 0 * 0= 0.77041256
+
+![60.es-dsl-dismax-10.png](../../assets/images/06-中间件/elasticsearch/60.es-dsl-dismax-10.png)
+
+这样你就能理解通过dis_max将doc 2 置前了， 当然这里如果缺省`tie_breaker`字段的话默认就是0，你还可以设置它的比例（在0到1之间）来控制排名。（显然值为1时和should查询是一致的）
+
+### 7.5.2 进一步解释
+
+**`dis_max` 的分数计算不依赖于查询条件的顺序，而是基于评分高低**：
+
+```
+分数 = max_score + tie_breaker × (其他所有匹配查询的分数之和)
+```
+
+其中：
+- `max_score` = 所有匹配查询中的最高分数
+- `tie_breaker` = 您设置的参数（通常为0到1之间）
+- "其他所有匹配查询的分数之和" = 除了最高分查询外，其他匹配查询的分数总和
+
+#### 7.5.2.1 三个查询条件的具体计算
+
+假设有三个查询条件，分数分别为 `score_A`、`score_B`、`score_C`，且都匹配：
+
+1. **找出最高分数**：`max_score = max(score_A, score_B, score_C)`
+2. **计算其他分数之和**：`sum_others = 其他两个分数的和`
+3. **最终分数**：`final_score = max_score + tie_breaker × sum_others`
+
+#### 7.5.2.2 具体示例：
+```json
+GET /test-index/_search
+{
+    "query": {
+        "dis_max": {
+            "queries": [
+                { "match": { "field1": "keyword" }},  // 分数 0.8
+                { "match": { "field2": "keyword" }},  // 分数 1.2
+                { "match": { "field3": "keyword" }}   // 分数 0.9
+            ],
+            "tie_breaker": 0.3
+        }
+    }
+}
+```
+
+**计算过程**：
+- `max_score = max(0.8, 1.2, 0.9) = 1.2`（第二个查询分数最高）
+- `sum_others = 0.8 + 0.9 = 1.7`（第一个和第三个查询的分数和）
+- `final_score = 1.2 + 0.3 × 1.7 = 1.2 + 0.51 = 1.71`
+
+#### 7.5.2.3 不同匹配情况的处理
+
+##### 7.5.2.3.1 情况1：三个查询都匹配（如上例）
+- 分数 = 最高分 + tie_breaker × (其他两个分数之和)
+
+##### 7.5.2.3.2 情况2：只有两个查询匹配
+例如：查询A（0.8）和查询B（1.2）匹配，查询C不匹配
+- 分数 = max(0.8, 1.2) + tie_breaker × min(0.8, 1.2) = 1.2 + tie_breaker × 0.8
+
+##### 7.5.2.3.3 情况3：只有一个查询匹配
+例如：只有查询B（1.2）匹配
+- 分数 = 1.2 + tie_breaker × 0 = 1.2（等同于普通匹配查询）
+
+## 7.6 function_score(函数查询)
+》 简而言之就是用自定义function的方式来计算_score。
+
+可以ES有哪些自定义function呢？
+
+- `script_score` 使用自定义的脚本来完全控制分值计算逻辑。如果你需要以上预定义函数之外的功能，可以根据需要通过脚本进行实现。
+- `weight` 对每份文档适用一个简单的提升，且该提升不会被归约：当weight为2时，结果为2 * _score。
+- `random_score` 使用一致性随机分值计算来对每个用户采用不同的结果排序方式，对相同用户仍然使用相同的排序方式。
+- `field_value_factor` 使用文档中某个字段的值来改变_score，比如将受欢迎程度或者投票数量考虑在内。
+- `衰减函数(Decay Function)` - `linear`，`exp`，`gauss`
+### 7.6.1 例子
+以最简单的random_score 为例
+```sh
+GET /_search
+{
+  "query": {
+    "function_score": {
+      "query": { "match_all": {} },
+      "boost": "5",
+      "random_score": {}, 
+      "boost_mode": "multiply"
+    }
+  }
+}
+```
+进一步的，它还可以使用上述function的组合(functions)
+```sh
+GET /_search
+{
+  "query": {
+    "function_score": {
+      "query": { "match_all": {} },
+      "boost": "5", 
+      "functions": [
+        {
+          "filter": { "match": { "test": "bar" } },
+          "random_score": {}, 
+          "weight": 23
+        },
+        {
+          "filter": { "match": { "test": "cat" } },
+          "weight": 42
+        }
+      ],
+      "max_boost": 42,
+      "score_mode": "max",
+      "boost_mode": "multiply",
+      "min_score": 42
+    }
+  }
+}
+```
+script_score 可以使用如下方式
+```sh
+GET /_search
+{
+  "query": {
+    "function_score": {
+      "query": {
+        "match": { "message": "elasticsearch" }
+      },
+      "script_score": {
+        "script": {
+          "source": "Math.log(2 + doc['my-int'].value)"
+        }
+      }
+    }
+  }
+}
+```
+更多相关内容，可以参考<a href='https://www.elastic.co/guide/en/elasticsearch/reference/7.12/query-dsl-function-score-query.html'>官方文档</a>
+
+PS: 形成体系化认知以后，具体用的时候查询下即可。
 
 
 
