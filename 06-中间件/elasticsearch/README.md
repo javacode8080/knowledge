@@ -627,7 +627,7 @@ curl -H "Content-Type: application/json" -XPOST "localhost:9200/bank/_bulk?prett
 yellow open   bank                            yq3eSlAWRMO2Td0Sl769rQ   1   1       1000            0    379.2kb        379.2kb
 [elasticsearch@pdai-centos root]$
 ```
-## 4.3 查询数据
+## 4.3 <a id ='match 查询'>查询数据</a>
 > 我们通过kibana来进行查询测试。
 ### 4.3.1 查询所有
 
@@ -2710,6 +2710,4031 @@ GET /_search
 更多相关内容，可以参考<a href='https://www.elastic.co/guide/en/elasticsearch/reference/7.12/query-dsl-function-score-query.html'>官方文档</a>
 
 PS: 形成体系化认知以后，具体用的时候查询下即可。
+
+# 八、ES详解 - 查询：DSL查询之全文搜索详解
+> DSL查询极为常用的是对文本进行搜索，我们叫全文搜索，本文主要对全文搜索进行详解。
+## 8.1 写在前面:谈谈如何从官网学习
+> 提示
+> 
+> 很多读者在看官方文档学习时存在一个误区，以DSL中full text查询为例，其实内容是非常多的， 没有取舍/没重点去阅读， 要么需要花很多时间，要么头脑一片浆糊。所以这里重点谈谈我的理解。
+
+一些理解：
+
+- 第一点：**全局观**，即我们现在学习内容在整个体系的哪个位置？
+
+如下图，可以很方便的帮助你构筑这种体系
+
+![61.es-dsl-full-text-3.png](../../assets/images/06-中间件/elasticsearch/61.es-dsl-full-text-3.png)
+
+- 第二点： **分类别**，从上层理解，而不是本身
+
+比如Full text Query中，我们只需要把如下的那么多点分为3大类，你的体系能力会大大提升
+
+![62.es-dsl-full-text-1.png](../../assets/images/06-中间件/elasticsearch/62.es-dsl-full-text-1.png)
+
+- 第三点： **知识点还是API**？ API类型的是可以查询的，只需要知道大致有哪些功能就可以了。
+
+![63.es-dsl-full-text-2.png](../../assets/images/06-中间件/elasticsearch/63.es-dsl-full-text-2.png)
+
+## 8.2 Match类型
+> 第一类：match 类型
+
+### 8.2.1 match 查询的步骤
+在<a href='#match 查询'>前文</a>中我们已经介绍了match查询。
+
+- 准备一些数据
+
+这里我们准备一些数据，通过实例看match 查询的步骤
+```sh
+PUT /test-dsl-match
+{ "settings": { "number_of_shards": 1 }} 
+
+POST /test-dsl-match/_bulk
+{ "index": { "_id": 1 }}
+{ "title": "The quick brown fox" }
+{ "index": { "_id": 2 }}
+{ "title": "The quick brown fox jumps over the lazy dog" }
+{ "index": { "_id": 3 }}
+{ "title": "The quick brown fox jumps over the quick dog" }
+{ "index": { "_id": 4 }}
+{ "title": "Brown fox brown dog" }
+```
+- 查询数据
+```sh
+GET /test-dsl-match/_search
+{
+    "query": {
+        "match": {
+            "title": "QUICK!"
+        }
+    }
+}
+```
+Elasticsearch 执行上面这个 match 查询的步骤是：
+
+1. **检查字段类型** 。
+
+标题 title 字段是一个 string 类型（ analyzed ）已分析的全文字段，这意味着查询字符串本身也应该被分析。
+
+2. **分析查询字符串** 。
+
+将查询的字符串 QUICK! 传入标准分析器中，输出的结果是单个项 quick 。因为只有一个单词项，所以 match 查询执行的是单个底层 term 查询。
+
+3. **查找匹配文档** 。
+
+用 term 查询在倒排索引中查找 quick 然后获取一组包含该项的文档，本例的结果是文档：1、2 和 3 。
+
+4. **为每个文档评分** 。
+
+用 term 查询计算每个文档相关度评分 _score ，这是种将词频（term frequency，即词 quick 在相关文档的 title 字段中出现的频率）和反向文档频率（inverse document frequency，即词 quick 在所有文档的 title 字段中出现的频率），以及字段的长度（即字段越短相关度越高）相结合的计算方式。
+
+- 验证结果
+
+![64.es-dsl-full-text-4.png](../../assets/images/06-中间件/elasticsearch/64.es-dsl-full-text-4.png)
+
+#### 补充：为什么`QUICK!`的查询结果可以查询出来`quick`字样的？`QUICKa`却不行？
+
+##### Elasticsearch的文本分析过程
+
+当您执行这个查询时，Elasticsearch会进行以下处理：
+
+###### 1. **查询字符串的分析过程**
+```json
+GET /test-dsl-match/_search
+{
+    "query": {
+        "match": {
+            "title": "QUICK!"
+        }
+    }
+}
+```
+
+**分析步骤**：
+- 输入：`"QUICK!"`
+- 标准分析器（默认）处理：
+  1. **转小写**：`QUICK!` → `quick!`
+  2. **去除标点**：`quick!` → `quick`
+  3. **分词**：得到词项 `quick`
+
+###### 2. **索引时的分析过程**
+假设文档中的原始文本是：`"The quick brown fox"`
+
+**索引分析**：
+- 输入：`"The quick brown fox"`
+- 标准分析器处理：
+  1. **转小写**：`The quick brown fox` → `the quick brown fox`
+  2. **去除停用词**：`the`（可能被移除）
+  3. **分词**：得到词项 `quick`, `brown`, `fox`
+
+###### 3. **最终匹配**
+- 查询词项：`quick`
+- 索引词项：`quick`
+- **结果：完全匹配！**
+
+##### 验证分析过程
+
+您可以使用Elasticsearch的分析API来验证这个过程：
+
+```bash
+# 分析查询字符串 "QUICK!"
+curl -u elastic:hcm13579 -X GET "http://localhost:9200/test-dsl-match/_analyze" \
+-H "Content-Type: application/json" \
+-d '{
+  "text": "QUICK!"
+}'
+
+# 分析索引中的文本
+curl -u elastic:hcm13579 -X GET "http://localhost:9200/test-dsl-match/_analyze" \
+-H "Content-Type: application/json" \
+-d '{
+  "text": "The quick brown fox"
+}'
+```
+
+##### 为什么`!`不算作字符？
+
+###### **标准分析器的行为**
+标准分析器（Standard Analyzer）包含：
+1. **标准分词器**（Standard Tokenizer）
+2. **小写过滤器**（Lowercase Filter）
+3. **停用词过滤器**（可选）
+
+**关键点**：标准分词器会根据Unicode文本分割算法进行分词，**标点符号通常被视为分词边界并被去除**。
+
+###### **实际测试**
+让我们在您的环境中测试：
+
+```bash
+# 测试标点符号的处理
+curl -u elastic:hcm13579 -X GET "http://localhost:9200/_analyze" \
+-H "Content-Type: application/json" \
+-d '{
+  "analyzer": "standard",
+  "text": "Hello! World? Test..."
+}'
+```
+
+**输出结果可能类似**：
+```json
+{
+  "tokens": [
+    {
+      "token": "hello",
+      "start_offset": 0,
+      "end_offset": 5,
+      "type": "<ALPHANUM>",
+      "position": 0
+    },
+    {
+      "token": "world", 
+      "start_offset": 7,
+      "end_offset": 12,
+      "type": "<ALPHANUM>",
+      "position": 1
+    },
+    {
+      "token": "test",
+      "start_offset": 14,
+      "end_offset": 18,
+      "type": "<ALPHANUM>",
+      "position": 2
+    }
+  ]
+}
+```
+
+可以看到所有的标点符号（`!`, `?`, `...`）都被去除了。
+
+##### 特殊情况：如果需要保留标点
+
+如果您确实需要区分`quick`和`quick!`，可以：
+
+###### 1. **使用`keyword`类型**
+```json
+# 创建映射，让title字段保持原样
+PUT /test-keyword
+{
+  "mappings": {
+    "properties": {
+      "title": {
+        "type": "keyword"  # 不进行分析，保持原样
+      }
+    }
+  }
+}
+```
+
+###### 2. **使用`term`查询（不分析）**
+```json
+GET /test-keyword/_search
+{
+    "query": {
+        "term": {
+            "title": "QUICK!"  # 此时必须完全匹配，包括大小写和标点
+        }
+    }
+}
+```
+
+##### 总结
+
+**为什么`QUICK!`能匹配`quick`？**
+
+1. **文本分析**：Elasticsearch默认对查询文本和索引文本都进行分析
+2. **标准化处理**：大小写转换、标点去除、分词等
+3. **最终匹配**：`QUICK!` → `quick`，与索引中的`quick`匹配
+
+**`!`不算作搜索字符的原因**：
+- 在全文搜索中，标点符号通常不包含语义信息
+- 去除标点可以提高搜索的召回率（Recall）
+- 符合自然语言处理的常见做法
+
+这种设计让搜索更加"智能"和用户友好，用户不需要担心大小写、标点等细节问题。
+
+### 8.2.2 match多个词深入
+我们在上文中复合查询中已经使用了match多个词，比如“Quick pets”； 这里我们通过例子带你更深入理解match多个词
+
+- **match多个词的本质**
+
+查询多个词"BROWN DOG!"
+```sh
+GET /test-dsl-match/_search
+{
+    "query": {
+        "match": {
+            "title": "BROWN DOG"
+        }
+    }
+}
+```
+
+![65.es-dsl-full-text-5.png](../../assets/images/06-中间件/elasticsearch/65.es-dsl-full-text-5.png)
+
+所以上述查询的结果，和如下语句查询结果是等同的
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "bool": {
+      "should": [
+        {
+          "term": {
+            "title": "brown"
+          }
+        },
+        {
+          "term": {
+            "title": "dog"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+![66.es-dsl-full-text-6.png](../../assets/images/06-中间件/elasticsearch/66.es-dsl-full-text-6.png)
+
+- **match多个词的逻辑**
+
+上面等同于should（任意一个满足），是因为 match还有一个operator参数，默认是or, 所以对应的是should。
+
+所以上述查询也等同于
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "match": {
+      "title": {
+        "query": "BROWN DOG",
+        "operator": "or"
+      }
+    }
+  }
+}
+```
+那么我们如果是需要and操作呢，即同时满足呢？
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "match": {
+      "title": {
+        "query": "BROWN DOG",
+        "operator": "and"
+      }
+    }
+  }
+}
+```
+等同于
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "term": {
+            "title": "brown"
+          }
+        },
+        {
+          "term": {
+            "title": "dog"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+**但是值得注意的是上述两种语法还不完全等效，**
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "match": {
+      "title": {
+        "query": "BROWN DOG",
+        "operator": "and"
+      }
+    }
+  }
+}
+```
+这个是通过分词之后获得到brown 和 dog之后(注意是从大写变成小写)，然后才完全等效于
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "term": {
+            "title": "brown"
+          }
+        },
+        {
+          "term": {
+            "title": "dog"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+![67.es-dsl-full-text-7.png](../../assets/images/06-中间件/elasticsearch/67.es-dsl-full-text-7.png)
+
+### 8.2.3 控制match的匹配精度
+如果用户给定 3 个查询词，想查找至少包含其中 2 个的文档，该如何处理？将 operator 操作符参数设置成 and 或者 or 都是不合适的。
+
+match 查询支持 minimum_should_match 最小匹配参数，这让我们可以指定必须匹配的词项数用来表示一个文档是否相关。我们可以将其设置为某个具体数字，更常用的做法是将其设置为一个百分数，因为我们无法控制用户搜索时输入的单词数量：
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "match": {
+      "title": {
+        "query":"quick brown dog",
+        "minimum_should_match": "75%"
+      }
+    }
+  }
+}
+```
+当给定百分比的时候， minimum_should_match 会做合适的事情：在之前三词项的示例中， 75% 会自动被截断成 66.6% ，即三个里面两个词。无论这个值设置成什么，至少包含一个词项的文档才会被认为是匹配的。
+
+![68.es-dsl-full-text-8.png](../../assets/images/06-中间件/elasticsearch/68.es-dsl-full-text-8.png)
+
+当然也等同于
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "bool": {
+      "should": [
+        { "match": { "title": "quick" }},
+        { "match": { "title": "brown"   }},
+        { "match": { "title": "dog"   }}
+      ],
+      "minimum_should_match": 2 
+    }
+  }
+}
+```
+![69.es-dsl-full-text-9.png](../../assets/images/06-中间件/elasticsearch/69.es-dsl-full-text-9.png)
+
+### 8.2.4 其它match类型
+- **match_pharse**
+
+match_phrase在前文中我们已经有了解，我们再看下另外一个例子。
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "match_phrase": {
+      "title": {
+        "query": "quick brown"
+      }
+    }
+  }
+}
+```
+![70.es-dsl-full-text-11.png](../../assets/images/06-中间件/elasticsearch/70.es-dsl-full-text-11.png)
+
+很多人对它仍然有误解的，比如如下例子：
+
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "match_phrase": {
+      "title": {
+        "query": "quick brown f"
+      }
+    }
+  }
+}
+```
+这样的查询是查不出任何数据的，因为前文中我们知道了match本质上是对term组合，match_phrase本质是连续的term的查询，所以f并不是一个分词，不满足term查询，所以最终查不出任何内容了。
+
+![71.es-dsl-full-text-12.png](../../assets/images/06-中间件/elasticsearch/71.es-dsl-full-text-12.png)
+
+- match_pharse_prefix
+
+那有没有可以查询出`quick brown f`的方式呢？ELasticSearch在match_phrase基础上提供了一种可以查最后一个词项是前缀的方法，这样就可以查询`quick brown f`了
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "match_phrase_prefix": {
+      "title": {
+        "query": "quick brown f"
+      }
+    }
+  }
+}
+```
+![72.es-dsl-full-text-13.png](../../assets/images/06-中间件/elasticsearch/72.es-dsl-full-text-13.png)
+
+**(ps: prefix的意思不是整个text的开始匹配，而是最后一个词项满足term的prefix查询而已)**
+
+- match_bool_prefix
+
+除了match_phrase_prefix，ElasticSearch还提供了match_bool_prefix查询
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "match_bool_prefix": {
+      "title": {
+        "query": "quick brown f"
+      }
+    }
+  }
+}
+```
+它们两种方式有啥区别呢？match_bool_prefix本质上可以转换为：
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "bool" : {
+      "should": [
+        { "term": { "title": "quick" }},
+        { "term": { "title": "brown" }},
+        { "prefix": { "title": "f"}}
+      ]
+    }
+  }
+}
+```
+所以这样你就能理解，match_bool_prefix查询中的quick,brown,f是无序的。**值得注意的是match_bool_prefix查询中的quick,brown,f只要出现其中一个就算作匹配。**
+
+![73.202601-6dd6a8dc382d36bda0bd5b8c20942fd6.png](../../assets/images/06-中间件/elasticsearch/73.202601-6dd6a8dc382d36bda0bd5b8c20942fd6.png)
+
+- multi_match
+
+如果我们期望一次对多个字段查询，怎么办呢？ElasticSearch提供了multi_match查询的方式
+```sh
+{
+  "query": {
+    "multi_match" : {
+      "query":    "Will Smith",
+      "fields": [ "title", "*_name" ] 
+    }
+  }
+}
+```
+`*`表示前缀匹配字段。
+
+**注意上面这个查询的多个字段之间只要有一个字段满足条件就可以。**
+
+![74.202601-7880968ec7742aba3680e20ca9f013a4.png](../../assets/images/06-中间件/elasticsearch/74.202601-7880968ec7742aba3680e20ca9f013a4.png)
+
+## 8.3 query string类型
+> 第二类：query string 类型
+
+### 8.3.1 query_string
+此查询使用语法根据运算符（例如AND或NOT）来解析和拆分提供的查询字符串。然后查询在返回匹配的文档之前独立分析每个拆分的文本。
+
+可以使用该query_string查询创建一个复杂的搜索，其中包括通配符，跨多个字段的搜索等等。尽管用途广泛，但查询是严格的，如果查询字符串包含任何无效语法，则返回错误。
+
+例如：
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "query_string": {
+      "query": "(lazy dog) OR (brown dog)",
+      "default_field": "title"
+    }
+  }
+}
+```
+这里查询结果，你需要理解**本质上查询这四个分词（term）or的结果**而已，所以doc 3和4也在其中
+
+![75.es-dsl-full-text-15.png](../../assets/images/06-中间件/elasticsearch/75.es-dsl-full-text-15.png)
+
+对构筑知识体系已经够了，但是它其实还有很多参数和用法，更多请<a href='https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-query-string-query'>参考官网</a>
+
+### 8.3.2 query_string_simple
+该查询使用一种简单的语法来解析提供的查询字符串并将其拆分为基于特殊运算符的术语。然后查询在返回匹配的文档之前独立分析每个术语。
+
+尽管其语法比query_string查询更受限制 ，但**simple_query_string 查询不会针对无效语法返回错误。而是，它将忽略查询字符串的任何无效部分。**
+
+举例：
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "simple_query_string" : {
+        "query": "\"over the\" + (lazy | quick) + dog",
+        "fields": ["title"],
+        "default_operator": "and"
+    }
+  }
+}
+```
+![76.es-dsl-full-text-16.png](../../assets/images/06-中间件/elasticsearch/76.es-dsl-full-text-16.png)
+
+更多请参考<a href='https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-simple-query-string-query'>官网</a>
+
+## 8.4 Interval类型
+> 第三类：interval类型
+
+Intervals是时间间隔的意思，本质上将多个规则按照顺序匹配。
+
+比如：
+```sh
+GET /test-dsl-match/_search
+{
+  "query": {
+    "intervals" : {
+      "title" : {
+        "all_of" : {
+          "ordered" : true,
+          "intervals" : [
+            {
+              "match" : {
+                "query" : "quick",
+                "max_gaps" : 0,
+                "ordered" : true
+              }
+            },
+            {
+              "any_of" : {
+                "intervals" : [
+                  { "match" : { "query" : "jump over" } },
+                  { "match" : { "query" : "quick dog" } }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+![77.es-dsl-full-text-17.png](../../assets/images/06-中间件/elasticsearch/77.es-dsl-full-text-17.png)
+
+
+因为interval之间是可以组合的，所以它可以表现的很复杂。更多请参考<a href='https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-intervals-query'>官网</a>
+
+## 8.5 Intervals 查询的核心概念
+
+**Intervals 查询**：允许您定义**多个匹配规则**，并指定这些规则之间的**顺序关系和位置关系**。
+
+### 针对8.4节的查询案例进行拆解
+
+```json
+{
+  "query": {
+    "intervals": {
+      "title": {
+        "all_of": {                    // 第一层：必须满足所有条件
+          "ordered": true,            // 规则必须按顺序出现
+          "intervals": [              // 包含两个规则
+            {
+              "match": {              // 规则1：匹配 "quick"
+                "query": "quick",
+                "max_gaps": 0,        // 不允许有间隔
+                "ordered": true       // 词项必须按顺序
+              }
+            },
+            {
+              "any_of": {             // 规则2：满足任意一个子条件
+                "intervals": [
+                  { "match": { "query": "jump over" } },  // 子条件A
+                  { "match": { "query": "quick dog" } }   // 子条件B
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+### 规则解释（像闯关游戏）
+
+#### 第一关：`all_of`（必须全部通过）
+- **`ordered: true`**：两个规则必须**按顺序**出现在文档中
+- 规则1必须先出现，规则2必须在规则1之后出现
+
+#### 规则1：匹配 "quick"
+- **`query: "quick"`**：必须包含单词 "quick"
+- **`max_gaps: 0`**："quick" 的各个字母之间不能有间隔（但这里"quick"是单个词，这个参数主要对短语有用）
+- **`ordered: true`**：如果是短语，词项必须按顺序
+
+#### 规则2：`any_of`（二选一）
+- 满足 **A** 或 **B** 任意一个即可：
+
+**A. `"jump over"`**
+- 必须包含连续的短语 "jump over"
+
+**B. `"quick dog"`**  
+- 必须包含连续的短语 "quick dog"
+
+### 匹配逻辑流程图
+
+```mermaid
+graph TD
+    A[文档开始] --> B{规则1: 包含&quot;quick&quot;?}
+    B -->|是| C{规则2: 包含&quot;jump over&quot;?}
+    B -->|否| D[不匹配]
+    C -->|是| E[匹配成功]
+    C -->|否| F{规则2: 包含&quot;quick dog&quot;?}
+    F -->|是| E
+    F -->|否| D
+    
+    G[顺序要求] --> H[规则1 必须在 规则2 之前]
+```
+
+### 实际匹配示例
+
+#### ✅ 匹配的文档：
+```json
+// 文档1：匹配规则1 + 规则2A
+{ "title": "quick jump over the fence" }
+
+// 文档2：匹配规则1 + 规则2B  
+{ "title": "quick quick dog runs" }
+
+// 文档3：匹配（规则1出现在前，规则2出现在后）
+{ "title": "The quick brown fox and then jump over" }
+```
+
+#### ❌ 不匹配的文档：
+```json
+// 文档4：顺序不对（规则2在规则1之前）
+{ "title": "jump over quick" }
+
+// 文档5：缺少规则1
+{ "title": "jump over the fence" }
+
+// 文档6：规则2的两个条件都不满足
+{ "title": "quick brown fox" }
+```
+
+### 关键参数详解
+
+#### `max_gaps`：最大间隔
+- `0`：词项必须连续出现（像短语查询）
+- `1`：允许最多1个词在中间
+- `-1`：不限制间隔
+
+**示例**：
+```json
+{ "match": { "query": "quick brown", "max_gaps": 1 } }
+```
+匹配：`"quick brown"`, `"quick lazy brown"`  
+不匹配：`"quick very lazy brown"`（间隔太大）
+
+#### `ordered`：顺序要求
+- `true`：词项必须按查询顺序出现
+- `false`：词项可以任意顺序出现
+
+### 与其他查询的对比
+
+| 查询类型 | 特点 | 适用场景 |
+|---------|------|----------|
+| `match` | 简单关键词匹配 | 普通搜索 |
+| `match_phrase` | 精确短语匹配 | 固定短语 |
+| `intervals` | **可编程的**短语匹配 | 复杂规则匹配 |
+
+### 实际应用场景
+
+#### 场景1：法律文档搜索
+```json
+{
+  "intervals": {
+    "content": {
+      "all_of": {
+        "ordered": true,
+        "intervals": [
+          { "match": { "query": "甲方" } },
+          { "match": { "query": "违约责任" } },
+          { 
+            "any_of": {
+              "intervals": [
+                { "match": { "query": "赔偿金" } },
+                { "match": { "query": "违约金" } }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+#### 场景2：产品搜索
+```json
+{
+  "intervals": {
+    "description": {
+      "all_of": {
+        "ordered": false,  // 顺序不重要
+        "intervals": [
+          { "match": { "query": "智能手机" } },
+          { 
+            "any_of": {
+              "intervals": [
+                { "match": { "query": "5G" } },
+                { "match": { "query": "旗舰" } }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+### 总结
+
+**Intervals 查询的核心价值**：
+1. **组合性**：可以嵌套多种规则（all_of, any_of, match等）
+2. **精确控制**：可以指定词序、间隔、位置关系
+3. **灵活性**：比固定短语查询更适应复杂需求
+
+**适合使用 Intervals 的场景**：
+- 需要复杂匹配规则的搜索
+- 法律、专利等专业文档检索
+- 需要精确控制词项位置关系的应用
+
+这种查询虽然语法复杂，但提供了前所未有的匹配精度控制能力！
+
+# 九、ES详解 - 查询：DSL查询之Term详解
+> DSL查询另一种极为常用的是对词项进行搜索，官方文档中叫”term level“查询，本文主要对term level搜索进行详解。
+## 9.1 Term查询引入
+如前文所述，查询分基于文本查询和基于词项的查询:
+
+![61.es-dsl-full-text-3.png](../../assets/images/06-中间件/elasticsearch/61.es-dsl-full-text-3.png)
+
+
+本文主要讲基于词项的查询。
+
+![78.es-dsl-term-1.png](../../assets/images/06-中间件/elasticsearch/78.es-dsl-term-1.png)
+
+## 9.2 Term查询
+很多比较常用，也不难，就是需要结合实例理解。这里综合官方文档的内容，我设计一个测试场景的数据，以覆盖所有例子。@pdai
+
+准备数据
+```sh
+PUT /test-dsl-term-level
+{
+  "mappings": {
+    "properties": {
+      "name": {
+        "type": "keyword"
+      },
+      "programming_languages": {
+        "type": "keyword"
+      },
+      "required_matches": {
+        "type": "long"
+      }
+    }
+  }
+}
+
+POST /test-dsl-term-level/_bulk
+{ "index": { "_id": 1 }}
+{"name": "Jane Smith", "programming_languages": [ "c++", "java" ], "required_matches": 2}
+{ "index": { "_id": 2 }}
+{"name": "Jason Response", "programming_languages": [ "java", "php" ], "required_matches": 2}
+{ "index": { "_id": 3 }}
+{"name": "Dave Pdai", "programming_languages": [ "java", "c++", "php" ], "required_matches": 3, "remarks": "hello world"}
+```
+### 9.2.1 字段是否存在:exist
+由于多种原因，文档字段的索引值可能不存在：
+
+- 源JSON中的字段是null或[]
+- 该字段已"index" : false在映射中设置
+- 字段值的长度超出ignore_above了映射中的设置
+- 字段值格式错误，并且ignore_malformed已在映射中定义
+
+所以exist表示查找是否存在字段。
+```sh
+GET /test-dsl-term-level/_search
+{
+  "query":{
+    "exists":{
+      "field":"remarks"
+    }
+  }
+}
+```
+![79.es-dsl-term-2.png](../../assets/images/06-中间件/elasticsearch/79.es-dsl-term-2.png)
+
+
+`exists` 查询用于查找**包含某个字段**的文档（即字段存在且被索引）。如果字段不存在或未被索引，`exists` 查询就不会匹配。以下四个条件描述了字段未被索引的常见原因。
+
+---
+
+#### 补充：exist 四个条件详细解释
+
+##### 1. 源 JSON 中的字段是 `null` 或 `[]`
+- **含义**：如果源文档中该字段的值是 `null`（空值）或空数组 `[]`，Elasticsearch 不会索引该字段。
+- **示例**：
+  - 文档：`{ "name": null }` 或 `{ "tags": [] }`
+  - 结果：`name` 或 `tags` 字段不会被索引，因此 `exists` 查询不会匹配。
+- **原因**：Elasticsearch 默认忽略 `null` 值和空数组，因为它们被视为"无实际内容"。
+
+##### 2. 该字段已设置 `"index": false` 在映射中
+- **含义**：在索引映射（mapping）中，字段被显式设置为 `"index": false`，这意味着字段不会被索引。
+- **示例**：
+  - 映射：`{ "properties": { "secret_field": { "type": "text", "index": false } } }`
+  - 结果：即使文档有 `secret_field` 值，它也不会被索引，`exists` 查询无法检测到。
+- **用途**：通常用于存储但不搜索的字段（如原始数据备份）。
+
+##### 3. 字段值的长度超出 `ignore_above` 了映射中的设置
+- **含义**：对于 `keyword` 类型字段，映射中可以设置 `ignore_above` 参数。如果字段值的字符长度超过这个阈值，该值不会被索引。
+- **示例**：
+  - 映射：`{ "properties": { "id": { "type": "keyword", "ignore_above": 10 } } }`
+  - 文档：`{ "id": "very_long_identifier" }`（长度超过 10）
+  - 结果：`id` 字段不会被索引，`exists` 查询不会匹配（但字段本身存在，只是值未被索引）。
+- **注意**：`exists` 查询只检查字段是否存在索引，如果值因超长被忽略，字段可能被视为"不存在"。
+
+##### 4. 字段值格式错误，并且 `ignore_malformed` 已在映射中定义
+- **含义**：如果字段值不符合预期格式（如数字字段传入字符串），且映射中设置了 `"ignore_malformed": true`，Elasticsearch 会忽略格式错误的值，不索引该字段。
+- **示例**：
+  - 映射：`{ "properties": { "age": { "type": "integer", "ignore_malformed": true } } }`
+  - 文档：`{ "age": "not_a_number" }`（字符串无法转为整数）
+  - 结果：`age` 字段不会被索引，`exists` 查询不会匹配。
+- **用途**：防止错误数据破坏索引，但字段在搜索中无效。
+
+---
+
+##### 5. 总结
+- `exists` 查询依赖于字段**是否被成功索引**。上述四个条件都会导致字段未被索引，因此 `exists` 查询无法找到这些文档。
+- 实际使用中，需要注意映射设置和数据质量，以确保 `exists` 查询按预期工作。
+
+### 9.2.2 id查询:ids
+ids 即对id查找
+```sh
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "ids": {
+      "values": [3, 1]
+    }
+  }
+}
+```
+
+![80.es-dsl-term-3.png](../../assets/images/06-中间件/elasticsearch/80.es-dsl-term-3.png)
+
+### 9.2.3 前缀:prefix
+通过前缀查找某个字段
+```sh
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "prefix": {
+      "name": {
+        "value": "jan"
+      }
+    }
+  }
+}
+```
+
+**但是值得注意的是，我发现使用prefix的时候必须使用小写才能够搜索出来前缀匹配，用大写就不行了。**
+
+![82.Image20260107103720258.png](../../assets/images/06-中间件/elasticsearch/82.Image20260107103720258.png)
+
+![83.Image20260107103812426.png](../../assets/images/06-中间件/elasticsearch/83.Image20260107103812426.png)
+
+**如果我使用name.keyword进行前缀查询的话是可以搜索出大写的情况，但是搜索不出小写的情况**
+
+![84.Image20260107104021931.png](../../assets/images/06-中间件/elasticsearch/84.Image20260107104021931.png)
+
+![85.Image20260107104101386.png](../../assets/images/06-中间件/elasticsearch/85.Image20260107104101386.png)
+
+由此也可以理解，这里的前缀匹配是区分大小写的，name是text，因此对比的是分词之后的，但是name.keyword是不分词的，就是大写的，下面进行一个总结。
+
+#### 补充1：针对prefix的解读
+
+##### 1. 文本分析流程
+当文档被索引时，`text` 类型的字段会经过分析器处理：
+```
+原始文本："Jane Smith"
+    ↓ 分析器处理（分词 + 小写化）
+分词结果：["jane", "smith"]
+```
+
+##### 2. 前缀查询的工作方式
+- **`prefix` 查询**是在**分词后的词项**上进行匹配
+- 它不会重新分析查询词，而是直接与索引中的词项比较
+
+##### 3. 具体分析两个查询
+
+###### 查询1：`"value": "jan"` ✅ 成功
+```json
+查询词："jan"
+索引中的词项：["jane", "smith"]
+匹配结果："jan" 是 "jane" 的前缀 → 匹配成功
+```
+
+###### 查询2：`"value": "Jan"` ❌ 失败  
+```json
+查询词："Jan"（注意首字母大写）
+索引中的词项：["jane", "smith"]（全部小写）
+匹配结果："Jan" 不是 "jane" 的前缀 → 匹配失败
+```
+
+##### 4. 验证索引映射
+
+让我们检查一下您的索引映射，确认字段类型：
+
+```bash
+GET /test-dsl-term-level/_mapping
+```
+
+**可能的映射情况**：
+```json
+{
+  "test-dsl-term-level": {
+    "mappings": {
+      "properties": {
+        "name": {
+          "type": "text",        // 文本类型，会被分析
+          "fields": {
+            "keyword": {
+              "type": "keyword",  // 关键字类型，保持原样
+              "ignore_above": 256
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+##### 5. 解决方案
+
+###### 方案1：使用 `.keyword` 子字段（推荐）
+```json
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "prefix": {
+      "name.keyword": {    // 使用keyword子字段
+        "value": "Jan"     // 现在可以匹配"Jane Smith"
+      }
+    }
+  }
+}
+```
+
+###### 方案2：使用通配符查询（wildcard）
+```json
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "wildcard": {
+      "name": {
+        "value": "Jan*"    // 通配符查询，会重新分析
+      }
+    }
+  }
+}
+```
+
+###### 方案3：使用匹配查询（match）配合前缀
+```json
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "match_phrase_prefix": {
+      "name": "Jan"    // 短语前缀查询
+    }
+  }
+}
+```
+
+##### 6. 理解不同字段类型的区别
+
+| 字段类型 | 分析行为 | 前缀查询效果 |
+|---------|---------|-------------|
+| `text` | 分词 + 小写化 | 查询词必须小写 |
+| `keyword` | 保持原样 | 区分大小写 |
+| `text` + `keyword` 多字段 | 两种方式都存储 | 根据需要选择 |
+
+##### 7. 总结
+
+**关键点**：
+- `text` 字段在索引时会被**小写化**
+- `prefix` 查询直接匹配索引中的词项，**不重新分析查询词**
+- 因此查询词必须与索引中的词项**大小写一致**
+
+**最佳实践**：
+- 如果需要进行精确的前缀匹配（包括大小写），使用 `name.keyword`
+- 如果需要进行模糊前缀匹配，使用 `match_phrase_prefix`
+- 了解字段的映射类型对于正确使用查询至关重要
+
+#### 补充2：针对text类型的mapping解读
+我们查看一下mapping信息
+```sh
+GET /test-dsl-term-level/_mapping
+```
+
+![86.Image20260107104650057.png](../../assets/images/06-中间件/elasticsearch/86.Image20260107104650057.png)
+
+
+
+##### 核心概念：多字段（Multi-fields）
+您看到的这个结构是 **多字段映射**，允许同一个字段以**不同方式**被索引和存储。
+
+```json
+{
+  "name": {
+    "type": "text",                    // 主字段：用于全文搜索
+    "fields": {                        // 子字段定义
+      "keyword": {                     // 子字段名称：keyword
+        "type": "keyword",             // 子字段类型：keyword
+        "ignore_above": 256            // 参数：超过256字符不索引
+      }
+    }
+  }
+}
+```
+
+##### `text` vs `keyword` 的区别
+
+| 特性 | `text` 类型 | `keyword` 类型 |
+|------|-------------|----------------|
+| **分词处理** | ✅ 会分词（拆分成单词） | ❌ 不分词（整体存储） |
+| **大小写** | 通常小写化 | 保持原样（区分大小写） |
+| **用途** | 全文搜索、模糊匹配 | 精确匹配、排序、聚合 |
+| **存储示例** | "Jane Smith" → ["jane", "smith"] | "Jane Smith" → "Jane Smith" |
+
+##### 实际数据存储示例
+
+对于文档：`{ "name": "Jane Smith" }`
+
+###### 在倒排索引中的存储：
+```
+text字段（name）:
+- 词项: "jane" → 文档1
+- 词项: "smith" → 文档1
+
+keyword字段（name.keyword）:  
+- 词项: "Jane Smith" → 文档1
+```
+
+##### 不同查询的匹配效果
+
+###### 1. 查询 `text` 字段（name）
+```json
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "match": {
+      "name": "jane"    // ✅ 匹配（小写）
+    }
+  }
+}
+```
+
+###### 2. 查询 `keyword` 字段（name.keyword）
+```json
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "term": {
+      "name.keyword": "Jane Smith"    // ✅ 精确匹配（区分大小写）
+    }
+  }
+}
+```
+
+##### 为什么需要多字段配置？
+
+###### 场景1：既要搜索又要排序
+```json
+// 搜索包含"Smith"的所有文档
+{
+  "query": { "match": { "name": "smith" } },
+  "sort": [
+    { "name.keyword": "asc" }  // 按完整姓名排序
+  ]
+}
+```
+
+###### 场景2：精确值聚合
+```json
+{
+  "aggs": {
+    "unique_names": {
+      "terms": {
+        "field": "name.keyword",  // 获取每个完整姓名的计数
+        "size": 10
+      }
+    }
+  }
+}
+```
+
+##### `ignore_above` 参数的作用
+
+```json
+"keyword": {
+  "type": "keyword",
+  "ignore_above": 256    // 超过256字符的值不会被索引
+}
+```
+
+**示例**：
+- ✅ 匹配："Jane Smith"（长度10）
+- ❌ 不匹配："这是一个非常长的姓名，长度超过256字符..."（长度257）
+
+##### 实际应用场景
+
+###### 1. 产品名称搜索
+```json
+{
+  "product_name": {
+    "type": "text",        // 用于搜索"苹果 手机"
+    "fields": {
+      "keyword": {         // 用于精确匹配"Apple iPhone 14 Pro Max"
+        "type": "keyword"
+      }
+    }
+  }
+}
+```
+
+###### 2. 邮箱地址处理
+```json
+{
+  "email": {
+    "type": "text",        // 搜索"gmail.com"
+    "fields": {
+      "keyword": {         // 精确匹配"user@gmail.com"  
+        "type": "keyword"
+      }
+    }
+  }
+}
+```
+
+##### 验证映射效果
+
+###### 查看分析结果：
+```json
+POST /test-dsl-term-level/_analyze
+{
+  "field": "name",        // 分析text字段
+  "text": "Jane Smith"
+}
+// 结果：["jane", "smith"]
+
+POST /test-dsl-term-level/_analyze  
+{
+  "field": "name.keyword", // 分析keyword字段
+  "text": "Jane Smith"
+}
+// 结果：["Jane Smith"]（整体）
+```
+
+##### 总结
+
+**`keyword` 子字段的核心价值**：
+1. **精确匹配**：保持原始值，区分大小写
+2. **排序聚合**：支持基于完整值的操作
+3. **数据完整性**：不改变原始数据格式
+
+**使用建议**：
+- 搜索内容时用 `name`（text字段）
+- 精确匹配、排序、聚合时用 `name.keyword`
+
+#### 补充3：为什么 `prefix` 查询和 `match_phrase_prefix` 查询在处理大小写方面表现不同
+
+
+##### 核心区别：查询类型的不同
+
+###### 1. `prefix` 查询（术语级查询）
+- **类型**：术语级查询（Term-level Query）
+- **工作方式**：直接在倒排索引中的**词项**上进行匹配
+- **不进行查询分析**：查询词 `"jan"` 或 `"Jan"` 不会重新分析
+- **匹配逻辑**：`"jan"` vs 索引中的 `["jane", "smith"]`
+
+```json
+// prefix查询 - 不分析查询词
+{
+  "query": {
+    "prefix": {
+      "name": {
+        "value": "Jan"  // 直接与索引词项比较："Jan" vs "jane"
+      }
+    }
+  }
+}
+```
+
+###### 2. `match_phrase_prefix` 查询（全文查询）
+- **类型**：全文查询（Full-text Query）
+- **工作方式**：**先分析查询词**，再与索引词项匹配
+- **进行查询分析**：查询词 `"Jan"` 会经过相同的分析器处理
+- **匹配逻辑**：`"Jan"` → 分析 → `"jan"` vs 索引中的 `["jane", "smith"]`
+
+```json
+// match_phrase_prefix查询 - 先分析查询词
+{
+  "query": {
+    "match_phrase_prefix": {
+      "name": "Jan"  // 先分析为"jan"，再与索引词项比较
+    }
+  }
+}
+```
+
+##### 详细对比
+
+| 特性 | `prefix` 查询 | `match_phrase_prefix` 查询 |
+|------|---------------|---------------------------|
+| **查询类型** | 术语级查询 | 全文查询 |
+| **查询分析** | ❌ 不分析查询词 | ✅ 分析查询词 |
+| **大小写敏感** | ✅ 敏感（直接匹配） | ❌ 不敏感（先小写化） |
+| **性能** | 更高（直接查找） | 稍低（需要分析） |
+| **适用场景** | 精确前缀匹配 | 模糊前缀搜索 |
+
+### 9.2.4 分词匹配:term
+前文最常见的根据分词查询
+```sh
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "term": {
+      "programming_languages": "php"
+    }
+  }
+}
+```
+![87.es-dsl-term-5.png](../../assets/images/06-中间件/elasticsearch/87.es-dsl-term-5.png)
+
+### 9.2.5 多个分词匹配:terms
+按照读个分词term匹配，**它们是or的关系**
+```sh
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "terms": {
+      "programming_languages": ["php","c++"]
+    }
+  }
+}
+```
+![88.es-dsl-term-6.png](../../assets/images/06-中间件/elasticsearch/88.es-dsl-term-6.png)
+
+### 9.2.6 按某个数字字段分词匹配:term set
+**设计这种方式查询的初衷是用文档中的数字字段动态匹配查询满足term的个数**
+
+有两种写法：
+- 写法一
+```sh
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "terms_set": {
+      "programming_languages": {
+        "terms": [ "java", "php" ],
+        "minimum_should_match_field": "required_matches"
+      }
+    }
+  }
+}
+```
+![89.Image20260107110931293.png](../../assets/images/06-中间件/elasticsearch/89.Image20260107110931293.png)
+
+- 写法二
+```sh
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "terms_set": {
+      "programming_languages": {
+        "terms": [ "java", "php" ],
+        "minimum_should_match": "2"
+      }
+    }
+  }
+}
+```
+![90.Image20260107111016013.png](../../assets/images/06-中间件/elasticsearch/90.Image20260107111016013.png)
+
+我们可以看到这两种查询结果不一样，是因为第一种会根据数据中的required_matches字段动态分配匹配的数量。第二种是写死的。`Dave Pdai`再动态数据时是按照至少3个分词匹配，所以动态匹配匹配不上，静态匹配是写死的2个所以可以匹配上。
+
+**详细对比分析**
+
+| 特性 | `minimum_should_match_field` | `minimum_should_match` |
+|------|-----------------------------|------------------------|
+| **配置方式** | 动态（基于文档字段值） | 静态（固定值） |
+| **灵活性** | 高（每个文档可不同） | 低（所有文档相同） |
+| **数据要求** | 需要额外的字段存储匹配数 | 不需要额外字段 |
+| **适用场景** | 个性化匹配规则 | 统一匹配规则 |
+
+### 9.2.7 通配符:wildcard
+通配符匹配，比如`*`.**`wildcard` 查询在 Elasticsearch 中是区分大小写的**。
+```sh
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "wildcard": {
+      "name": {
+        "value": "D*ai",
+        "boost": 1.0,
+        "rewrite": "constant_score"
+      }
+    }
+  }
+}
+```
+
+**基本语法**
+```sh
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "wildcard": {
+      "字段名": {
+        "value": "通配符模式",
+        "boost": 权重系数,
+        "rewrite": "重写策略"
+      }
+    }
+  }
+}
+```
+**通配符符号说明**
+
+| 符号 | 功能 | 示例 | 匹配结果 |
+|------|------|------|----------|
+| `*` | 匹配0个或多个字符 | `D*ai` | `Dai`, `David`, `Danielai` |
+| `?` | 匹配1个字符 | `J?ne` | `Jane`, `Jone` (不匹配 `Jeanne`) |
+| `\*` | 转义星号 | `test\*` | 字面值 `test*` |
+| `\?` | 转义问号 | `test\?` | 字面值 `test?` |
+
+**参数详细说明**
+
+1. `value`（必需）- 通配符模式
+```json
+{
+  "wildcard": {
+    "name": {
+      "value": "D*ai"  // 模式：以D开头，以ai结尾
+    }
+  }
+}
+```
+
+2. `boost`（可选）- 权重系数
+```json
+{
+  "wildcard": {
+    "name": {
+      "value": "D*ai",
+      "boost": 2.0  // 匹配结果的权重加倍
+    }
+  }
+}
+```
+
+3. `rewrite`（可选）- 重写策略
+```json
+{
+  "wildcard": {
+    "name": {
+      "value": "D*ai",
+      "rewrite": "constant_score"  // 控制查询执行方式
+    }
+  }
+}
+```
+
+**常用重写策略（rewrite）**
+
+| 策略 | 说明 | 适用场景 |
+|------|------|----------|
+| `constant_score` | 转为常量分数查询 | **默认推荐**，性能较好 |
+| `constant_score_boolean` | 布尔查询+常量分数 | 精确控制，但性能较低 |
+| `scoring_boolean` | 布尔查询+评分 | 需要评分时使用 |
+| `top_terms_N` | 只保留前N个词项 | 限制结果数量时 |
+
+**实际使用示例**
+
+示例1：基本通配符匹配
+```sh
+# 匹配所有以 "Ja" 开头的名字
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "wildcard": {
+      "name": "Ja*"
+    }
+  }
+}
+// 匹配：Jane, James, Jason, etc.
+```
+
+示例2：单字符匹配
+```sh
+# 匹配类似 "Jane", "Jone" 但不匹配 "Jeanne"
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "wildcard": {
+      "name": "J?ne"
+    }
+  }
+}
+```
+
+示例3：复杂模式匹配
+```sh
+# 匹配以D开头，中间任意字符，以ai结尾的名字
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "wildcard": {
+      "name": {
+        "value": "D*ai",
+        "boost": 1.5,
+        "rewrite": "constant_score"
+      }
+    }
+  }
+}
+// 匹配：Dai, David, Danielai, etc.
+```
+
+示例4：邮箱域名匹配
+```sh
+# 匹配所有 gmail 邮箱
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "wildcard": {
+      "email": "*@gmail.com"
+    }
+  }
+}
+```
+
+示例5：产品编码匹配
+```sh
+# 匹配产品编码：PROD-2024-XXX
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "wildcard": {
+      "product_code": "PROD-2024-*"
+    }
+  }
+}
+```
+
+**重要注意事项**
+
+1. 字段类型要求
+
+**wildcard 查询只适用于 `keyword` 类型字段**：
+```json
+// 正确的映射
+{
+  "mappings": {
+    "properties": {
+      "name": {
+        "type": "keyword"  // 或者使用多字段
+        // "type": "text",
+        // "fields": {
+        //   "keyword": {
+        //     "type": "keyword"
+        //   }
+        // }
+      }
+    }
+  }
+}
+```
+
+2. 性能警告 ⚠️
+
+**避免在通配符开头使用 `*`**：
+```json
+// ❌ 性能差（需要扫描所有词项）
+{
+  "wildcard": {
+    "name": "*smith"
+  }
+}
+
+// ✅ 性能好（使用前缀索引）
+{
+  "wildcard": {
+    "name": "smith*"
+  }
+}
+```
+
+3. 与 prefix 查询的区别
+
+| 特性 | `wildcard` 查询 | `prefix` 查询 |
+|------|----------------|---------------|
+| **功能** | 支持 `*` 和 `?` | 只支持前缀匹配 |
+| **灵活性** | 高 | 低 |
+| **性能** | 较低 | 较高 |
+| **使用场景** | 复杂模式匹配 | 简单前缀匹配 |
+
+**性能优化建议**
+
+1. 避免开头通配符
+```json
+// 避免这样使用
+{"wildcard": {"name": "*son"}}
+
+// 改为这样（如果可能）
+{"wildcard": {"name": "Jack*son"}}
+```
+
+2. 使用合适的重写策略
+```json
+{
+  "wildcard": {
+    "name": {
+      "value": "D*ai",
+      "rewrite": "constant_score"  // 大多数场景推荐
+    }
+  }
+}
+```
+
+3. 考虑使用专门的字段
+```json
+// 为经常需要通配符搜索的字段创建专门索引
+{
+  "mappings": {
+    "properties": {
+      "product_code": {
+        "type": "wildcard"  // Elasticsearch 7.9+ 专用类型
+      }
+    }
+  }
+}
+```
+
+**实际业务场景**
+
+场景1：用户搜索（姓名模糊匹配）
+```sh
+# 用户输入 "Dav" 时显示相关结果
+GET /users/_search
+{
+  "query": {
+    "wildcard": {
+      "username": "Dav*"
+    }
+  }
+}
+```
+
+场景2：日志分析（错误代码匹配）
+```sh
+# 查找所有 4xx 错误
+GET /logs/_search
+{
+  "query": {
+    "wildcard": {
+      "error_code": "4*"
+    }
+  }
+}
+```
+
+场景3：产品搜索（型号匹配）
+```sh
+# 查找 iPhone 14 系列
+GET /products/_search
+{
+  "query": {
+    "wildcard": {
+      "model": "iPhone 14*"
+    }
+  }
+}
+```
+
+**与正则表达式查询的对比**
+
+| 特性 | `wildcard` 查询 | `regexp` 查询 |
+|------|----------------|---------------|
+| **语法复杂度** | 简单 (`*`, `?`) | 复杂（完整正则） |
+| **性能** | 相对较好 | 相对较差 |
+| **使用难度** | 低 | 高 |
+| **适用场景** | 简单模式匹配 | 复杂模式匹配 |
+
+### 9.2.8 范围:range常常被用在数字或者日期范围的查询
+```sh
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "range": {
+      "required_matches": {
+        "gte": 3,
+        "lte": 4
+      }
+    }
+  }
+}
+```
+![91.es-dsl-term-9.png](../../assets/images/06-中间件/elasticsearch/91.es-dsl-term-9.png)
+
+### 9.2.9 正则:regexp
+通过正则表达式查询
+
+以"Jan"开头的name字段
+```sh
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "regexp": {
+      "name": {
+        "value": "Ja.*",
+        "case_insensitive": true
+      }
+    }
+  }
+}
+```
+![92.es-dsl-term-10.png](../../assets/images/06-中间件/elasticsearch/92.es-dsl-term-10.png)
+
+#### 补充：正则(regexp) 和 通配符(wildcard) 主要的区别是什么
+##### 1. **语法和模式匹配能力**
+- **`regexp` 查询**：使用完整的正则表达式语法
+  ```json
+  "value": "Ja.*"        // .* 表示任意字符0次或多次
+  "value": "Ja.+"        // .+ 表示任意字符1次或多次  
+  "value": "Ja[a-z]*"    // 字符类
+  "value": "Ja{2,4}"     // 重复次数
+  ```
+
+- **`wildcard` 查询**：使用简化的通配符语法
+  ```json
+  "value": "Ja*"         // * 表示任意字符0次或多次
+  "value": "Ja?"         // ? 表示单个任意字符
+  "value": "Ja*v"        // 简单的模式匹配
+  ```
+
+##### 2. **性能差异**
+- **`wildcard` 查询通常更快**：因为它使用更简单的匹配算法
+- **`regexp` 查询相对较慢**：正则表达式引擎更复杂，消耗更多资源
+
+##### 3. **功能特性对比**
+
+| 特性 | `wildcard` | `regexp` |
+|------|------------|----------|
+| 前缀匹配 | ✅ `Ja*` | ✅ `Ja.*` |
+| 后缀匹配 | ✅ `*id` | ✅ `.*id` |
+| 中间匹配 | ✅ `J*v` | ✅ `J.*v` |
+| 字符类 | ❌ | ✅ `[Jj]a.*` |
+| 重复次数 | ❌ | ✅ `Ja{2,3}` |
+| 分组 | ❌ | ✅ `(John|Jane).*` |
+| 锚定 | ❌ | ✅ `^Ja.*` |
+
+##### 4. **实际使用建议**
+
+**使用 `wildcard` 的情况：**
+```json
+// 简单的前缀搜索（推荐）
+{
+  "wildcard": {
+    "name": {
+      "value": "Ja*",
+      "case_insensitive": true
+    }
+  }
+}
+
+// 简单的模式匹配
+{
+  "wildcard": {
+    "name": "J*v*d"  // 匹配 J开头，v在中间，d结尾的名字
+  }
+}
+```
+
+**使用 `regexp` 的情况：**
+```json
+// 复杂的模式匹配
+{
+  "regexp": {
+    "name": {
+      "value": "[Jj]a(n|ne).*",  // 匹配 Ja或ja开头，后面是n或ne
+      "case_insensitive": true
+    }
+  }
+}
+
+// 精确的长度控制
+{
+  "regexp": {
+    "name": "Ja.{2,5}"  // Ja后面跟2-5个字符
+  }
+}
+```
+### 9.2.10 模糊匹配:fuzzy
+官方文档对模糊匹配：编辑距离是将一个术语转换为另一个术语所需的一个字符更改的次数。这些更改可以包括：
+
+- 更改字符（box→ fox）
+- 删除字符（black→ lack）
+- 插入字符（sic→ sick）
+- 转置两个相邻字符（act→ cat）
+```sh
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "fuzzy": {
+      "remarks": {
+        "value": "heli"
+      }
+    }
+  }
+}
+```
+![93.es-dsl-term-11.png](../../assets/images/06-中间件/elasticsearch/93.es-dsl-term-11.png)
+
+#### 补充：fuzzy的模糊匹配底层原理
+
+##### 查询含义解析
+
+```json
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "fuzzy": {
+      "remarks": {
+        "value": "hell"
+      }
+    }
+  }
+}
+```
+
+这个查询的意思是：**搜索 `remarks` 字段中包含与 "hell" 相似的词**。
+
+##### 编辑距离（Edit Distance）解释
+
+编辑距离衡量两个词之间的相似度，通过计算需要多少次单字符操作来转换：
+
+| 操作类型 | 示例 | 编辑距离 |
+|---------|------|----------|
+| **更改字符** | `box` → `fox` | 1 |
+| **删除字符** | `black` → `lack` | 1 |
+| **插入字符** | `sic` → `sick` | 1 |
+| **转置字符** | `act` → `cat` | 1 |
+
+##### 您的查询实际效果
+
+搜索 `"hell"` 会匹配以下相似的词：
+
+```python
+# 编辑距离为1的匹配
+"hello"     # 插入 'o' (hell → hello)
+"hel"       # 删除 'l' (hell → hel) 
+"hall"      # 更改 'e'→'a' (hell → hall)
+"hll"       # 删除 'e' (hell → hll)
+"helle"     # 插入 'e' (hell → helle)
+
+# 编辑距离为2的匹配（默认最大距离）
+"halo"      # 更改 'e'→'a', 更改 'l'→'o'
+"help"      # 更改 'l'→'p', 删除 'l'
+```
+
+##### 截图内容分析
+
+根据截图文件名 `93.es-dsl-term-11.png`，应该显示：
+
+1. **匹配到的文档**：包含与 "hell" 相似的词
+2. **相似度评分**：基于编辑距离计算的相关性分数
+3. **实际匹配的词**：如 "hello"、"hel" 等
+
+##### 模糊查询的常用参数
+
+```json
+GET /test-dsl-term-level/_search
+{
+  "query": {
+    "fuzzy": {
+      "remarks": {
+        "value": "hell",
+        "fuzziness": "AUTO",    // 自动根据词长确定编辑距离
+        "prefix_length": 2,     // 前2个字符必须精确匹配
+        "max_expansions": 50,   // 最大扩展数
+        "transpositions": true  // 是否允许字符转置
+      }
+    }
+  }
+}
+```
+
+1. **fuzziness** - 编辑距离控制
+```json
+"fuzziness": "AUTO"
+// 自动规则：
+// - 1-2字符：必须精确匹配 (距离=0)
+// - 3-5字符：允许1次编辑 (距离=1)  
+// - >5字符：允许2次编辑 (距离=2)
+
+"fuzziness": 1  // 固定允许1次编辑
+"fuzziness": 2  // 固定允许2次编辑
+```
+
+2. **prefix_length** - 前缀精确匹配
+```json
+"prefix_length": 2
+// 搜索 "hello" 时：
+// ✅ 匹配：hello, hell, helo, hallo
+// ❌ 不匹配：bello, cello (前2字符不同)
+```
+
+3. **max_expansions** - 性能控制
+```json
+"max_expansions": 50
+// 限制生成的候选词数量，防止性能问题
+```
+
+4. **transpositions** - 字符交换
+```json
+"transpositions": true
+// 允许：ab → ba, 如 "act" ↔ "cat"
+```
+
+##### 实际应用场景
+
+###### 1. 拼写纠错
+```json
+// 用户输入 "helo" 搜索 "hello"
+{
+  "fuzzy": {
+    "title": {
+      "value": "helo",
+      "fuzziness": 1
+    }
+  }
+}
+```
+
+###### 2. 姓名模糊匹配
+```json
+// 搜索 "Jon" 匹配 "John"
+{
+  "fuzzy": {
+    "author": {
+      "value": "Jon",
+      "fuzziness": 1
+    }
+  }
+}
+```
+
+###### 3. 产品名称容错
+```json
+// 搜索 "iphne" 匹配 "iphone"
+{
+  "fuzzy": {
+    "product_name": {
+      "value": "iphne", 
+      "fuzziness": 2
+    }
+  }
+}
+```
+
+##### 性能注意事项
+
+- **避免在长文本字段使用**：模糊查询适合短词匹配
+- **设置合理的 `fuzziness`**：通常1-2就够了
+- **结合 `prefix_length`**：提高性能，减少匹配范围
+
+![94.Image20260108170832281.png](../../assets/images/06-中间件/elasticsearch/94.Image20260108170832281.png)
+
+##### max_expansions 参数详解
+###### 什么是"变体"？
+
+当您搜索 `"hell"` 时，Elasticsearch 会生成一系列相似的词（变体）来进行匹配：
+
+```python
+# 基于 "hell" 生成的变体示例
+原始词: "hell"
+
+# 编辑距离为1的变体：
+"hel"    (删除l)
+"helo"   (插入o)  
+"hall"   (e→a)
+"helll"  (插入l)
+"hll"    (删除e)
+"jell"   (h→j)
+
+# 编辑距离为2的变体：
+"halo"   (e→a, l→o)
+"help"   (l→p, 删除l)
+"heal"   (l→a, 删除l)
+"hallo"  (插入a, e→a)
+```
+
+###### `max_expansions` 的作用机制
+
+```mermaid
+graph LR
+    A[搜索词hell] --> B[生成候选变体]
+    B --> C{变体数量检查}
+    C -->|≤ max_expansions| D[全部用于搜索]
+    C -->|> max_expansions| E[只取前N个变体]
+    D --> F[执行匹配]
+    E --> F
+```
+
+###### 实际工作流程示例
+
+情况1：`max_expansions = 10`
+```json
+{
+  "fuzzy": {
+    "remarks": {
+      "value": "hell",
+      "fuzziness": 2,
+      "max_expansions": 10
+    }
+  }
+}
+```
+**结果：** 只使用前10个生成的变体进行匹配
+
+情况2：`max_expansions = 50`  
+```json
+{
+  "fuzzy": {
+    "remarks": {
+      "value": "hell", 
+      "fuzziness": 2,
+      "max_expansions": 50
+    }
+  }
+}
+```
+**结果：** 使用前50个生成的变体进行匹配
+
+###### 变体的生成顺序
+
+Elasticsearch 按以下优先级生成变体：
+
+1. **编辑距离小的优先**（距离1 > 距离2）
+2. **相同距离按字母顺序**
+3. **相同字母按生成算法顺序**
+
+###### 实际影响示例
+
+假设您的索引包含：
+```python
+文档1: "hello world"
+文档2: "halo world"  
+文档3: "heal the world"
+文档4: "jelly world"
+```
+
+**搜索 `"hell"` 时的匹配情况：**
+
+| max_expansions | 匹配到的文档 | 原因分析 |
+|----------------|-------------|----------|
+| **5** | 文档1("hello") | 只包含最高优先级的几个变体 |
+| **10** | 文档1, 文档2("halo") | 包含更多距离1的变体 |
+| **20** | 文档1, 文档2, 文档3("heal") | 包含距离2的更多变体 |
+| **50** | 文档1, 文档2, 文档3, 文档4("jelly") | 包含几乎所有可能变体 |
+
+###### 性能考虑
+
+```json
+// 推荐配置：平衡召回率和性能
+{
+  "fuzzy": {
+    "title": {
+      "value": "search_term",
+      "fuzziness": "AUTO",
+      "max_expansions": 50,    // 适中数量
+      "prefix_length": 2       // 配合使用，减少变体数量
+    }
+  }
+}
+```
+
+###### 最佳实践建议
+
+1. **短词搜索**：`max_expansions = 20-30`
+2. **长词搜索**：`max_expansions = 50-100`  
+3. **性能敏感场景**：`max_expansions = 10-20` + `prefix_length = 1-2`
+4. **高召回率需求**：`max_expansions = 100-200`
+5. **如果 max_expansions 设置得太小，即使有满足编辑距离条件的文档，也可能不会出现在查询结果中。**
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
