@@ -1068,6 +1068,1381 @@ $$
 
 细心的你可能发现在不同控制台中运行程序时，输出的哈希值是不同的。**这是因为 Python 解释器在每次启动时，都会为字符串哈希函数加入一个随机的盐（salt）值**。这种做法可以有效防止 HashDoS 攻击，提升哈希算法的安全性。
 
+## 1.9 二叉树
+
+<u>二叉树（binary tree）</u>是一种非线性数据结构，代表“祖先”与“后代”之间的派生关系，体现了“一分为二”的分治逻辑。与链表类似，二叉树的基本单元是节点，每个节点包含值、左子节点引用和右子节点引用。
+
+```Java
+    /* 二叉树节点类 */
+    class TreeNode {
+        int val;         // 节点值
+        TreeNode left;   // 左子节点引用
+        TreeNode right;  // 右子节点引用
+        TreeNode(int x) { val = x; }
+    }
+```
+
+每个节点都有两个引用（指针），分别指向<u>左子节点（left-child node）</u>和<u>右子节点（right-child node）</u>，该节点被称为这两个子节点的<u>父节点（parent node）</u>。当给定一个二叉树的节点时，我们将该节点的左子节点及其以下节点形成的树称为该节点的<u>左子树（left subtree）</u>，同理可得<u>右子树（right subtree）</u>。
+
+**在二叉树中，除叶节点外，其他所有节点都包含子节点和非空子树**。如下图所示，如果将“节点 2”视为父节点，则其左子节点和右子节点分别是“节点 4”和“节点 5”，左子树是“节点 4 及其以下节点形成的树”，右子树是“节点 5 及其以下节点形成的树”。
+
+![父节点、子节点、子树](../assets/images/10-算法/12.binary_tree_definition.png)
+
+### 1.9.1 二叉树常见术语
+
+二叉树的常用术语如下图所示。
+
+- <u>根节点（root node）</u>：位于二叉树顶层的节点，没有父节点。
+- <u>叶节点（leaf node）</u>：没有子节点的节点，其两个指针均指向 `None` 。
+- <u>边（edge）</u>：连接两个节点的线段，即节点引用（指针）。
+- 节点所在的<u>层（level）</u>：从顶至底递增，根节点所在层为 1 。
+- 节点的<u>度（degree）</u>：节点的子节点的数量。在二叉树中，度的取值范围是 0、1、2 。
+- 二叉树的<u>高度（height）</u>：从根节点到最远叶节点所经过的边的数量。
+- 节点的<u>深度（depth）</u>：从根节点到该节点所经过的边的数量。
+- 节点的<u>高度（height）</u>：从距离该节点最远的叶节点到该节点所经过的边的数量。
+
+![二叉树的常用术语](../assets/images/10-算法/13.binary_tree_terminology.png)
+
+!!! tip
+
+    请注意，我们通常将“高度”和“深度”定义为“经过的边的数量”，但有些题目或教材可能会将其定义为“经过的节点的数量”。在这种情况下，高度和深度都需要加 1 。
+
+### 1.9.2 二叉树基本操作
+
+#### 1.9.2.1 初始化二叉树
+
+与链表类似，首先初始化节点，然后构建引用（指针）。
+
+```java
+    // 初始化节点
+    TreeNode n1 = new TreeNode(1);
+    TreeNode n2 = new TreeNode(2);
+    TreeNode n3 = new TreeNode(3);
+    TreeNode n4 = new TreeNode(4);
+    TreeNode n5 = new TreeNode(5);
+    // 构建节点之间的引用（指针）
+    n1.left = n2;
+    n1.right = n3;
+    n2.left = n4;
+    n2.right = n5;
+```
+
+#### 1.9.2.2 插入与删除节点
+
+与链表类似，在二叉树中插入与删除节点可以通过修改指针来实现。下图给出了一个示例。
+
+![在二叉树中插入与删除节点](../assets/images/10-算法/14.binary_tree_add_remove.png)
+
+```java
+    TreeNode P = new TreeNode(0);
+    // 在 n1 -> n2 中间插入节点 P
+    n1.left = P;
+    P.left = n2;
+    // 删除节点 P
+    n1.left = n2;
+```
+
+!!! tip
+
+    需要注意的是，插入节点可能会改变二叉树的原有逻辑结构，而删除节点通常意味着删除该节点及其所有子树。因此，在二叉树中，插入与删除通常是由一套操作配合完成的，以实现有实际意义的操作。
+
+### 1.9.3 常见二叉树类型
+
+#### 1.9.3.1 完美二叉树
+
+如下图所示，<u>完美二叉树（perfect binary tree）</u>所有层的节点都被完全填满。在完美二叉树中，叶节点的度为 $0$ ，其余所有节点的度都为 $2$ ；若树的高度为 $h$ ，则节点总数为 $2^{h+1} - 1$ ，呈现标准的指数级关系，反映了自然界中常见的细胞分裂现象。
+
+!!! tip
+
+    请注意，在中文社区中，完美二叉树常被称为<u>满二叉树</u>。
+
+![完美二叉树](../assets/images/10-算法/15.perfect_binary_tree.png)
+
+#### 1.9.3.2 完全二叉树
+
+如下图所示，<u>完全二叉树（complete binary tree）</u>仅允许最底层的节点不完全填满，且最底层的节点必须从左至右依次连续填充。请注意，完美二叉树也是一棵完全二叉树。
+
+![完全二叉树](../assets/images/10-算法/16.complete_binary_tree.png)
+
+#### 1.9.3.3 完满二叉树
+
+如下图所示，<u>完满二叉树（full binary tree）</u>除了叶节点之外，其余所有节点都有两个子节点。
+
+![完满二叉树](../assets/images/10-算法/17.full_binary_tree.png)
+
+#### 1.9.3.4 平衡二叉树
+
+如下图所示，<u>平衡二叉树（balanced binary tree）</u>中任意节点的左子树和右子树的高度之差的绝对值不超过 1 。
+
+![平衡二叉树](../assets/images/10-算法/18.balanced_binary_tree.png)
+
+### 1.9.4 二叉树的退化
+
+下图展示了二叉树的理想结构与退化结构。当二叉树的每层节点都被填满时，达到“完美二叉树”；而当所有节点都偏向一侧时，二叉树退化为“链表”。
+
+- 完美二叉树是理想情况，可以充分发挥二叉树“分治”的优势。
+- 链表则是另一个极端，各项操作都变为线性操作，时间复杂度退化至 $O(n)$ 。
+
+![二叉树的最佳结构与最差结构](../assets/images/10-算法/19.binary_tree_best_worst_cases.png)
+
+如下表所示，在最佳结构和最差结构下，二叉树的叶节点数量、节点总数、高度等达到极大值或极小值。
+
+<p align="center"> 表 <id> &nbsp; 二叉树的最佳结构与最差结构 </p>
+
+|                             | 完美二叉树         | 链表    |
+| --------------------------- | ------------------ | ------- |
+| 第 $i$ 层的节点数量         | $2^{i-1}$          | $1$     |
+| 高度为 $h$ 的树的叶节点数量 | $2^h$              | $1$     |
+| 高度为 $h$ 的树的节点总数   | $2^{h+1} - 1$      | $h + 1$ |
+| 节点总数为 $n$ 的树的高度   | $\log_2 (n+1) - 1$ | $n - 1$ |
+
+## 1.10 二叉树遍历
+
+从物理结构的角度来看，树是一种基于链表的数据结构，因此其遍历方式是通过指针逐个访问节点。然而，树是一种非线性数据结构，这使得遍历树比遍历链表更加复杂，需要借助搜索算法来实现。
+
+二叉树常见的遍历方式包括层序遍历、前序遍历、中序遍历和后序遍历等。
+
+### 1.10.1 层序遍历
+
+如下图所示，<u>层序遍历（level-order traversal）</u>从顶部到底部逐层遍历二叉树，并在每一层按照从左到右的顺序访问节点。
+
+层序遍历本质上属于<u>广度优先遍历（breadth-first traversal）</u>，也称<u>广度优先搜索（breadth-first search, BFS）</u>，它体现了一种“一圈一圈向外扩展”的逐层遍历方式。
+
+![二叉树的层序遍历](../assets/images/10-算法/20.binary_tree_bfs.png)
+
+#### 1.10.1.1 代码实现
+
+广度优先遍历通常借助“队列”来实现。队列遵循“先进先出”的规则，而广度优先遍历则遵循“逐层推进”的规则，两者背后的思想是一致的。实现代码如下：
+
+```java
+public class binary_tree_bfs {
+    /* 层序遍历 */
+    static List<Integer> levelOrder(TreeNode root) {
+        // 初始化队列，加入根节点
+        Queue<TreeNode> queue = new LinkedList<>();
+        queue.add(root);
+        // 初始化一个列表，用于保存遍历序列
+        List<Integer> list = new ArrayList<>();
+        while (!queue.isEmpty()) {
+            TreeNode node = queue.poll(); // 队列出队
+            list.add(node.val);           // 保存节点值
+            if (node.left != null)
+                queue.offer(node.left);   // 左子节点入队
+            if (node.right != null)
+                queue.offer(node.right);  // 右子节点入队
+        }
+        return list;
+    }
+}
+```
+
+#### 1.10.1.2 复杂度分析
+
+- **时间复杂度为 $O(n)$** ：所有节点被访问一次，使用 $O(n)$ 时间，其中 $n$ 为节点数量。
+- **空间复杂度为 $O(n)$** ：在最差情况下，即满二叉树时，遍历到最底层之前，队列中最多同时存在 $(n + 1) / 2$ 个节点，占用 $O(n)$ 空间。
+
+### 1.10.2 前序、中序、后序遍历
+
+相应地，前序、中序和后序遍历都属于<u>深度优先遍历（depth-first traversal）</u>，也称<u>深度优先搜索（depth-first search, DFS）</u>，它体现了一种“先走到尽头，再回溯继续”的遍历方式。
+
+下图展示了对二叉树进行深度优先遍历的工作原理。**深度优先遍历就像是绕着整棵二叉树的外围“走”一圈**，在每个节点都会遇到三个位置，分别对应前序遍历、中序遍历和后序遍历。
+
+![二叉搜索树的前序、中序、后序遍历](../assets/images/10-算法/21.binary_tree_dfs.png)
+
+#### 1.10.2.1 代码实现
+
+深度优先搜索通常基于递归实现：
+
+```java
+public class binary_tree_dfs {
+    // 初始化列表，用于存储遍历序列
+    static ArrayList<Integer> list = new ArrayList<>();
+
+    /* 前序遍历 */
+    static void preOrder(TreeNode root) {
+        if (root == null)
+            return;
+        // 访问优先级：根节点 -> 左子树 -> 右子树
+        list.add(root.val);
+        preOrder(root.left);
+        preOrder(root.right);
+    }
+
+    /* 中序遍历 */
+    static void inOrder(TreeNode root) {
+        if (root == null)
+            return;
+        // 访问优先级：左子树 -> 根节点 -> 右子树
+        inOrder(root.left);
+        list.add(root.val);
+        inOrder(root.right);
+    }
+
+    /* 后序遍历 */
+    static void postOrder(TreeNode root) {
+        if (root == null)
+            return;
+        // 访问优先级：左子树 -> 右子树 -> 根节点
+        postOrder(root.left);
+        postOrder(root.right);
+        list.add(root.val);
+    }
+}
+```
+
+!!! tip
+
+    深度优先搜索也可以基于迭代实现，有兴趣的读者可以自行研究。
+
+下图展示了前序遍历二叉树的递归过程，其可分为“递”和“归”两个逆向的部分。
+
+1. “递”表示开启新方法，程序在此过程中访问下一个节点。
+2. “归”表示函数返回，代表当前节点已经访问完毕。
+
+=== "<1>"
+    ![前序遍历的递归过程](../assets/images/10-算法/22.preorder_step1.png)
+
+=== "<2>"
+    ![preorder_step2](../assets/images/10-算法/23.preorder_step2.png)
+
+=== "<3>"
+    ![preorder_step3](../assets/images/10-算法/24.preorder_step3.png)
+
+=== "<4>"
+    ![preorder_step4](../assets/images/10-算法/25.preorder_step4.png)
+
+=== "<5>"
+    ![preorder_step5](../assets/images/10-算法/26.preorder_step5.png)
+
+=== "<6>"
+    ![preorder_step6](../assets/images/10-算法/27.preorder_step6.png)
+
+=== "<7>"
+    ![preorder_step7](../assets/images/10-算法/28.preorder_step7.png)
+
+=== "<8>"
+    ![preorder_step8](../assets/images/10-算法/29.preorder_step8.png)
+
+=== "<9>"
+    ![preorder_step9](../assets/images/10-算法/30.preorder_step9.png)
+
+=== "<10>"
+    ![preorder_step10](../assets/images/10-算法/31.preorder_step10.png)
+
+=== "<11>"
+    ![preorder_step11](../assets/images/10-算法/32.preorder_step11.png)
+
+#### 1.10.2.2 复杂度分析
+
+- **时间复杂度为 $O(n)$** ：所有节点被访问一次，使用 $O(n)$ 时间。
+- **空间复杂度为 $O(n)$** ：在最差情况下，即树退化为链表时，递归深度达到 $n$ ，系统占用 $O(n)$ 栈帧空间。
+
+
+## 1.11 二叉树数组表示
+
+在链表表示下，二叉树的存储单元为节点 `TreeNode` ，节点之间通过指针相连接。上一节介绍了链表表示下的二叉树的各项基本操作。
+
+那么，我们能否用数组来表示二叉树呢？答案是肯定的。
+
+### 1.11.1 表示完美二叉树
+
+先分析一个简单案例。给定一棵完美二叉树，我们将所有节点按照层序遍历的顺序存储在一个数组中，则每个节点都对应唯一的数组索引。
+
+根据层序遍历的特性，我们可以推导出父节点索引与子节点索引之间的“映射公式”：**若某节点的索引为 $i$ ，则该节点的左子节点索引为 $2i + 1$ ，右子节点索引为 $2i + 2$** 。下图展示了各个节点索引之间的映射关系。
+
+![完美二叉树的数组表示](../assets/images/10-算法/33.array_representation_binary_tree.png)
+
+**映射公式的角色相当于链表中的节点引用（指针）**。给定数组中的任意一个节点，我们都可以通过映射公式来访问它的左（右）子节点。
+
+### 1.11.2 表示任意二叉树
+
+完美二叉树是一个特例，在二叉树的中间层通常存在许多 `None` 。由于层序遍历序列并不包含这些 `None` ，因此我们无法仅凭该序列来推测 `None` 的数量和分布位置。**这意味着存在多种二叉树结构都符合该层序遍历序列**。
+
+如下图所示，给定一棵非完美二叉树，上述数组表示方法已经失效。
+
+![层序遍历序列对应多种二叉树可能性](../assets/images/10-算法/34.array_representation_without_empty.png)
+
+为了解决此问题，**我们可以考虑在层序遍历序列中显式地写出所有 `None`** 。如下图所示，这样处理后，层序遍历序列就可以唯一表示二叉树了。示例代码如下：
+
+```java title=""
+    /* 二叉树的数组表示 */
+    // 使用 int 的包装类 Integer ，就可以使用 null 来标记空位
+    Integer[] tree = { 1, 2, 3, 4, null, 6, 7, 8, 9, null, null, 12, null, null, 15 };
+```
+
+
+![任意类型二叉树的数组表示](../assets/images/10-算法/35.array_representation_with_empty.png)
+
+值得说明的是，**完全二叉树非常适合使用数组来表示**。回顾完全二叉树的定义，`None` 只出现在最底层且靠右的位置，**因此所有 `None` 一定出现在层序遍历序列的末尾**。
+
+这意味着使用数组表示完全二叉树时，可以省略存储所有 `None` ，非常方便。下图给出了一个例子。
+
+![完全二叉树的数组表示](../assets/images/10-算法/36.array_representation_complete_binary_tree.png)
+
+以下代码实现了一棵基于数组表示的二叉树，包括以下几种操作。
+
+- 给定某节点，获取它的值、左（右）子节点、父节点。
+- 获取前序遍历、中序遍历、后序遍历、层序遍历序列。
+
+```java
+class ArrayBinaryTree {
+    private List<Integer> tree;
+
+    /* 构造方法 */
+    public ArrayBinaryTree(List<Integer> arr) {
+        tree = new ArrayList<>(arr);
+    }
+
+    /* 列表容量 */
+    public int size() {
+        return tree.size();
+    }
+
+    /* 获取索引为 i 节点的值 */
+    public Integer val(int i) {
+        // 若索引越界，则返回 null ，代表空位
+        if (i < 0 || i >= size())
+            return null;
+        return tree.get(i);
+    }
+
+    /* 获取索引为 i 节点的左子节点的索引 */
+    public Integer left(int i) {
+        return 2 * i + 1;
+    }
+
+    /* 获取索引为 i 节点的右子节点的索引 */
+    public Integer right(int i) {
+        return 2 * i + 2;
+    }
+
+    /* 获取索引为 i 节点的父节点的索引 */
+    public Integer parent(int i) {
+        return (i - 1) / 2;
+    }
+
+    /* 层序遍历 */
+    public List<Integer> levelOrder() {
+        List<Integer> res = new ArrayList<>();
+        // 直接遍历数组
+        for (int i = 0; i < size(); i++) {
+            if (val(i) != null)
+                res.add(val(i));
+        }
+        return res;
+    }
+
+    /* 深度优先遍历 */
+    private void dfs(Integer i, String order, List<Integer> res) {
+        // 若为空位，则返回
+        if (val(i) == null)
+            return;
+        // 前序遍历
+        if ("pre".equals(order))
+            res.add(val(i));
+        dfs(left(i), order, res);
+        // 中序遍历
+        if ("in".equals(order))
+            res.add(val(i));
+        dfs(right(i), order, res);
+        // 后序遍历
+        if ("post".equals(order))
+            res.add(val(i));
+    }
+
+    /* 前序遍历 */
+    public List<Integer> preOrder() {
+        List<Integer> res = new ArrayList<>();
+        dfs(0, "pre", res);
+        return res;
+    }
+
+    /* 中序遍历 */
+    public List<Integer> inOrder() {
+        List<Integer> res = new ArrayList<>();
+        dfs(0, "in", res);
+        return res;
+    }
+
+    /* 后序遍历 */
+    public List<Integer> postOrder() {
+        List<Integer> res = new ArrayList<>();
+        dfs(0, "post", res);
+        return res;
+    }
+}
+```
+
+### 1.11.3 优点与局限性
+
+二叉树的数组表示主要有以下优点。
+
+- 数组存储在连续的内存空间中，对缓存友好，访问与遍历速度较快。
+- 不需要存储指针，比较节省空间。
+- 允许随机访问节点。
+
+然而，数组表示也存在一些局限性。
+
+- 数组存储需要连续内存空间，因此不适合存储数据量过大的树。
+- 增删节点需要通过数组插入与删除操作实现，效率较低。
+- 当二叉树中存在大量 `None` 时，数组中包含的节点数据比重较低，空间利用率较低。
+
+## 1.12 二叉搜索树
+
+如下图所示，<u>二叉搜索树（binary search tree）</u>满足以下条件。
+
+1. 对于根节点，左子树中所有节点的值 $<$ 根节点的值 $<$ 右子树中所有节点的值。
+2. 任意节点的左、右子树也是二叉搜索树，即同样满足条件 `1.` 。
+
+![二叉搜索树](../assets/images/10-算法/37.binary_search_tree.png)
+
+### 1.12.1 二叉搜索树的操作
+
+我们将二叉搜索树封装为一个类 `BinarySearchTree` ，并声明一个成员变量 `root` ，指向树的根节点。
+
+#### 1.12.1.1 查找节点
+
+给定目标节点值 `num` ，可以根据二叉搜索树的性质来查找。如下图所示，我们声明一个节点 `cur` ，从二叉树的根节点 `root` 出发，循环比较节点值 `cur.val` 和 `num` 之间的大小关系。
+
+- 若 `cur.val < num` ，说明目标节点在 `cur` 的右子树中，因此执行 `cur = cur.right` 。
+- 若 `cur.val > num` ，说明目标节点在 `cur` 的左子树中，因此执行 `cur = cur.left` 。
+- 若 `cur.val = num` ，说明找到目标节点，跳出循环并返回该节点。
+
+=== "<1>"
+    ![二叉搜索树查找节点示例](../assets/images/10-算法/38.bst_search_step1.png)
+
+=== "<2>"
+    ![bst_search_step2](../assets/images/10-算法/39.bst_search_step2.png)
+
+=== "<3>"
+    ![bst_search_step3](../assets/images/10-算法/40.bst_search_step3.png)
+
+=== "<4>"
+    ![bst_search_step4](../assets/images/10-算法/41.bst_search_step4.png)
+
+二叉搜索树的查找操作与二分查找算法的工作原理一致，都是每轮排除一半情况。循环次数最多为二叉树的高度，当二叉树平衡时，使用 $O(\log n)$ 时间。示例代码如下：
+
+```java
+/* 查找节点 */
+TreeNode search(int num) {
+    TreeNode cur = root;
+    // 循环查找，越过叶节点后跳出
+    while (cur != null) {
+        // 目标节点在 cur 的右子树中
+        if (cur.val < num)
+            cur = cur.right;
+        // 目标节点在 cur 的左子树中
+        else if (cur.val > num)
+            cur = cur.left;
+        // 找到目标节点，跳出循环
+        else
+            break;
+    }
+    // 返回目标节点
+    return cur;
+}
+```
+
+#### 1.12.1.2 插入节点
+
+给定一个待插入元素 `num` ，为了保持二叉搜索树“左子树 < 根节点 < 右子树”的性质，插入操作流程如下图所示。
+
+1. **查找插入位置**：与查找操作相似，从根节点出发，根据当前节点值和 `num` 的大小关系循环向下搜索，直到越过叶节点（遍历至 `None` ）时跳出循环。
+2. **在该位置插入节点**：初始化节点 `num` ，将该节点置于 `None` 的位置。
+
+![在二叉搜索树中插入节点](../assets/images/10-算法/42.bst_insert.png)
+
+在代码实现中，需要注意以下两点。
+
+- 二叉搜索树不允许存在重复节点，否则将违反其定义。因此，若待插入节点在树中已存在，则不执行插入，直接返回。
+- 为了实现插入节点，我们需要借助节点 `pre` 保存上一轮循环的节点。这样在遍历至 `None` 时，我们可以获取到其父节点，从而完成节点插入操作。
+
+```java
+/* 插入节点 */
+void insert(int num) {
+    // 若树为空，则初始化根节点
+    if (root == null) {
+        root = new TreeNode(num);
+        return;
+    }
+    TreeNode cur = root, pre = null;
+    // 循环查找，越过叶节点后跳出
+    while (cur != null) {
+        // 找到重复节点，直接返回
+        if (cur.val == num)
+            return;
+        pre = cur;
+        // 插入位置在 cur 的右子树中
+        if (cur.val < num)
+            cur = cur.right;
+        // 插入位置在 cur 的左子树中
+        else
+            cur = cur.left;
+    }
+    // 插入节点
+    TreeNode node = new TreeNode(num);
+    if (pre.val < num)
+        pre.right = node;
+    else
+        pre.left = node;
+}
+```
+
+与查找节点相同，插入节点使用 $O(\log n)$ 时间。
+
+#### 1.12.1.3 删除节点
+
+先在二叉树中查找到目标节点，再将其删除。与插入节点类似，我们需要保证在删除操作完成后，二叉搜索树的“左子树 < 根节点 < 右子树”的性质仍然满足。因此，我们根据目标节点的子节点数量，分 0、1 和 2 三种情况，执行对应的删除节点操作。
+
+如下图所示，当待删除节点的度为 $0$ 时，表示该节点是叶节点，可以直接删除。
+
+![在二叉搜索树中删除节点（度为 0 ）](../assets/images/10-算法/43.bst_remove_case1.png)
+
+如下图所示，当待删除节点的度为 $1$ 时，将待删除节点替换为其子节点即可。
+
+![在二叉搜索树中删除节点（度为 1 ）](../assets/images/10-算法/44.bst_remove_case2.png)
+
+当待删除节点的度为 $2$ 时，我们无法直接删除它，而需要使用一个节点替换该节点。由于要保持二叉搜索树“左子树 $<$ 根节点 $<$ 右子树”的性质，**因此这个节点可以是右子树的最小节点或左子树的最大节点(因为左子树的最大节点或右子树的最小节点一定都是最后一个节点，去除他们对整个数没有太大影响)**。
+
+假设我们选择右子树的最小节点（中序遍历的下一个节点），则删除操作流程如下图所示。
+
+1. 找到待删除节点在“中序遍历序列”中的下一个节点，记为 `tmp` 。
+2. 用 `tmp` 的值覆盖待删除节点的值，并在树中递归删除节点 `tmp` 。
+
+=== "<1>"
+    ![在二叉搜索树中删除节点（度为 2 ）](../assets/images/10-算法/45.bst_remove_case3_step1.png)
+
+=== "<2>"
+    ![bst_remove_case3_step2](../assets/images/10-算法/46.bst_remove_case3_step2.png)
+
+=== "<3>"
+    ![bst_remove_case3_step3](../assets/images/10-算法/47.bst_remove_case3_step3.png)
+
+=== "<4>"
+    ![bst_remove_case3_step4](../assets/images/10-算法/48.bst_remove_case3_step4.png)
+
+删除节点操作同样使用 $O(\log n)$ 时间，其中查找待删除节点需要 $O(\log n)$ 时间，获取中序遍历后继节点需要 $O(\log n)$ 时间。示例代码如下：
+
+```java
+/* 删除节点 */
+void remove(int num) {
+    // 若树为空，直接提前返回
+    if (root == null)
+        return;
+    TreeNode cur = root, pre = null;
+    // 循环查找，越过叶节点后跳出
+    while (cur != null) {
+        // 找到待删除节点，跳出循环
+        if (cur.val == num)
+            break;
+        pre = cur;
+        // 待删除节点在 cur 的右子树中
+        if (cur.val < num)
+            cur = cur.right;
+        // 待删除节点在 cur 的左子树中
+        else
+            cur = cur.left;
+    }
+    // 若无待删除节点，则直接返回
+    if (cur == null)
+        return;
+    // 子节点数量 = 0 or 1
+    if (cur.left == null || cur.right == null) {
+        // 当子节点数量 = 0 / 1 时， child = null / 该子节点
+        TreeNode child = cur.left != null ? cur.left : cur.right;
+        // 删除节点 cur
+        if (cur != root) {
+            if (pre.left == cur)
+                pre.left = child;
+            else
+                pre.right = child;
+        } else {
+            // 若删除节点为根节点，则重新指定根节点
+            root = child;
+        }
+    }
+    // 子节点数量 = 2
+    else {
+        // 获取中序遍历中 cur 的下一个节点
+        TreeNode tmp = cur.right;
+        while (tmp.left != null) {
+            tmp = tmp.left;
+        }
+        // 递归删除节点 tmp
+        remove(tmp.val);
+        // 用 tmp 覆盖 cur
+        cur.val = tmp.val;
+    }
+}
+```
+
+#### 1.12.1.4 中序遍历有序
+
+如下图所示，二叉树的中序遍历遵循“左 $\rightarrow$ 根 $\rightarrow$ 右”的遍历顺序，而二叉搜索树满足“左子节点 $<$ 根节点 $<$ 右子节点”的大小关系。
+
+这意味着在二叉搜索树中进行中序遍历时，总是会优先遍历下一个最小节点，从而得出一个重要性质：**二叉搜索树的中序遍历序列是升序的**。
+
+利用中序遍历升序的性质，我们在二叉搜索树中获取有序数据仅需 $O(n)$ 时间，无须进行额外的排序操作，非常高效。
+
+![二叉搜索树的中序遍历序列](../assets/images/10-算法/49.bst_inorder_traversal.png)
+
+### 1.12.2 二叉搜索树的效率
+
+给定一组数据，我们考虑使用数组或二叉搜索树存储。观察下表，二叉搜索树的各项操作的时间复杂度都是对数阶，具有稳定且高效的性能。只有在高频添加、低频查找删除数据的场景下，数组比二叉搜索树的效率更高。
+
+<p align="center"> 表 <id> &nbsp; 数组与搜索树的效率对比 </p>
+
+|          | 无序数组 | 二叉搜索树  |
+| -------- | -------- | ----------- |
+| 查找元素 | $O(n)$   | $O(\log n)$ |
+| 插入元素 | $O(1)$   | $O(\log n)$ |
+| 删除元素 | $O(n)$   | $O(\log n)$ |
+
+在理想情况下，二叉搜索树是“平衡”的，这样就可以在 $\log n$ 轮循环内查找任意节点。
+
+然而，如果我们在二叉搜索树中不断地插入和删除节点，可能导致二叉树退化为下图所示的链表，这时各种操作的时间复杂度也会退化为 $O(n)$ 。
+
+![二叉搜索树退化](../assets/images/10-算法/50.bst_degradation.png)
+
+### 1.12.3 二叉搜索树常见应用
+
+- 用作系统中的多级索引，实现高效的查找、插入、删除操作。
+- 作为某些搜索算法的底层数据结构。
+- 用于存储数据流，以保持其有序状态。
+
+## 1.13 AVL 树 *
+
+在“二叉搜索树”章节中我们提到，在多次插入和删除操作后，二叉搜索树可能退化为链表。在这种情况下，所有操作的时间复杂度将从 $O(\log n)$ 劣化为 $O(n)$ 。
+
+如下图所示，经过两次删除节点操作，这棵二叉搜索树便会退化为链表。
+
+![AVL 树在删除节点后发生退化](../assets/images/10-算法/51.avltree_degradation_from_removing_node.png)
+
+再例如，在下图所示的完美二叉树中插入两个节点后，树将严重向左倾斜，查找操作的时间复杂度也随之劣化。
+
+![AVL 树在插入节点后发生退化](../assets/images/10-算法/52.avltree_degradation_from_inserting_node.png)
+
+1962 年 G. M. Adelson-Velsky 和 E. M. Landis 在论文“An algorithm for the organization of information”中提出了 <u>AVL 树</u>。论文中详细描述了一系列操作，确保在持续添加和删除节点后，AVL 树不会退化，从而使得各种操作的时间复杂度保持在 $O(\log n)$ 级别。换句话说，在需要频繁进行增删查改操作的场景中，AVL 树能始终保持高效的数据操作性能，具有很好的应用价值。
+
+### 1.13.1 AVL 树常见术语
+
+AVL 树既是二叉搜索树，也是平衡二叉树，同时满足这两类二叉树的所有性质，因此是一种<u>平衡二叉搜索树（balanced binary search tree）</u>。
+
+#### 1.13.1.1 节点高度
+
+由于 AVL 树的相关操作需要获取节点高度，因此我们需要为节点类添加 `height` 变量：
+
+```java title=""
+    /* AVL 树节点类 */
+    class TreeNode {
+        public int val;        // 节点值
+        public int height;     // 节点高度
+        public TreeNode left;  // 左子节点
+        public TreeNode right; // 右子节点
+        public TreeNode(int x) { val = x; }
+    }
+```
+
+“节点高度”是指从该节点到它的最远叶节点的距离，即所经过的“边”的数量。需要特别注意的是，叶节点的高度为 $0$ ，而空节点的高度为 $-1$ 。我们将创建两个工具函数，分别用于获取和更新节点的高度：
+
+```java
+/* 获取节点高度 */
+int height(TreeNode node) {
+    // 空节点高度为 -1 ，叶节点高度为 0
+    return node == null ? -1 : node.height;
+}
+
+/* 更新节点高度 */
+void updateHeight(TreeNode node) {
+    // 节点高度等于最高子树高度 + 1
+    node.height = Math.max(height(node.left), height(node.right)) + 1;
+}
+```
+
+#### 1.13.1.2 节点平衡因子
+
+节点的<u>平衡因子（balance factor）</u>定义为节点左子树的高度减去右子树的高度，同时规定空节点的平衡因子为 $0$ 。我们同样将获取节点平衡因子的功能封装成函数，方便后续使用：
+
+```java
+/* 获取平衡因子 */
+int balanceFactor(TreeNode node) {
+    // 空节点平衡因子为 0
+    if (node == null)
+        return 0;
+    // 节点平衡因子 = 左子树高度 - 右子树高度
+    return height(node.left) - height(node.right);
+}
+```
+
+!!! tip
+
+    设平衡因子为 $f$ ，则一棵 AVL 树的任意节点的平衡因子皆满足 $-1 \le f \le 1$ 。
+
+### 1.13.2 AVL 树旋转
+
+AVL 树的特点在于“旋转”操作，它能够在不影响二叉树的中序遍历序列的前提下，使失衡节点重新恢复平衡。换句话说，**旋转操作既能保持“二叉搜索树”的性质，也能使树重新变为“平衡二叉树”**。
+
+我们将平衡因子绝对值 $> 1$ 的节点称为“失衡节点”。根据节点失衡情况的不同，旋转操作分为四种：右旋、左旋、先右旋后左旋、先左旋后右旋。下面详细介绍这些旋转操作。
+
+#### 1.13.2.1 右旋
+
+如下图所示，节点下方为平衡因子。从底至顶看，二叉树中首个失衡节点是“节点 3”。我们关注以该失衡节点为根节点的子树，将该节点记为 `node` ，其左子节点记为 `child` ，执行“右旋”操作。完成右旋后，子树恢复平衡，并且仍然保持二叉搜索树的性质。
+
+=== "<1>"
+    ![右旋操作步骤](../assets/images/10-算法/53.avltree_right_rotate_step1.png)
+
+=== "<2>"
+    ![avltree_right_rotate_step2](../assets/images/10-算法/54.avltree_right_rotate_step2.png)
+
+=== "<3>"
+    ![avltree_right_rotate_step3](../assets/images/10-算法/55.avltree_right_rotate_step3.png)
+
+=== "<4>"
+    ![avltree_right_rotate_step4](../assets/images/10-算法/56.avltree_right_rotate_step4.png)
+
+如下图所示，当节点 `child` 有右子节点（记为 `grand_child` ）时，需要在右旋中添加一步：将 `grand_child` 作为 `node` 的左子节点。
+
+![有 grand_child 的右旋操作](../assets/images/10-算法/57.avltree_right_rotate_with_grandchild.png)
+
+“向右旋转”是一种形象化的说法，实际上需要通过修改节点指针来实现，代码如下所示：
+
+```java
+/* 右旋操作 */
+TreeNode rightRotate(TreeNode node) {
+    TreeNode child = node.left;
+    TreeNode grandChild = child.right;
+    // 以 child 为原点，将 node 向右旋转
+    child.right = node;
+    node.left = grandChild;
+    // 更新节点高度
+    updateHeight(node);
+    updateHeight(child);
+    // 返回旋转后子树的根节点
+    return child;
+}
+```
+
+#### 1.13.2.2 左旋
+
+相应地，如果考虑上述失衡二叉树的“镜像”，则需要执行下图所示的“左旋”操作。
+
+![左旋操作](../assets/images/10-算法/58.avltree_left_rotate.png)
+
+同理，如下图所示，当节点 `child` 有左子节点（记为 `grand_child` ）时，需要在左旋中添加一步：将 `grand_child` 作为 `node` 的右子节点。
+
+![有 grand_child 的左旋操作](../assets/images/10-算法/59.avltree_left_rotate_with_grandchild.png)
+
+可以观察到，**右旋和左旋操作在逻辑上是镜像对称的，它们分别解决的两种失衡情况也是对称的**。基于对称性，我们只需将右旋的实现代码中的所有的 `left` 替换为 `right` ，将所有的 `right` 替换为 `left` ，即可得到左旋的实现代码：
+
+```java
+/* 左旋操作 */
+TreeNode leftRotate(TreeNode node) {
+    TreeNode child = node.right;
+    TreeNode grandChild = child.left;
+    // 以 child 为原点，将 node 向左旋转
+    child.left = node;
+    node.right = grandChild;
+    // 更新节点高度
+    updateHeight(node);
+    updateHeight(child);
+    // 返回旋转后子树的根节点
+    return child;
+}
+```
+
+#### 1.13.2.3 先左旋后右旋
+
+对于下图中的失衡节点 3 ，仅使用左旋或右旋都无法使子树恢复平衡。此时需要先对 `child` 执行“左旋”，再对 `node` 执行“右旋”。
+
+![先左旋后右旋](../assets/images/10-算法/60.avltree_left_right_rotate.png)
+
+#### 1.13.2.4 先右旋后左旋
+
+如下图所示，对于上述失衡二叉树的镜像情况，需要先对 `child` 执行“右旋”，再对 `node` 执行“左旋”。
+
+![先右旋后左旋](../assets/images/10-算法/61.avltree_right_left_rotate.png)
+
+#### 1.13.2.5 旋转的选择
+
+下图展示的四种失衡情况与上述案例逐个对应，分别需要采用右旋、先左旋后右旋、先右旋后左旋、左旋的操作。
+
+![AVL 树的四种旋转情况](../assets/images/10-算法/62.avltree_rotation_cases.png)
+
+如下表所示，我们通过判断失衡节点的平衡因子以及较高一侧子节点的平衡因子的正负号，来确定失衡节点属于上图中的哪种情况。
+
+<p align="center"> 表 <id> &nbsp; 四种旋转情况的选择条件 </p>
+
+| 失衡节点的平衡因子 | 子节点的平衡因子 | 应采用的旋转方法 |
+| ------------------ | ---------------- | ---------------- |
+| $> 1$ （左偏树）   | $\geq 0$         | 右旋             |
+| $> 1$ （左偏树）   | $<0$             | 先左旋后右旋     |
+| $< -1$ （右偏树）  | $\leq 0$         | 左旋             |
+| $< -1$ （右偏树）  | $>0$             | 先右旋后左旋     |
+
+为了便于使用，我们将旋转操作封装成一个函数。**有了这个函数，我们就能对各种失衡情况进行旋转，使失衡节点重新恢复平衡**。代码如下所示：
+
+```java
+/* 执行旋转操作，使该子树重新恢复平衡 */
+TreeNode rotate(TreeNode node) {
+    // 获取节点 node 的平衡因子
+    int balanceFactor = balanceFactor(node);
+    // 左偏树
+    if (balanceFactor > 1) {
+        if (balanceFactor(node.left) >= 0) {
+            // 右旋
+            return rightRotate(node);
+        } else {
+            // 先左旋后右旋
+            node.left = leftRotate(node.left);
+            return rightRotate(node);
+        }
+    }
+    // 右偏树
+    if (balanceFactor < -1) {
+        if (balanceFactor(node.right) <= 0) {
+            // 左旋
+            return leftRotate(node);
+        } else {
+            // 先右旋后左旋
+            node.right = rightRotate(node.right);
+            return leftRotate(node);
+        }
+    }
+    // 平衡树，无须旋转，直接返回
+    return node;
+}
+```
+
+### 1.13.3 AVL 树常用操作
+
+#### 1.13.3.1 插入节点
+
+AVL 树的节点插入操作与二叉搜索树在主体上类似。唯一的区别在于，在 AVL 树中插入节点后，从该节点到根节点的路径上可能会出现一系列失衡节点。因此，**我们需要从这个节点开始，自底向上执行旋转操作，使所有失衡节点恢复平衡**。代码如下所示：
+
+```java
+/* 插入节点 */
+void insert(int val) {
+    root = insertHelper(root, val);
+}
+
+/* 递归插入节点（辅助方法） */
+TreeNode insertHelper(TreeNode node, int val) {
+    if (node == null)
+        return new TreeNode(val);
+    /* 1. 查找插入位置并插入节点 */
+    if (val < node.val)
+        node.left = insertHelper(node.left, val);
+    else if (val > node.val)
+        node.right = insertHelper(node.right, val);
+    else
+        return node; // 重复节点不插入，直接返回
+    updateHeight(node); // 更新节点高度
+    /* 2. 执行旋转操作，使该子树重新恢复平衡 */
+    node = rotate(node);
+    // 返回子树的根节点
+    return node;
+}
+```
+
+#### 1.13.3.2 删除节点
+
+类似地，在二叉搜索树的删除节点方法的基础上，需要从底至顶执行旋转操作，使所有失衡节点恢复平衡。代码如下所示：
+
+```java
+/* 删除节点 */
+void remove(int val) {
+    root = removeHelper(root, val);
+}
+
+/* 递归删除节点（辅助方法） */
+TreeNode removeHelper(TreeNode node, int val) {
+    if (node == null)
+        return null;
+    /* 1. 查找节点并删除 */
+    if (val < node.val)
+        node.left = removeHelper(node.left, val);
+    else if (val > node.val)
+        node.right = removeHelper(node.right, val);
+    else {
+        if (node.left == null || node.right == null) {
+            TreeNode child = node.left != null ? node.left : node.right;
+            // 子节点数量 = 0 ，直接删除 node 并返回
+            if (child == null)
+                return null;
+            // 子节点数量 = 1 ，直接删除 node
+            else
+                node = child;
+        } else {
+            // 子节点数量 = 2 ，则将中序遍历的下个节点删除，并用该节点替换当前节点
+            TreeNode temp = node.right;
+            while (temp.left != null) {
+                temp = temp.left;
+            }
+            node.right = removeHelper(node.right, temp.val);
+            node.val = temp.val;
+        }
+    }
+    updateHeight(node); // 更新节点高度
+    /* 2. 执行旋转操作，使该子树重新恢复平衡 */
+    node = rotate(node);
+    // 返回子树的根节点
+    return node;
+}
+```
+
+#### 1.13.3.3 查找节点
+
+AVL 树的节点查找操作与二叉搜索树一致，在此不再赘述。
+
+### 1.13.4 AVL 树典型应用
+
+- 组织和存储大型数据，适用于高频查找、低频增删的场景。
+- 用于构建数据库中的索引系统。
+- 红黑树也是一种常见的平衡二叉搜索树。相较于 AVL 树，红黑树的平衡条件更宽松，插入与删除节点所需的旋转操作更少，节点增删操作的平均效率更高。
+
+### 1.13.5 树 - 相关代码demo
+```java
+package MyTest.tree;
+
+import java.util.*;
+
+public class TreeNode {
+    // 定义一个根节点
+    private TreeNode root;
+    private int val;
+    private TreeNode left;
+    private TreeNode right;
+    //给AVL数专用的字段 - 节点的高度'
+    private int high;
+
+    public static int getHigh(TreeNode node) {
+        // 空节点的高为-1
+        return node == null ? -1 : node.high;
+    }
+
+    public static void setHigh(TreeNode node) {
+        // 节点左右节点的高度最大值+1
+        node.high = Math.max(TreeNode.getHigh(node.left), TreeNode.getHigh(node.right)) + 1;
+    }
+
+    public TreeNode(int val) {
+        this.val = val;
+    }
+
+    public TreeNode(int val, TreeNode left, TreeNode right) {
+        this.val = val;
+        this.left = left;
+        this.right = right;
+    }
+
+    public TreeNode(int val, TreeNode left, TreeNode right, int high) {
+        this.val = val;
+        this.left = left;
+        this.right = right;
+        this.high = high;
+    }
+
+    public int getVal() {
+        return val;
+    }
+
+    public void setVal(int val) {
+        this.val = val;
+    }
+
+    public TreeNode getLeft() {
+        return left;
+    }
+
+    public void setLeft(TreeNode left) {
+        this.left = left;
+    }
+
+    public TreeNode getRight() {
+        return right;
+    }
+
+    public void setRight(TreeNode right) {
+        this.right = right;
+    }
+
+    // 1.二叉树的层序遍历
+    public static List<Integer> levelOrder(TreeNode cur) {
+        //借助一个数组遍历
+        Queue<TreeNode> queue = new LinkedList<>();
+        // 结果
+        List<Integer> result = new ArrayList<>();
+        if (cur == null) {
+            return result;
+        }
+        queue.add(cur);
+        while (!queue.isEmpty()) {
+            //弹出一个
+            TreeNode node = queue.poll();
+            //放入到结果中
+            result.add(node.val);
+            //左节点入栈
+            if (node.left != null) {
+                queue.add(node.left);
+            }
+            //右节点入栈
+            if (node.right != null) {
+                queue.add(node.right);
+            }
+        }
+        return result;
+    }
+
+    // 2.前序遍历
+    public static List<Integer> preOrder(TreeNode cur) {
+        List<Integer> result = new ArrayList<>();
+        preOrder(cur, "pre", result);
+        return result;
+    }
+
+    // 3.前序遍历
+    public static List<Integer> inOrder(TreeNode cur) {
+        List<Integer> result = new ArrayList<>();
+        preOrder(cur, "in", result);
+        return result;
+    }
+
+    // 4.前序遍历
+    public static List<Integer> postOrder(TreeNode cur) {
+        List<Integer> result = new ArrayList<>();
+        preOrder(cur, "post", result);
+        return result;
+    }
+
+    //5. 辅助方法
+    private static void preOrder(TreeNode node, String type, List<Integer> result) {
+        if (null == node) {
+            return;
+        }
+        //1. 前序
+        if (type.equals("pre")) result.add(node.val);
+        //2. 找左节点
+        preOrder(node.left, type, result);
+        //3. 中序
+        if (type.equals("in")) result.add(node.val);
+        //4. 找右节点
+        preOrder(node.right, type, result);
+        //5. 后续
+        if (type.equals("post")) result.add(node.val);
+    }
+
+    //6. 二叉搜索树相关的方法
+    // 6.1 二叉搜索树的查找
+    public TreeNode search(int val) {
+        TreeNode cur = root;
+        while (cur != null) {
+            if (cur.val == val) {
+                break;
+            } else if (cur.val < val) {
+                cur = cur.right;
+            } else {
+                cur = cur.left;
+            }
+        }
+        return cur;
+    }
+
+    // 6.2 二叉搜索树的添加
+    public void insert(int val) {
+        //1.根节点为空的情况下我添加到根节点即可
+        if (root == null) {
+            root = new TreeNode(val);
+        }
+        TreeNode cur = root;
+        TreeNode pre = null;
+        while (cur != null) {
+            if (cur.val == val) {
+                return;
+            } else if (cur.val < val) {
+                pre = cur;
+                cur = cur.right;
+            } else {
+                pre = cur;
+                cur = cur.left;
+            }
+        }
+        //找到最后之后我只需把他添加到pre的后面即可
+        TreeNode child = new TreeNode(val);
+        if (val > pre.val) {
+            pre.right = child;
+        } else {
+            pre.left = child;
+        }
+        // 计算高度
+        setHigh(child);
+    }
+
+    // 6.3 二叉搜索树的删除
+    public void delete(int val) {
+        if (root == null) return;
+        TreeNode cur = root;
+        TreeNode pre = null;
+        while (cur != null) {
+            if (cur.val == val) {
+                // 当存在0/1个子节点的时候
+                if (cur.left == null || cur.right == null) {
+                    TreeNode child = cur.left == null ? cur.right : cur.left;
+                    //判断当前节点是否为根节点
+                    if (cur == root) {
+                        root = child;
+                    } else {
+                        //如果当前要删除的节点是前一个节点的左节点且当前节点下面还有一个child的情况下放到左节点
+                        if (pre.left == cur)
+                            pre.left = child;
+                        else
+                            pre.right = child;
+                    }
+                    return;
+                } else {
+                    // 有两个节点的情况下,找到cur节点的中序遍历的下一个节点(也就是当前cur节点的右子树的最小节点)
+                    // 右子树
+                    TreeNode temp = cur.right;
+                    // 迭代获取最左节点，就是cur的最小柚子树节点
+                    while (temp.left != null) {
+                        temp = temp.left;
+                    }
+                    if (pre.val < val) {
+                        pre.right = temp;
+                    } else {
+                        pre.left = temp;
+                    }
+                    //移除temp节点
+                    delete(temp.val);
+                }
+            } else if (cur.val < val) {
+                pre = cur;
+                cur = cur.right;
+            } else {
+                pre = cur;
+                cur = cur.left;
+            }
+        }
+
+    }
+
+    // 7. AVL树相关方法
+    // 7.1 获取平衡因子
+    int balanceFactor(TreeNode node) {
+        // 空节点平衡因子为 0
+        if (node == null)
+            return 0;
+        // 节点平衡因子 = 左子树高度 - 右子树高度
+        return getHigh(node.left) - getHigh(node.right);
+    }
+
+    // 7.2 右旋(将一个偏左的子树重新平衡)
+    TreeNode rightRotate(TreeNode node) {
+        TreeNode child = node.left;
+        TreeNode grandChild = child.right;
+        // 以child为原点，将child旋转
+        node.left = grandChild;
+        child.right = node;
+        //重新计算高度
+        setHigh(node);
+        setHigh(child);
+        return child;
+    }
+
+    // 7.3 左旋
+    TreeNode leftRotate(TreeNode node) {
+        TreeNode child = node.right;
+        TreeNode grandChild = child.left;
+        // 以child为原点，将child旋转
+        node.right = grandChild;
+        child.left = node;
+        //重新计算高度
+        setHigh(node);
+        setHigh(child);
+        return child;
+    }
+
+    // 7.4 旋转方法
+    TreeNode rotate(TreeNode node) {
+        int balanceFactor = balanceFactor(node);
+        if (balanceFactor >= -1 && balanceFactor <= 1) {
+            return node;
+        } else if (balanceFactor > 1) {//左偏树，要进行右旋
+            int childBalanceFactor = balanceFactor(node.left);
+            if (childBalanceFactor < 0) {// 子节点右偏，要先对子节点左旋
+                node.left = leftRotate(node.left);
+                return rightRotate(node);
+            } else {
+                return rightRotate(node);
+            }
+        } else {// 右偏树，要进行左旋
+            int childBalanceFactor = balanceFactor(node.left);
+            if (childBalanceFactor > 0) {// 子节点左偏，要先对子节点右旋
+                node.right = rightRotate(node.right);
+                return leftRotate(node);
+            } else {
+                return leftRotate(node);
+            }
+        }
+    }
+
+    // 7.5 AVL树的插入方法
+    public void insertAVL(int val) {
+        root = insertHelper(root, val);
+    }
+
+    private TreeNode insertHelper(TreeNode cur, int val) {
+        if (cur == null) {
+            return new TreeNode(val);
+        }
+
+        if (cur.val == val) {
+            return cur;
+        } else if (cur.val < val) {
+            cur.right = insertHelper(cur.right, val);
+        } else {
+            cur.left = insertHelper(cur.left, val);
+        }
+        // 计算高度
+        setHigh(cur);
+        //旋转
+        cur = rotate(cur);
+        // 返回子树的根节点
+        return cur;
+    }
+
+    //7.6 AVL树的删除方法
+    public void remove(int val) {
+        root = romoveHelper(root, val);
+    }
+
+    private TreeNode romoveHelper(TreeNode cur, int val) {
+        if (cur == null) return null;
+        if (cur.val < val) {
+            cur.right = romoveHelper(cur.right, val);
+        } else if (cur.val > val) {
+            cur.left = romoveHelper(cur.left, val);
+        } else {
+            // 当前这个要移除的节点有几个子节点
+            if (cur.left == null || cur.right == null) {
+                TreeNode child = cur.left == null ? cur.right : cur.left;
+                if (child == null) {
+                    //当子节点为null说明没有子节点，直接返回，让上一层去整理高度并旋转
+                    return null;
+                } else {
+                    // 子节点替换了当前节点，这里就不能再返回了，需要在这个节点就要整理高度并旋转
+                    cur = child;
+                }
+            } else {
+                //有两个节点,先找右子树的最左节点
+                TreeNode temp = cur.right;
+                while (temp.left != null) {
+                    temp = temp.left;
+                }
+                //移除temp节点.注意这里必须要从右子树的根节点开始去移除，这样才能重新平衡这个右子树
+                cur.right = romoveHelper(cur.right, temp.val);
+                cur.val = temp.val;
+            }
+        }
+        // 重新计算高度
+        getHigh(cur);
+        // 旋转
+        return rotate(cur);
+    }
+
+    public static void main(String[] args) {
+        TreeNode root2 = new TreeNode(0);
+        root2.insertAVL(1);
+        root2.insertAVL(2);
+        root2.insertAVL(3);
+        root2.insertAVL(4);
+        root2.insertAVL(5);
+        root2.insertAVL(6);
+        root2.insertAVL(7);
+        root2.insertAVL(8);
+        root2.insertAVL(9);
+        root2.insertAVL(10);
+        root2.insertAVL(11);
+        root2.insertAVL(12);
+        root2.insertAVL(13);
+        root2.insertAVL(14);
+        root2.insertAVL(15);
+        root2.insertAVL(16);
+        root2.insertAVL(17);
+        root2.insertAVL(18);
+        root2.insertAVL(19);
+        root2.insertAVL(20);
+        printTreePretty(root2.root);
+        List<Integer> inOrder = TreeNode.inOrder(root2.root);
+        System.out.println(inOrder);
+        List<Integer> levelOrder = TreeNode.levelOrder(root2.root);
+        System.out.println(levelOrder);
+//        root2.remove(8);
+        root2.remove(13);
+        root2.remove(14);
+        root2.remove(15);
+        printTreePretty(root2.root);
+        List<Integer> inOrder2 = TreeNode.inOrder(root2.root);
+        System.out.println(inOrder2);
+        List<Integer> levelOrder2 = TreeNode.levelOrder(root2.root);
+        System.out.println(levelOrder2);
+    }
+    // 最实用的树形打印方法
+    public static void printTreePretty(TreeNode root) {
+        if (root == null) return;
+
+        // 获取树的高度
+        int height = getMaxDepth(root);
+        // 最后一层的节点数
+        int width = (int) Math.pow(2, height) - 1;
+
+        // 初始化一个二维数组来存储树的结构
+        String[][] grid = new String[height * 2 - 1][width];
+        for (String[] row : grid) {
+            Arrays.fill(row, "  ");
+        }
+
+        // 使用递归填充网格
+        fillGrid(grid, root, 0, 0, width - 1);
+
+        // 打印网格
+        for (String[] row : grid) {
+            for (String cell : row) {
+                System.out.print(cell);
+            }
+            System.out.println();
+        }
+    }
+
+    private static void fillGrid(String[][] grid, TreeNode node, int row, int left, int right) {
+        if (node == null) return;
+
+        int mid = (left + right) / 2;
+        grid[row][mid] = String.format("%2d", node.val);
+
+        if (node.left != null) {
+            grid[row + 1][(left + mid - 1) / 2] = " /";
+            fillGrid(grid, node.left, row + 2, left, mid - 1);
+        }
+
+        if (node.right != null) {
+            grid[row + 1][(mid + 1 + right) / 2] = "\\ ";
+            fillGrid(grid, node.right, row + 2, mid + 1, right);
+        }
+    }
+    // 获取树的最大深度
+    private static int getMaxDepth(TreeNode root) {
+        if (root == null) return 0;
+        return Math.max(getMaxDepth(root.left), getMaxDepth(root.right)) + 1;
+    }
+}
+```
+
+
+
+
+
+
+
 
 
 # 三、算法题目详解
