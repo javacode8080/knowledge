@@ -2436,13 +2436,1581 @@ public class TreeNode {
     }
 }
 ```
+## 1.14 堆
+
+<u>堆（heap）</u>是一种满足特定条件的完全二叉树，主要可分为两种类型，如下图所示。
+
+- <u>小顶堆（min heap）</u>：任意节点的值 $\leq$ 其子节点的值。
+- <u>大顶堆（max heap）</u>：任意节点的值 $\geq$ 其子节点的值。
+
+![小顶堆与大顶堆](../assets/images/10-算法/63.min_heap_and_max_heap.png)
+
+堆作为完全二叉树的一个特例，具有以下特性。
+
+- 最底层节点靠左填充，其他层的节点都被填满。
+- 我们将二叉树的根节点称为“堆顶”，将底层最靠右的节点称为“堆底”。
+- 对于大顶堆（小顶堆），堆顶元素（根节点）的值是最大（最小）的。
+
+### 1.14.1 堆的常用操作
+
+需要指出的是，许多编程语言提供的是<u>优先队列（priority queue）</u>，这是一种抽象的数据结构，定义为具有优先级排序的队列。
+
+实际上，**堆通常用于实现优先队列，大顶堆相当于元素按从大到小的顺序出队的优先队列**。从使用角度来看，我们可以将“优先队列”和“堆”看作等价的数据结构。因此，本书对两者不做特别区分，统一称作“堆”。
+
+堆的常用操作见下表，方法名需要根据编程语言来确定。
+
+<p align="center"> 表 <id> &nbsp; 堆的操作效率 </p>
+
+| 方法名      | 描述                                             | 时间复杂度  |
+| ----------- | ------------------------------------------------ | ----------- |
+| `push()`    | 元素入堆                                         | $O(\log n)$ |
+| `pop()`     | 堆顶元素出堆                                     | $O(\log n)$ |
+| `peek()`    | 访问堆顶元素（对于大 / 小顶堆分别为最大 / 小值） | $O(1)$      |
+| `size()`    | 获取堆的元素数量                                 | $O(1)$      |
+| `isEmpty()` | 判断堆是否为空                                   | $O(1)$      |
+
+在实际应用中，我们可以直接使用编程语言提供的堆类（或优先队列类）。
+
+类似于排序算法中的“从小到大排列”和“从大到小排列”，我们可以通过设置一个 `flag` 或修改 `Comparator` 实现“小顶堆”与“大顶堆”之间的转换。代码如下所示：
+```java title="heap.java"
+    /* 初始化堆 */
+    // 初始化小顶堆
+    Queue<Integer> minHeap = new PriorityQueue<>();
+    // 初始化大顶堆（使用 lambda 表达式修改 Comparator 即可）
+    Queue<Integer> maxHeap = new PriorityQueue<>((a, b) -> b - a);
+
+    /* 元素入堆 */
+    maxHeap.offer(1);
+    maxHeap.offer(3);
+    maxHeap.offer(2);
+    maxHeap.offer(5);
+    maxHeap.offer(4);
+
+    /* 获取堆顶元素 */
+    int peek = maxHeap.peek(); // 5
+
+    /* 堆顶元素出堆 */
+    // 出堆元素会形成一个从大到小的序列
+    peek = maxHeap.poll(); // 5
+    peek = maxHeap.poll(); // 4
+    peek = maxHeap.poll(); // 3
+    peek = maxHeap.poll(); // 2
+    peek = maxHeap.poll(); // 1
+
+    /* 获取堆大小 */
+    int size = maxHeap.size();
+
+    /* 判断堆是否为空 */
+    boolean isEmpty = maxHeap.isEmpty();
+
+    /* 输入列表并建堆 */
+    minHeap = new PriorityQueue<>(Arrays.asList(1, 3, 2, 5, 4));
+```
+### 1.14.2 堆的实现
+
+下文实现的是大顶堆。若要将其转换为小顶堆，只需将所有大小逻辑判断进行逆转（例如，将 $\geq$ 替换为 $\leq$ ）。感兴趣的读者可以自行实现。
+
+#### 1.14.2.1 堆的存储与表示
+
+“二叉树”章节讲过，完全二叉树非常适合用数组来表示。由于堆正是一种完全二叉树，**因此我们将采用数组来存储堆**。
+
+当使用数组表示二叉树时，元素代表节点值，索引代表节点在二叉树中的位置。**节点指针通过索引映射公式来实现**。
+
+如下图所示，给定索引 $i$ ，其左子节点的索引为 $2i + 1$ ，右子节点的索引为 $2i + 2$ ，父节点的索引为 $(i - 1) / 2$（向下整除）。当索引越界时，表示空节点或节点不存在。
+
+![堆的表示与存储](../assets/images/10-算法/64.representation_of_heap.png)
+
+我们可以将索引映射公式封装成函数，方便后续使用：
+
+```java
+/* 获取左子节点的索引 */
+int left(int i) {
+    return 2 * i + 1;
+}
+
+/* 获取右子节点的索引 */
+int right(int i) {
+    return 2 * i + 2;
+}
+
+/* 获取父节点的索引 */
+int parent(int i) {
+    return (i - 1) / 2; // 向下整除
+}
+```
+
+#### 1.14.2.2 访问堆顶元素
+
+堆顶元素即为二叉树的根节点，也就是列表的首个元素：
+
+```java
+/* 访问堆顶元素 */
+int peek() {
+    return maxHeap.get(0);
+}
+```
+
+#### 1.14.2.3 元素入堆
+
+给定元素 `val` ，我们首先将其添加到堆底。添加之后，由于 `val` 可能大于堆中其他元素，堆的成立条件可能已被破坏，**因此需要修复从插入节点到根节点的路径上的各个节点**，这个操作被称为<u>堆化（heapify）</u>。
+
+考虑从入堆节点开始，**从底至顶执行堆化**。如下图所示，我们比较插入节点与其父节点的值，如果插入节点更大，则将它们交换。然后继续执行此操作，从底至顶修复堆中的各个节点，直至越过根节点或遇到无须交换的节点时结束。
+
+=== "<1>"
+    ![元素入堆步骤](../assets/images/10-算法/65.heap_push_step1.png)
+
+=== "<2>"
+    ![heap_push_step2](../assets/images/10-算法/66.heap_push_step2.png)
+
+=== "<3>"
+    ![heap_push_step3](../assets/images/10-算法/67.heap_push_step3.png)
+
+=== "<4>"
+    ![heap_push_step4](../assets/images/10-算法/68.heap_push_step4.png)
+
+=== "<5>"
+    ![heap_push_step5](../assets/images/10-算法/69.heap_push_step5.png)
+
+=== "<6>"
+    ![heap_push_step6](../assets/images/10-算法/70.heap_push_step6.png)
+
+=== "<7>"
+    ![heap_push_step7](../assets/images/10-算法/71.heap_push_step7.png)
+
+=== "<8>"
+    ![heap_push_step8](../assets/images/10-算法/72.heap_push_step8.png)
+
+=== "<9>"
+    ![heap_push_step9](../assets/images/10-算法/73.heap_push_step9.png)
+
+设节点总数为 $n$ ，则树的高度为 $O(\log n)$ 。由此可知，堆化操作的循环轮数最多为 $O(\log n)$ ，**元素入堆操作的时间复杂度为 $O(\log n)$** 。代码如下所示：
+
+```java
+/* 元素入堆 */
+void push(int val) {
+    // 添加节点
+    maxHeap.add(val);
+    // 从底至顶堆化
+    siftUp(size() - 1);
+}
+
+/* 从节点 i 开始，从底至顶堆化 */
+void siftUp(int i) {
+    while (true) {
+        // 获取节点 i 的父节点
+        int p = parent(i);
+        // 当“越过根节点”或“节点无须修复”时，结束堆化
+        if (p < 0 || maxHeap.get(i) <= maxHeap.get(p))
+            break;
+        // 交换两节点
+        swap(i, p);
+        // 循环向上堆化
+        i = p;
+    }
+}
+```
+
+#### 1.14.2.4 堆顶元素出堆
+
+堆顶元素是二叉树的根节点，即列表首元素。如果我们直接从列表中删除首元素，那么二叉树中所有节点的索引都会发生变化，这将使得后续使用堆化进行修复变得困难。为了尽量减少元素索引的变动，我们采用以下操作步骤。
+
+1. 交换堆顶元素与堆底元素（交换根节点与最右叶节点）。
+2. 交换完成后，将堆底从列表中删除（注意，由于已经交换，因此实际上删除的是原来的堆顶元素）。
+3. 从根节点开始，**从顶至底执行堆化**。
+
+如下图所示，**“从顶至底堆化”的操作方向与“从底至顶堆化”相反**，我们将根节点的值与其两个子节点的值进行比较，将最大的子节点与根节点交换。然后循环执行此操作，直到越过叶节点或遇到无须交换的节点时结束。
+
+=== "<1>"
+    ![堆顶元素出堆步骤](../assets/images/10-算法/74.heap_pop_step1.png)
+
+=== "<2>"
+    ![heap_pop_step2](../assets/images/10-算法/75.heap_pop_step2.png)
+
+=== "<3>"
+    ![heap_pop_step3](../assets/images/10-算法/76.heap_pop_step3.png)
+
+=== "<4>"
+    ![heap_pop_step4](../assets/images/10-算法/77.heap_pop_step4.png)
+
+=== "<5>"
+    ![heap_pop_step5](../assets/images/10-算法/78.heap_pop_step5.png)
+
+=== "<6>"
+    ![heap_pop_step6](../assets/images/10-算法/79.heap_pop_step6.png)
+
+=== "<7>"
+    ![heap_pop_step7](../assets/images/10-算法/80.heap_pop_step7.png)
+
+=== "<8>"
+    ![heap_pop_step8](../assets/images/10-算法/81.heap_pop_step8.png)
+
+=== "<9>"
+    ![heap_pop_step9](../assets/images/10-算法/82.heap_pop_step9.png)
+
+=== "<10>"
+    ![heap_pop_step10](../assets/images/10-算法/83.heap_pop_step10.png)
+
+与元素入堆操作相似，堆顶元素出堆操作的时间复杂度也为 $O(\log n)$ 。代码如下所示：
+
+```java
+/* 元素出堆 */
+int pop() {
+    // 判空处理
+    if (isEmpty())
+        throw new IndexOutOfBoundsException();
+    // 交换根节点与最右叶节点（交换首元素与尾元素）
+    swap(0, size() - 1);
+    // 删除节点
+    int val = maxHeap.remove(size() - 1);
+    // 从顶至底堆化
+    siftDown(0);
+    // 返回堆顶元素
+    return val;
+}
+
+/* 从节点 i 开始，从顶至底堆化 */
+void siftDown(int i) {
+    while (true) {
+        // 判断节点 i, l, r 中值最大的节点，记为 ma
+        int l = left(i), r = right(i), ma = i;
+        if (l < size() && maxHeap.get(l) > maxHeap.get(ma))
+            ma = l;
+        if (r < size() && maxHeap.get(r) > maxHeap.get(ma))
+            ma = r;
+        // 若节点 i 最大或索引 l, r 越界，则无须继续堆化，跳出
+        if (ma == i)
+            break;
+        // 交换两节点
+        swap(i, ma);
+        // 循环向下堆化
+        i = ma;
+    }
+}
+```
+
+### 1.14.3 堆的常见应用
+
+- **优先队列**：堆通常作为实现优先队列的首选数据结构，其入队和出队操作的时间复杂度均为 $O(\log n)$ ，而建堆操作为 $O(n)$ ，这些操作都非常高效。
+- **堆排序**：给定一组数据，我们可以用它们建立一个堆，然后不断地执行元素出堆操作，从而得到有序数据。然而，我们通常会使用一种更优雅的方式实现堆排序，详见“堆排序”章节。
+- **获取最大的 $k$ 个元素**：这是一个经典的算法问题，同时也是一种典型应用，例如选择热度前 10 的新闻作为微博热搜，选取销量前 10 的商品等。
+
+## 1.15 建堆操作
+
+在某些情况下，我们希望使用一个列表的所有元素来构建一个堆，这个过程被称为“建堆操作”。
+
+### 1.15.1 借助入堆操作实现
+
+我们首先创建一个空堆，然后遍历列表，依次对每个元素执行“入堆操作”，即先将元素添加至堆的尾部，再对该元素执行“从底至顶”堆化。
+
+每当一个元素入堆，堆的长度就加一。由于节点是从顶到底依次被添加进二叉树的，因此堆是“自上而下”构建的。
+
+设元素数量为 $n$ ，每个元素的入堆操作使用 $O(\log{n})$ 时间，因此该建堆方法的时间复杂度为 $O(n \log n)$ 。
+
+### 1.15.2 通过遍历堆化实现
+
+实际上，我们可以实现一种更为高效的建堆方法，共分为两步。
+
+1. 将列表所有元素原封不动地添加到堆中，此时堆的性质尚未得到满足。
+2. 倒序遍历堆（层序遍历的倒序），依次对每个非叶节点执行“从顶至底堆化”。
+
+**每当堆化一个节点后，以该节点为根节点的子树就形成一个合法的子堆**。而由于是倒序遍历，因此堆是“自下而上”构建的。
+
+之所以选择倒序遍历，是因为这样能够保证当前节点之下的子树已经是合法的子堆，这样堆化当前节点才是有效的。
+
+值得说明的是，**由于叶节点没有子节点，因此它们天然就是合法的子堆，无须堆化**。如以下代码所示，最后一个非叶节点是最后一个节点的父节点，我们从它开始倒序遍历并执行堆化：
+
+```java
+/* 构造方法，根据输入列表建堆 */
+MaxHeap(List<Integer> nums) {
+    // 将列表元素原封不动添加进堆
+    maxHeap = new ArrayList<>(nums);
+    // 堆化除叶节点以外的其他所有节点
+    for (int i = parent(size() - 1); i >= 0; i--) {
+        siftDown(i);
+    }
+}
+```
+
+### 1.15.3 复杂度分析
+
+下面，我们来尝试推算第二种建堆方法的时间复杂度。
+
+- 假设完全二叉树的节点数量为 $n$ ，则叶节点数量为 $(n + 1) / 2$ ，其中 $/$ 为向下整除。因此需要堆化的节点数量为 $(n - 1) / 2$ 。
+- 在从顶至底堆化的过程中，每个节点最多堆化到叶节点，因此最大迭代次数为二叉树高度 $\log n$ 。
+
+将上述两者相乘，可得到建堆过程的时间复杂度为 $O(n \log n)$ 。**但这个估算结果并不准确，因为我们没有考虑到二叉树底层节点数量远多于顶层节点的性质**。
+
+接下来我们来进行更为准确的计算。为了降低计算难度，假设给定一个节点数量为 $n$ 、高度为 $h$ 的“完美二叉树”，该假设不会影响计算结果的正确性。
+
+![完美二叉树的各层节点数量](../assets/images/10-算法/84.heapify_operations_count.png)
+
+如上图所示，节点“从顶至底堆化”的最大迭代次数等于该节点到叶节点的距离，而该距离正是“节点高度”。因此，我们可以对各层的“节点数量 $\times$ 节点高度”求和，**得到所有节点的堆化迭代次数的总和**。
+
+$$
+T(h) = 2^0h + 2^1(h-1) + 2^2(h-2) + \dots + 2^{(h-1)}\times1
+$$
+
+化简上式需要借助中学的数列知识，先将 $T(h)$ 乘以 $2$ ，得到：
+
+$$
+\begin{aligned}
+T(h) & = 2^0h + 2^1(h-1) + 2^2(h-2) + \dots + 2^{h-1}\times1 \newline
+2 T(h) & = 2^1h + 2^2(h-1) + 2^3(h-2) + \dots + 2^{h}\times1 \newline
+\end{aligned}
+$$
+
+使用错位相减法，用下式 $2 T(h)$ 减去上式 $T(h)$ ，可得：
+
+$$
+2T(h) - T(h) = T(h) = -2^0h + 2^1 + 2^2 + \dots + 2^{h-1} + 2^h
+$$
+
+观察上式，发现 $T(h)$ 是一个等比数列，可直接使用求和公式，得到时间复杂度为：
+
+$$
+\begin{aligned}
+T(h) & = 2 \frac{1 - 2^h}{1 - 2} - h \newline
+& = 2^{h+1} - h - 2 \newline
+& = O(2^h)
+\end{aligned}
+$$
+
+进一步，高度为 $h$ 的完美二叉树的节点数量为 $n = 2^{h+1} - 1$ ，易得复杂度为 $O(2^h) = O(n)$ 。以上推算表明，**输入列表并建堆的时间复杂度为 $O(n)$ ，非常高效**。
+## 1.16 Top-k 问题
+
+!!! question
+
+    给定一个长度为 $n$ 的无序数组 `nums` ，请返回数组中最大的 $k$ 个元素。
+
+对于该问题，我们先介绍两种思路比较直接的解法，再介绍效率更高的堆解法。
+
+### 1.16.1 方法一：遍历选择
+
+我们可以进行下图所示的 $k$ 轮遍历，分别在每轮中提取第 $1$、$2$、$\dots$、$k$ 大的元素，时间复杂度为 $O(nk)$ 。
+
+此方法只适用于 $k \ll n$ 的情况，因为当 $k$ 与 $n$ 比较接近时，其时间复杂度趋向于 $O(n^2)$ ，非常耗时。
+
+![遍历寻找最大的 k 个元素](../assets/images/10-算法/85.top_k_traversal.png)
+
+!!! tip
+
+    当 $k = n$ 时，我们可以得到完整的有序序列，此时等价于“选择排序”算法。
+
+### 1.16.2 方法二：排序
+
+如下图所示，我们可以先对数组 `nums` 进行排序，再返回最右边的 $k$ 个元素，时间复杂度为 $O(n \log n)$ 。
+
+显然，该方法“超额”完成任务了，因为我们只需找出最大的 $k$ 个元素即可，而不需要排序其他元素。
+
+![排序寻找最大的 k 个元素](../assets/images/10-算法/86.top_k_sorting.png)
+
+### 1.16.3 方法三：堆
+
+我们可以基于堆更加高效地解决 Top-k 问题，流程如下图所示。
+
+1. 初始化一个小顶堆，其堆顶元素最小。
+2. 先将数组的前 $k$ 个元素依次入堆。
+3. 从第 $k + 1$ 个元素开始，若当前元素大于堆顶元素，则将堆顶元素出堆，并将当前元素入堆。
+4. 遍历完成后，堆中保存的就是最大的 $k$ 个元素。
+
+=== "<1>"
+    ![基于堆寻找最大的 k 个元素](../assets/images/10-算法/87.top_k_heap_step1.png)
+
+=== "<2>"
+    ![top_k_heap_step2](../assets/images/10-算法/88.top_k_heap_step2.png)
+
+=== "<3>"
+    ![top_k_heap_step3](../assets/images/10-算法/89.top_k_heap_step3.png)
+
+=== "<4>"
+    ![top_k_heap_step4](../assets/images/10-算法/90.top_k_heap_step4.png)
+
+=== "<5>"
+    ![top_k_heap_step5](../assets/images/10-算法/91.top_k_heap_step5.png)
+
+=== "<6>"
+    ![top_k_heap_step6](../assets/images/10-算法/92.top_k_heap_step6.png)
+
+=== "<7>"
+    ![top_k_heap_step7](../assets/images/10-算法/93.top_k_heap_step7.png)
+
+=== "<8>"
+    ![top_k_heap_step8](../assets/images/10-算法/94.top_k_heap_step8.png)
+
+=== "<9>"
+    ![top_k_heap_step9](../assets/images/10-算法/95.top_k_heap_step9.png)
+
+示例代码如下：
+
+```java
+/* 基于堆查找数组中最大的 k 个元素 */
+Queue<Integer> topKHeap(int[] nums, int k) {
+    // 初始化小顶堆
+    Queue<Integer> heap = new PriorityQueue<Integer>();
+    // 将数组的前 k 个元素入堆
+    for (int i = 0; i < k; i++) {
+        heap.offer(nums[i]);
+    }
+    // 从第 k+1 个元素开始，保持堆的长度为 k
+    for (int i = k; i < nums.length; i++) {
+        // 若当前元素大于堆顶元素，则将堆顶元素出堆、当前元素入堆
+        if (nums[i] > heap.peek()) {
+            heap.poll();
+            heap.offer(nums[i]);
+        }
+    }
+    return heap;
+}
+```
+
+总共执行了 $n$ 轮入堆和出堆，堆的最大长度为 $k$ ，因此时间复杂度为 $O(n \log k)$ 。该方法的效率很高，当 $k$ 较小时，时间复杂度趋向 $O(n)$ ；当 $k$ 较大时，时间复杂度不会超过 $O(n \log n)$ 。
+
+另外，该方法适用于动态数据流的使用场景。在不断加入数据时，我们可以持续维护堆内的元素，从而实现最大的 $k$ 个元素的动态更新。
 
 
+### 堆 - 相关代码demo
+```java
+package MyTest.heap;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+// 大顶堆
+public class MaxHeap {
+    private List<Integer> heap;
+
+    // 建堆方法
+    /* 构造方法，根据输入列表建堆 */
+    public MaxHeap(List<Integer> nums) {
+        // 将列表元素原封不动添加进堆
+        heap = new ArrayList<>(nums);
+        // 堆化除叶节点以外的其他所有节点
+        for (int i = parent(heap.size() - 1); i >= 0; i--) {
+            shiftDown(i);
+        }
+    }
+
+    // 获取栈顶元素
+    public Integer peek() {
+        return heap.isEmpty() ? null : heap.get(0);
+    }
+
+    // 父节点
+    public Integer parent(int index) {
+        if (index == 0) {
+            return -1;
+        } else {
+            return (index - 1) / 2;
+        }
+    }
+
+    // 左子节点
+    public Integer left(int index) {
+        return 2 * index + 1;
+    }
+
+    // 右子节点
+    public Integer right(int index) {
+        return 2 * index + 2;
+    }
+
+    // 元素入堆
+    public void push(int value) {
+        heap.add(value);
+        shiftUp(heap);
+    }
+
+    // 栈顶元素出堆
+    public int pop() {
+        if (heap == null || heap.isEmpty()) {
+            throw new IndexOutOfBoundsException();
+        }
+        //1.交换首尾元素,移除末尾元素
+        int temp = heap.get(0);
+        heap.set(0, heap.get(heap.size() - 1));
+        heap.remove(heap.size() - 1);
+        //2.shiftDown
+        shiftDown(heap);
+        return temp;
+    }
+
+    // 自下而上(这个方法默认了从第最后一个节点开始)
+    public void shiftUp(List<Integer> heap) {
+        if (heap != null && !heap.isEmpty()) {
+            //1. 取出最后一个叶子节点
+            int index = heap.size() - 1;
+            Integer last = heap.get(index);
+            while (true) {
+                if (last > parent(index) && parent(index) >= 0) {
+                    //交换数据
+                    heap.set(index, heap.get(parent(index)));
+                    heap.set(parent(index), last);
+                    // 更新索引
+                    index = parent(index);
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    /* 从节点 i 开始，从底至顶堆化 */
+    public void shiftUp(int i) {
+        while (true) {
+            // 获取节点 i 的父节点
+            int p = parent(i);
+            // 当“越过根节点”或“节点无须修复”时，结束堆化
+            if (p < 0 || heap.get(i) <= heap.get(p))
+                break;
+            // 交换两节点
+            swap(i, p);
+            // 循环向上堆化
+            i = p;
+        }
+    }
+
+    // 自上而下(这个方法默认了从第一个节点开始)
+    public void shiftDown(List<Integer> heap) {
+        if (heap != null && !heap.isEmpty()) {
+            int index = 0;
+            int first = heap.get(index);
+            while (true) {
+                // 当前节点如果小于左右子节点的话，和左右子节点中最大值交换位置
+                // 初始化左右子节点
+                Integer left = Integer.MIN_VALUE;
+                Integer right = Integer.MIN_VALUE;
+                Integer leftIndex = left(index);
+                Integer rightIndex = right(index);
+                if (leftIndex < heap.size()) left = heap.get(leftIndex);
+                if (rightIndex < heap.size()) right = heap.get(rightIndex);
+                //此时左右节点都不存在了，则结束当前的循环
+                if (left == Integer.MIN_VALUE && right == Integer.MIN_VALUE) break;
+                //比较first，left，right，谁最大谁作为父节点
+                int max = Math.max(left, right);
+                if (first < max) {
+                    if (left == max) {
+                        //和左节点交换位置
+                        heap.set(index, max);
+                        heap.set(leftIndex, first);
+                        index = leftIndex;
+                    } else {
+                        //和右节点交换位置
+                        heap.set(index, max);
+                        heap.set(rightIndex, first);
+                        index = rightIndex;
+                    }
+                } else {
+                    break;
+                }
+
+            }
+        }
+    }
+
+    /* 从节点 i 开始，从顶至底堆化 */
+    void shiftDown(int i) {
+        while (true) {
+            // 判断节点 i, l, r 中值最大的节点，记为 ma
+            int l = left(i), r = right(i), ma = i;
+            if (l < heap.size() && heap.get(l) > heap.get(ma))
+                ma = l;
+            if (r < heap.size() && heap.get(r) > heap.get(ma))
+                ma = r;
+            // 若节点 i 最大或索引 l, r 越界，则无须继续堆化，跳出
+            if (ma == i)
+                break;
+            // 交换两节点
+            swap(i, ma);
+            // 循环向下堆化
+            i = ma;
+        }
+    }
 
 
+    // 交换索引元素
+    public void swap(int i, int j) {
+        int temp = heap.get(i);
+        heap.set(i, heap.get(j));
+        heap.set(j, temp);
+    }
+
+    // 简化版打印方法 - 更易读的实现
+    public void printHeapSimple() {
+        if (heap.isEmpty()) {
+            System.out.println("堆为空");
+            return;
+        }
+
+        int height = (int) (Math.log(heap.size()) / Math.log(2)) + 1;
+        printHeapSimpleHelper(0, "", true, height, 0);
+    }
+
+    private void printHeapSimpleHelper(int index, String prefix, boolean isLeft, int totalHeight, int currentDepth) {
+        if (index >= heap.size()) return;
+
+        // 计算缩进
+        String indent = "    ";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < currentDepth; i++) {
+            sb.append(indent);
+        }
+        String currentIndent = sb.toString();
+
+        if (currentDepth == 0) {
+            // 根节点
+            System.out.println(currentIndent + heap.get(index));
+        } else {
+            System.out.println(currentIndent + prefix + (isLeft ? "└── " : "├── ") + heap.get(index));
+        }
+
+        // 递归打印子节点
+        int leftChild = 2 * index + 1;
+        int rightChild = 2 * index + 2;
+
+        if (leftChild < heap.size() || rightChild < heap.size()) {
+            printHeapSimpleHelper(leftChild, currentIndent + (isLeft ? "    " : "│   "),
+                    rightChild >= heap.size(), totalHeight, currentDepth + 1);
+            printHeapSimpleHelper(rightChild, currentIndent + (isLeft ? "    " : "│   "),
+                    true, totalHeight, currentDepth + 1);
+        }
+    }
+
+    // 最实用的打印方法 - 水平展示
+    public void printHeapPretty() {
+        if (heap.isEmpty()) return;
+
+        int height = (int) (Math.log(heap.size()) / Math.log(2)) + 1;
+        int width = (int) Math.pow(2, height) - 1;
+
+        // 初始化网格
+        String[][] grid = new String[height * 2][width * 3];
+        for (String[] row : grid) {
+            Arrays.fill(row, " ");
+        }
+
+        // 填充网格
+        fillHeapGrid(grid, 0, 0, width * 3 - 1, 0, height);
+
+        // 打印网格
+        for (String[] row : grid) {
+            for (String cell : row) {
+                System.out.print(cell);
+            }
+            System.out.println();
+        }
+    }
+
+    private void fillHeapGrid(String[][] grid, int index, int left, int right, int row, int totalHeight) {
+        if (index >= heap.size()) return;
+
+        int mid = (left + right) / 2;
+        String value = String.valueOf(heap.get(index));
+
+        // 放置节点值
+        for (int i = 0; i < value.length() && mid + i < grid[0].length; i++) {
+            grid[row][mid + i] = String.valueOf(value.charAt(i));
+        }
+
+        // 计算子节点位置
+        int leftChild = 2 * index + 1;
+        int rightChild = 2 * index + 2;
+
+        if (leftChild < heap.size()) {
+            // 画左连接线
+            grid[row + 1][mid - 1] = "/";
+            fillHeapGrid(grid, leftChild, left, mid - 1, row + 2, totalHeight);
+        }
+
+        if (rightChild < heap.size()) {
+            // 画右连接线
+            grid[row + 1][mid + 1] = "\\";
+            fillHeapGrid(grid, rightChild, mid + 1, right, row + 2, totalHeight);
+        }
+    }
+
+    public static void main(String[] args) {
+        MaxHeap heap = new MaxHeap(Arrays.asList(10, 20, 15, 30, 40, 25, 5, 35, 45, 50));
+        System.out.println("\n堆的树形结构（美观版）：");
+        heap.printHeapPretty();
+        heap.push(800);
+        System.out.println("\n堆的树形结构（美观版）：");
+        heap.printHeapPretty();
+        heap.pop();
+        System.out.println("\n堆的树形结构（美观版）：");
+        heap.printHeapPretty();
+    }
+
+}
+```
+## 1.17 图
+
+<u>图（graph）</u>是一种非线性数据结构，由<u>顶点（vertex）</u>和<u>边（edge）</u>组成。我们可以将图 $G$ 抽象地表示为一组顶点 $V$ 和一组边 $E$ 的集合。以下示例展示了一个包含 5 个顶点和 7 条边的图。
+
+$$
+\begin{aligned}
+V & = \{ 1, 2, 3, 4, 5 \} \newline
+E & = \{ (1,2), (1,3), (1,5), (2,3), (2,4), (2,5), (4,5) \} \newline
+G & = \{ V, E \} \newline
+\end{aligned}
+$$
+
+如果将顶点看作节点，将边看作连接各个节点的引用（指针），我们就可以将图看作一种从链表拓展而来的数据结构。如下图所示，**相较于线性关系（链表）和分治关系（树），网络关系（图）的自由度更高**，因而更为复杂。
+
+![链表、树、图之间的关系](../assets/images/10-算法/96.linkedlist_tree_graph.png)
+
+### 1.17.1 图的常见类型与术语
+
+根据边是否具有方向，可分为<u>无向图（undirected graph）</u>和<u>有向图（directed graph）</u>，如下图所示。
+
+- 在无向图中，边表示两顶点之间的“双向”连接关系，例如微信或 QQ 中的“好友关系”。
+- 在有向图中，边具有方向性，即 $A \rightarrow B$ 和 $A \leftarrow B$ 两个方向的边是相互独立的，例如微博或抖音上的“关注”与“被关注”关系。
+
+![有向图与无向图](../assets/images/10-算法/97.directed_graph.png)
+
+根据所有顶点是否连通，可分为<u>连通图（connected graph）</u>和<u>非连通图（disconnected graph）</u>，如下图所示。
+
+- 对于连通图，从某个顶点出发，可以到达其余任意顶点。
+- 对于非连通图，从某个顶点出发，至少有一个顶点无法到达。
+
+![连通图与非连通图](../assets/images/10-算法/98.connected_graph.png)
+
+我们还可以为边添加“权重”变量，从而得到如下图所示的<u>有权图（weighted graph）</u>。例如在《王者荣耀》等手游中，系统会根据共同游戏时间来计算玩家之间的“亲密度”，这种亲密度网络就可以用有权图来表示。
+
+![有权图与无权图](../assets/images/10-算法/99.weighted_graph.png)
+
+图数据结构包含以下常用术语。
+
+- <u>邻接（adjacency）</u>：当两顶点之间存在边相连时，称这两顶点“邻接”。在上图中，顶点 1 的邻接顶点为顶点 2、3、5。
+- <u>路径（path）</u>：从顶点 A 到顶点 B 经过的边构成的序列被称为从 A 到 B 的“路径”。在上图中，边序列 1-5-2-4 是顶点 1 到顶点 4 的一条路径。
+- <u>度（degree）</u>：一个顶点拥有的边数。对于有向图，<u>入度（in-degree）</u>表示有多少条边指向该顶点，<u>出度（out-degree）</u>表示有多少条边从该顶点指出。
+
+### 1.17.2 图的表示
+
+图的常用表示方式包括“邻接矩阵”和“邻接表”。以下使用无向图进行举例。
+
+#### 1.17.2.1 邻接矩阵
+
+设图的顶点数量为 $n$ ，<u>邻接矩阵（adjacency matrix）</u>使用一个 $n \times n$ 大小的矩阵来表示图，每一行（列）代表一个顶点，矩阵元素代表边，用 $1$ 或 $0$ 表示两个顶点之间是否存在边。
+
+如下图所示，设邻接矩阵为 $M$、顶点列表为 $V$ ，那么矩阵元素 $M[i, j] = 1$ 表示顶点 $V[i]$ 到顶点 $V[j]$ 之间存在边，反之 $M[i, j] = 0$ 表示两顶点之间无边。
+
+![图的邻接矩阵表示](../assets/images/10-算法/100.adjacency_matrix.png)
+
+邻接矩阵具有以下特性。
+
+- 在简单图中，顶点不能与自身相连，此时邻接矩阵主对角线元素没有意义。
+- 对于无向图，两个方向的边等价，此时邻接矩阵关于主对角线对称。
+- 将邻接矩阵的元素从 $1$ 和 $0$ 替换为权重，则可表示有权图。
+
+使用邻接矩阵表示图时，我们可以直接访问矩阵元素以获取边，因此增删查改操作的效率很高，时间复杂度均为 $O(1)$ 。然而，矩阵的空间复杂度为 $O(n^2)$ ，内存占用较多。
+
+#### 1.17.2.2 邻接表
+
+<u>邻接表（adjacency list）</u>使用 $n$ 个链表来表示图，链表节点表示顶点。第 $i$ 个链表对应顶点 $i$ ，其中存储了该顶点的所有邻接顶点（与该顶点相连的顶点）。下图展示了一个使用邻接表存储的图的示例。
+
+![图的邻接表表示](../assets/images/10-算法/101.adjacency_list.png)
+
+邻接表仅存储实际存在的边，而边的总数通常远小于 $n^2$ ，因此它更加节省空间。然而，在邻接表中需要通过遍历链表来查找边，因此其时间效率不如邻接矩阵。
+
+观察上图，**邻接表结构与哈希表中的“链式地址”非常相似，因此我们也可以采用类似的方法来优化效率**。比如当链表较长时，可以将链表转化为 AVL 树或红黑树，从而将时间效率从 $O(n)$ 优化至 $O(\log n)$ ；还可以把链表转换为哈希表，从而将时间复杂度降至 $O(1)$ 。
+
+### 1.17.3 图的常见应用
+
+如下表所示，许多现实系统可以用图来建模，相应的问题也可以约化为图计算问题。
+
+<p align="center"> 表 <id> &nbsp; 现实生活中常见的图 </p>
+
+|          | 顶点 | 边                   | 图计算问题   |
+| -------- | ---- | -------------------- | ------------ |
+| 社交网络 | 用户 | 好友关系             | 潜在好友推荐 |
+| 地铁线路 | 站点 | 站点间的连通性       | 最短路线推荐 |
+| 太阳系   | 星体 | 星体间的万有引力作用 | 行星轨道计算 |
+
+## 1.18 图的基础操作
+
+图的基础操作可分为对“边”的操作和对“顶点”的操作。在“邻接矩阵”和“邻接表”两种表示方法下，实现方式有所不同。
+
+### 1.18.1 基于邻接矩阵的实现
+
+给定一个顶点数量为 $n$ 的无向图，则各种操作的实现方式如下图所示。
+
+- **添加或删除边**：直接在邻接矩阵中修改指定的边即可，使用 $O(1)$ 时间。而由于是无向图，因此需要同时更新两个方向的边。
+- **添加顶点**：在邻接矩阵的尾部添加一行一列，并全部填 $0$ 即可，使用 $O(n)$ 时间。
+- **删除顶点**：在邻接矩阵中删除一行一列。当删除首行首列时达到最差情况，需要将 $(n-1)^2$ 个元素“向左上移动”，从而使用 $O(n^2)$ 时间。
+- **初始化**：传入 $n$ 个顶点，初始化长度为 $n$ 的顶点列表 `vertices` ，使用 $O(n)$ 时间；初始化 $n \times n$ 大小的邻接矩阵 `adjMat` ，使用 $O(n^2)$ 时间。
+
+=== "初始化邻接矩阵"
+    ![邻接矩阵的初始化、增删边、增删顶点](../assets/images/10-算法/102.adjacency_matrix_step1_initialization.png)
+
+=== "添加边"
+    ![adjacency_matrix_add_edge](../assets/images/10-算法/103.adjacency_matrix_step2_add_edge.png)
+
+=== "删除边"
+    ![adjacency_matrix_remove_edge](../assets/images/10-算法/104.adjacency_matrix_step3_remove_edge.png)
+
+=== "添加顶点"
+    ![adjacency_matrix_add_vertex](../assets/images/10-算法/105.adjacency_matrix_step4_add_vertex.png)
+
+=== "删除顶点"
+    ![adjacency_matrix_remove_vertex](../assets/images/10-算法/106.adjacency_matrix_step5_remove_vertex.png)
+
+以下是基于邻接矩阵表示图的实现代码：
+
+```java
+/* 基于邻接矩阵实现的无向图类 */
+class GraphAdjMat {
+    List<Integer> vertices; // 顶点列表，元素代表“顶点值”，索引代表“顶点索引”
+    List<List<Integer>> adjMat; // 邻接矩阵，行列索引对应“顶点索引”
+
+    /* 构造方法 */
+    public GraphAdjMat(int[] vertices, int[][] edges) {
+        this.vertices = new ArrayList<>();
+        this.adjMat = new ArrayList<>();
+        // 添加顶点
+        for (int val : vertices) {
+            addVertex(val);
+        }
+        // 添加边
+        // 请注意，edges 元素代表顶点索引，即对应 vertices 元素索引
+        for (int[] e : edges) {
+            addEdge(e[0], e[1]);
+        }
+    }
+
+    /* 获取顶点数量 */
+    public int size() {
+        return vertices.size();
+    }
+
+    /* 添加顶点 */
+    public void addVertex(int val) {
+        int n = size();
+        // 向顶点列表中添加新顶点的值
+        vertices.add(val);
+        // 在邻接矩阵中添加一行
+        List<Integer> newRow = new ArrayList<>(n);
+        for (int j = 0; j < n; j++) {
+            newRow.add(0);
+        }
+        adjMat.add(newRow);
+        // 在邻接矩阵中添加一列
+        for (List<Integer> row : adjMat) {
+            row.add(0);
+        }
+    }
+
+    /* 删除顶点 */
+    public void removeVertex(int index) {
+        if (index >= size())
+            throw new IndexOutOfBoundsException();
+        // 在顶点列表中移除索引 index 的顶点
+        vertices.remove(index);
+        // 在邻接矩阵中删除索引 index 的行
+        adjMat.remove(index);
+        // 在邻接矩阵中删除索引 index 的列
+        for (List<Integer> row : adjMat) {
+            row.remove(index);
+        }
+    }
+
+    /* 添加边 */
+    // 参数 i, j 对应 vertices 元素索引
+    public void addEdge(int i, int j) {
+        // 索引越界与相等处理
+        if (i < 0 || j < 0 || i >= size() || j >= size() || i == j)
+            throw new IndexOutOfBoundsException();
+        // 在无向图中，邻接矩阵关于主对角线对称，即满足 (i, j) == (j, i)
+        adjMat.get(i).set(j, 1);
+        adjMat.get(j).set(i, 1);
+    }
+
+    /* 删除边 */
+    // 参数 i, j 对应 vertices 元素索引
+    public void removeEdge(int i, int j) {
+        // 索引越界与相等处理
+        if (i < 0 || j < 0 || i >= size() || j >= size() || i == j)
+            throw new IndexOutOfBoundsException();
+        adjMat.get(i).set(j, 0);
+        adjMat.get(j).set(i, 0);
+    }
+
+    /* 打印邻接矩阵 */
+    public void print() {
+        System.out.print("顶点列表 = ");
+        System.out.println(vertices);
+        System.out.println("邻接矩阵 =");
+        PrintUtil.printMatrix(adjMat);
+    }
+}
+```
+
+### 1.18.2 基于邻接表的实现
+
+设无向图的顶点总数为 $n$、边总数为 $m$ ，则可根据下图所示的方法实现各种操作。
+
+- **添加边**：在顶点对应链表的末尾添加边即可，使用 $O(1)$ 时间。因为是无向图，所以需要同时添加两个方向的边。
+- **删除边**：在顶点对应链表中查找并删除指定边，使用 $O(m)$ 时间。在无向图中，需要同时删除两个方向的边。
+- **添加顶点**：在邻接表中添加一个链表，并将新增顶点作为链表头节点，使用 $O(1)$ 时间。
+- **删除顶点**：需遍历整个邻接表，删除包含指定顶点的所有边，使用 $O(n + m)$ 时间。
+- **初始化**：在邻接表中创建 $n$ 个顶点和 $2m$ 条边，使用 $O(n + m)$ 时间。
+
+=== "初始化邻接表"
+    ![邻接表的初始化、增删边、增删顶点](../assets/images/10-算法/107.adjacency_list_step1_initialization.png)
+
+=== "添加边"
+    ![adjacency_list_add_edge](../assets/images/10-算法/108.adjacency_list_step2_add_edge.png)
+
+=== "删除边"
+    ![adjacency_list_remove_edge](../assets/images/10-算法/109.adjacency_list_step3_remove_edge.png)
+
+=== "添加顶点"
+    ![adjacency_list_add_vertex](../assets/images/10-算法/110.adjacency_list_step4_add_vertex.png)
+
+=== "删除顶点"
+    ![adjacency_list_remove_vertex](../assets/images/10-算法/111.adjacency_list_step5_remove_vertex.png)
+
+以下是邻接表的代码实现。对比上图，实际代码有以下不同。
+
+- 为了方便添加与删除顶点，以及简化代码，我们使用列表（动态数组）来代替链表。
+- 使用哈希表来存储邻接表，`key` 为顶点实例，`value` 为该顶点的邻接顶点列表（链表）。
+
+另外，我们在邻接表中使用 `Vertex` 类来表示顶点，这样做的原因是：如果与邻接矩阵一样，用列表索引来区分不同顶点，那么假设要删除索引为 $i$ 的顶点，则需遍历整个邻接表，将所有大于 $i$ 的索引全部减 $1$ ，效率很低。而如果每个顶点都是唯一的 `Vertex` 实例，删除某一顶点之后就无须改动其他顶点了。
+
+```java
+/* 基于邻接表实现的无向图类 */
+class GraphAdjList {
+    // 邻接表，key：顶点，value：该顶点的所有邻接顶点
+    Map<Vertex, List<Vertex>> adjList;
+
+    /* 构造方法 */
+    public GraphAdjList(Vertex[][] edges) {
+        this.adjList = new HashMap<>();
+        // 添加所有顶点和边
+        for (Vertex[] edge : edges) {
+            addVertex(edge[0]);
+            addVertex(edge[1]);
+            addEdge(edge[0], edge[1]);
+        }
+    }
+
+    /* 获取顶点数量 */
+    public int size() {
+        return adjList.size();
+    }
+
+    /* 添加边 */
+    public void addEdge(Vertex vet1, Vertex vet2) {
+        if (!adjList.containsKey(vet1) || !adjList.containsKey(vet2) || vet1 == vet2)
+            throw new IllegalArgumentException();
+        // 添加边 vet1 - vet2
+        adjList.get(vet1).add(vet2);
+        adjList.get(vet2).add(vet1);
+    }
+
+    /* 删除边 */
+    public void removeEdge(Vertex vet1, Vertex vet2) {
+        if (!adjList.containsKey(vet1) || !adjList.containsKey(vet2) || vet1 == vet2)
+            throw new IllegalArgumentException();
+        // 删除边 vet1 - vet2
+        adjList.get(vet1).remove(vet2);
+        adjList.get(vet2).remove(vet1);
+    }
+
+    /* 添加顶点 */
+    public void addVertex(Vertex vet) {
+        if (adjList.containsKey(vet))
+            return;
+        // 在邻接表中添加一个新链表
+        adjList.put(vet, new ArrayList<>());
+    }
+
+    /* 删除顶点 */
+    public void removeVertex(Vertex vet) {
+        if (!adjList.containsKey(vet))
+            throw new IllegalArgumentException();
+        // 在邻接表中删除顶点 vet 对应的链表
+        adjList.remove(vet);
+        // 遍历其他顶点的链表，删除所有包含 vet 的边
+        for (List<Vertex> list : adjList.values()) {
+            list.remove(vet);
+        }
+    }
+
+    /* 打印邻接表 */
+    public void print() {
+        System.out.println("邻接表 =");
+        for (Map.Entry<Vertex, List<Vertex>> pair : adjList.entrySet()) {
+            List<Integer> tmp = new ArrayList<>();
+            for (Vertex vertex : pair.getValue())
+                tmp.add(vertex.val);
+            System.out.println(pair.getKey().val + ": " + tmp + ",");
+        }
+    }
+}
 
 
+/* 顶点类 */
+public class Vertex {
+    public int val;
+
+    public Vertex(int val) {
+        this.val = val;
+    }
+
+    /* 输入值列表 vals ，返回顶点列表 vets */
+    public static Vertex[] valsToVets(int[] vals) {
+        Vertex[] vets = new Vertex[vals.length];
+        for (int i = 0; i < vals.length; i++) {
+            vets[i] = new Vertex(vals[i]);
+        }
+        return vets;
+    }
+
+    /* 输入顶点列表 vets ，返回值列表 vals */
+    public static List<Integer> vetsToVals(List<Vertex> vets) {
+        List<Integer> vals = new ArrayList<>();
+        for (Vertex vet : vets) {
+            vals.add(vet.val);
+        }
+        return vals;
+    }
+}
+```
+
+### 1.18.3 效率对比
+
+设图中共有 $n$ 个顶点和 $m$ 条边，下表对比了邻接矩阵和邻接表的时间效率和空间效率。请注意，邻接表（链表）对应本文实现，而邻接表（哈希表）专指将所有链表替换为哈希表后的实现。
+
+<p align="center"> 表 <id> &nbsp; 邻接矩阵与邻接表对比 </p>
+
+|              | 邻接矩阵 | 邻接表（链表） | 邻接表（哈希表） |
+| ------------ | -------- | -------------- | ---------------- |
+| 判断是否邻接 | $O(1)$   | $O(n)$         | $O(1)$           |
+| 添加边       | $O(1)$   | $O(1)$         | $O(1)$           |
+| 删除边       | $O(1)$   | $O(n)$         | $O(1)$           |
+| 添加顶点     | $O(n)$   | $O(1)$         | $O(1)$           |
+| 删除顶点     | $O(n^2)$ | $O(n + m)$     | $O(n)$           |
+| 内存空间占用 | $O(n^2)$ | $O(n + m)$     | $O(n + m)$       |
+
+观察上表，似乎邻接表（哈希表）的时间效率与空间效率最优。但实际上，在邻接矩阵中操作边的效率更高，只需一次数组访问或赋值操作即可。综合来看，邻接矩阵体现了“以空间换时间”的原则，而邻接表体现了“以时间换空间”的原则。
+
+## 1.19 图的遍历
+
+树代表的是“一对多”的关系，而图则具有更高的自由度，可以表示任意的“多对多”关系。因此，我们可以把树看作图的一种特例。显然，**树的遍历操作也是图的遍历操作的一种特例**。
+
+图和树都需要应用搜索算法来实现遍历操作。图的遍历方式也可分为两种：<u>广度优先遍历</u>和<u>深度优先遍历</u>。
+
+### 1.19.1 广度优先遍历
+
+**广度优先遍历是一种由近及远的遍历方式，从某个节点出发，始终优先访问距离最近的顶点，并一层层向外扩张**。如下图所示，从左上角顶点出发，首先遍历该顶点的所有邻接顶点，然后遍历下一个顶点的所有邻接顶点，以此类推，直至所有顶点访问完毕。
+
+![图的广度优先遍历](../assets/images/10-算法/112.graph_bfs.png)
+
+#### 1.19.1.1 算法实现
+
+BFS 通常借助队列来实现，代码如下所示。队列具有“先入先出”的性质，这与 BFS 的“由近及远”的思想异曲同工。
+
+1. 将遍历起始顶点 `startVet` 加入队列，并开启循环。
+2. 在循环的每轮迭代中，弹出队首顶点并记录访问，然后将该顶点的所有邻接顶点加入到队列尾部。
+3. 循环步骤 `2.` ，直到所有顶点被访问完毕后结束。
+
+为了防止重复遍历顶点，我们需要借助一个哈希集合 `visited` 来记录哪些节点已被访问。
+
+!!! tip
+
+    哈希集合可以看作一个只存储 `key` 而不存储 `value` 的哈希表，它可以在 $O(1)$ 时间复杂度下进行 `key` 的增删查改操作。根据 `key` 的唯一性，哈希集合通常用于数据去重等场景。
+
+```java
+/* 广度优先遍历 */
+// 使用邻接表来表示图，以便获取指定顶点的所有邻接顶点
+List<Vertex> graphBFS(GraphAdjList graph, Vertex startVet) {
+    // 顶点遍历序列
+    List<Vertex> res = new ArrayList<>();
+    // 哈希集合，用于记录已被访问过的顶点
+    Set<Vertex> visited = new HashSet<>();
+    visited.add(startVet);
+    // 队列用于实现 BFS
+    Queue<Vertex> que = new LinkedList<>();
+    que.offer(startVet);
+    // 以顶点 vet 为起点，循环直至访问完所有顶点
+    while (!que.isEmpty()) {
+        Vertex vet = que.poll(); // 队首顶点出队
+        res.add(vet);            // 记录访问顶点
+        // 遍历该顶点的所有邻接顶点
+        for (Vertex adjVet : graph.adjList.get(vet)) {
+            if (visited.contains(adjVet))
+                continue;        // 跳过已被访问的顶点
+            que.offer(adjVet);   // 只入队未访问的顶点
+            visited.add(adjVet); // 标记该顶点已被访问
+        }
+    }
+    // 返回顶点遍历序列
+    return res;
+}
+```
+
+代码相对抽象，建议对照下图来加深理解。
+
+=== "<1>"
+    ![图的广度优先遍历步骤](../assets/images/10-算法/113.graph_bfs_step1.png)
+
+=== "<2>"
+    ![graph_bfs_step2](../assets/images/10-算法/114.graph_bfs_step2.png)
+
+=== "<3>"
+    ![graph_bfs_step3](../assets/images/10-算法/115.graph_bfs_step3.png)
+
+=== "<4>"
+    ![graph_bfs_step4](../assets/images/10-算法/116.graph_bfs_step4.png)
+
+=== "<5>"
+    ![graph_bfs_step5](../assets/images/10-算法/117.graph_bfs_step5.png)
+
+=== "<6>"
+    ![graph_bfs_step6](../assets/images/10-算法/118.graph_bfs_step6.png)
+
+=== "<7>"
+    ![graph_bfs_step7](../assets/images/10-算法/119.graph_bfs_step7.png)
+
+=== "<8>"
+    ![graph_bfs_step8](../assets/images/10-算法/120.graph_bfs_step8.png)
+
+=== "<9>"
+    ![graph_bfs_step9](../assets/images/10-算法/121.graph_bfs_step9.png)
+
+=== "<10>"
+    ![graph_bfs_step10](../assets/images/10-算法/122.graph_bfs_step10.png)
+
+=== "<11>"
+    ![graph_bfs_step11](../assets/images/10-算法/123.graph_bfs_step11.png)
+
+!!! question "广度优先遍历的序列是否唯一？"
+
+    不唯一。广度优先遍历只要求按“由近及远”的顺序遍历，**而多个相同距离的顶点的遍历顺序允许被任意打乱**。以上图为例，顶点 $1$、$3$ 的访问顺序可以交换，顶点 $2$、$4$、$6$ 的访问顺序也可以任意交换。
+
+#### 1.19.1.2 复杂度分析
+
+**时间复杂度**：所有顶点都会入队并出队一次，使用 $O(|V|)$ 时间；在遍历邻接顶点的过程中，由于是无向图，因此所有边都会被访问 $2$ 次，使用 $O(2|E|)$ 时间；总体使用 $O(|V| + |E|)$ 时间。
+
+**空间复杂度**：列表 `res` ，哈希集合 `visited` ，队列 `que` 中的顶点数量最多为 $|V|$ ，使用 $O(|V|)$ 空间。
+
+### 1.19.2 深度优先遍历
+
+**深度优先遍历是一种优先走到底、无路可走再回头的遍历方式**。如下图所示，从左上角顶点出发，访问当前顶点的某个邻接顶点，直到走到尽头时返回，再继续走到尽头并返回，以此类推，直至所有顶点遍历完成。
+
+![图的深度优先遍历](../assets/images/10-算法/124.graph_dfs.png)
+
+#### 1.19.2.1 算法实现
+
+这种“走到尽头再返回”的算法范式通常基于递归来实现。与广度优先遍历类似，在深度优先遍历中，我们也需要借助一个哈希集合 `visited` 来记录已被访问的顶点，以避免重复访问顶点。
+
+```java
+/* 深度优先遍历辅助函数 */
+void dfs(GraphAdjList graph, Set<Vertex> visited, List<Vertex> res, Vertex vet) {
+    res.add(vet);     // 记录访问顶点
+    visited.add(vet); // 标记该顶点已被访问
+    // 遍历该顶点的所有邻接顶点
+    for (Vertex adjVet : graph.adjList.get(vet)) {
+        if (visited.contains(adjVet))
+            continue; // 跳过已被访问的顶点
+        // 递归访问邻接顶点
+        dfs(graph, visited, res, adjVet);
+    }
+}
+
+/* 深度优先遍历 */
+// 使用邻接表来表示图，以便获取指定顶点的所有邻接顶点
+List<Vertex> graphDFS(GraphAdjList graph, Vertex startVet) {
+    // 顶点遍历序列
+    List<Vertex> res = new ArrayList<>();
+    // 哈希集合，用于记录已被访问过的顶点
+    Set<Vertex> visited = new HashSet<>();
+    dfs(graph, visited, res, startVet);
+    return res;
+}
+```
+
+深度优先遍历的算法流程如下图所示。
+
+- **直虚线代表向下递推**，表示开启了一个新的递归方法来访问新顶点。
+- **曲虚线代表向上回溯**，表示此递归方法已经返回，回溯到了开启此方法的位置。
+
+为了加深理解，建议将下图与代码结合起来，在脑中模拟（或者用笔画下来）整个 DFS 过程，包括每个递归方法何时开启、何时返回。
+
+=== "<1>"
+    ![图的深度优先遍历步骤](../assets/images/10-算法/125.graph_dfs_step1.png)
+
+=== "<2>"
+    ![graph_dfs_step2](../assets/images/10-算法/126.graph_dfs_step2.png)
+
+=== "<3>"
+    ![graph_dfs_step3](../assets/images/10-算法/127.graph_dfs_step3.png)
+
+=== "<4>"
+    ![graph_dfs_step4](../assets/images/10-算法/128.graph_dfs_step4.png)
+
+=== "<5>"
+    ![graph_dfs_step5](../assets/images/10-算法/129.graph_dfs_step5.png)
+
+=== "<6>"
+    ![graph_dfs_step6](../assets/images/10-算法/130.graph_dfs_step6.png)
+
+=== "<7>"
+    ![graph_dfs_step7](../assets/images/10-算法/131.graph_dfs_step7.png)
+
+=== "<8>"
+    ![graph_dfs_step8](../assets/images/10-算法/132.graph_dfs_step8.png)
+
+=== "<9>"
+    ![graph_dfs_step9](../assets/images/10-算法/133.graph_dfs_step9.png)
+
+=== "<10>"
+    ![graph_dfs_step10](../assets/images/10-算法/134.graph_dfs_step10.png)
+
+=== "<11>"
+    ![graph_dfs_step11](../assets/images/10-算法/135.graph_dfs_step11.png)
+
+!!! question "深度优先遍历的序列是否唯一？"
+
+    与广度优先遍历类似，深度优先遍历序列的顺序也不是唯一的。给定某顶点，先往哪个方向探索都可以，即邻接顶点的顺序可以任意打乱，都是深度优先遍历。
+    
+    以树的遍历为例，“根 $\rightarrow$ 左 $\rightarrow$ 右”“左 $\rightarrow$ 根 $\rightarrow$ 右”“左 $\rightarrow$ 右 $\rightarrow$ 根”分别对应前序、中序、后序遍历，它们展示了三种遍历优先级，然而这三者都属于深度优先遍历。
+
+#### 1.19.2.2 复杂度分析
+
+**时间复杂度**：所有顶点都会被访问 $1$ 次，使用 $O(|V|)$ 时间；所有边都会被访问 $2$ 次，使用 $O(2|E|)$ 时间；总体使用 $O(|V| + |E|)$ 时间。
+
+**空间复杂度**：列表 `res` ，哈希集合 `visited` 顶点数量最多为 $|V|$ ，递归深度最大为 $|V|$ ，因此使用 $O(|V|)$ 空间。
+
+### 图 - 相关代码demo
+- 矩阵形式的图描述
+```java
+package MyTest.graph;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class GraphMatrix {
+
+    // 图的每个节点对应的值和索引位置
+    private List<Integer> vertices = new ArrayList<>();
+
+    // 图的最后形式
+    private List<List<Integer>> graph = new ArrayList<>();
+
+    public GraphMatrix(int[] vertices, int[][] edges) {
+        // 首先添加节点
+        for (Integer vertex : vertices) {
+            addVertex(vertex);
+        }
+        // 将边进行赋值
+        for (int[] edge : edges) {
+            addEdge(edge[0], edge[1]);
+        }
+    }
+
+    public int size() {
+        return vertices.size();
+    }
+
+    // 添加一个具体的节点
+    public void addVertex(Integer vertex) {
+        //1.获取插入之前的图的大小
+        int n = size();
+        //2.添加新的节点
+        vertices.add(vertex);
+        //3.初始创建新的行，并将新行的所有列元素初始化为0
+        List<Integer> row = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            row.add(0);
+        }
+        //4.将新创建的行加入到图中
+        graph.add(row);
+        //5. 处理列，因为新增加一个节点就要新增加一列
+        for (List<Integer> rows : graph) {
+            rows.add(0);
+        }
+    }
+
+    // 根据所在的索引移除一个节点
+    public void removeVertex(int index) {
+        if (index < 0 || index >= size()) {
+            throw new IndexOutOfBoundsException("index out of bounds");
+        }
+        //1.删除vertices中对应位置
+        vertices.remove(index);
+        //2.删除图中的第index行
+        graph.remove(index);
+        //3.删除每行的第index元素
+        for (List<Integer> row : graph) {
+            row.remove(index);
+        }
+    }
+
+    // 添加边
+    public void addEdge(int i, int j) {
+        if (i < 0 || j < 0 || i >= size() || j >= size() || i == j) {
+            throw new IndexOutOfBoundsException("index out of bounds");
+        }
+        graph.get(i).set(j, 1);
+        graph.get(j).set(i, 1);
+    }
+
+    // 添加边
+    public void removeEdge(int i, int j) {
+        if (i < 0 || j < 0 || i >= size() || j >= size() || i == j) {
+            throw new IndexOutOfBoundsException("index out of bounds");
+        }
+        graph.get(i).set(j, 0);
+        graph.get(j).set(i, 0);
+    }
+
+    /* 打印邻接矩阵 */
+    public void print() {
+        System.out.print("顶点列表 = ");
+        System.out.println(vertices);
+        System.out.println("邻接矩阵 =");
+        printMatrix(graph);
+    }
 
 
+    /* 打印矩阵（List） */
+    public static <T> void printMatrix(List<List<T>> matrix) {
+        System.out.println("[");
+        for (List<T> row : matrix) {
+            System.out.println("  " + row + ",");
+        }
+        System.out.println("]");
+    }
+
+
+    public static void main(String[] args) {
+        /* 初始化无向图 */
+        // 请注意，edges 元素代表顶点索引，即对应 vertices 元素索引
+        int[] vertices = {1, 3, 2, 5, 4};
+        int[][] edges = {{0, 1}, {0, 3}, {1, 2}, {2, 3}, {2, 4}, {3, 4}};
+        GraphMatrix graph = new GraphMatrix(vertices, edges);
+        System.out.println("\n初始化后，图为");
+        graph.print();
+
+        /* 添加边 */
+        // 顶点 1, 2 的索引分别为 0, 2
+        graph.addEdge(0, 2);
+        System.out.println("\n添加边 1-2 后，图为");
+        graph.print();
+
+        /* 删除边 */
+        // 顶点 1, 3 的索引分别为 0, 1
+        graph.removeEdge(0, 1);
+        System.out.println("\n删除边 1-3 后，图为");
+        graph.print();
+
+        /* 添加顶点 */
+        graph.addVertex(6);
+        System.out.println("\n添加顶点 6 后，图为");
+        graph.print();
+
+        /* 删除顶点 */
+        // 顶点 3 的索引为 1
+        graph.removeVertex(1);
+        System.out.println("\n删除顶点 3 后，图为");
+        graph.print();
+    }
+
+}
+```
+- 链表形式的图描述
+```java
+package MyTest.graph;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public class GraphList {
+    private Map<Vertex, List<Vertex>> graph;
+
+    public Map<Vertex, List<Vertex>> getGraph() {
+        return graph;
+    }
+
+    public GraphList(Vertex[][] vertices) {
+        for (Vertex[] vertex : vertices) {
+            //添加顶点
+            addVertex(vertex[0]);
+            addVertex(vertex[1]);
+            //添加边
+            addEdge(vertex[0], vertex[1]);
+        }
+    }
+
+    public void addVertex(Vertex vertex) {
+        if (null == graph) {
+            graph = new HashMap<>();
+        }
+        //如果已经添加过的就跳过
+        if (graph.containsKey(vertex)) return;
+        graph.put(vertex, new ArrayList<>());
+    }
+
+    public void removeVertex(Vertex vertex) {
+        if (null == graph) {
+            graph = new HashMap<>();
+        }
+        if (!graph.containsKey(vertex))
+            throw new IllegalArgumentException();
+        //先移除元素
+        graph.remove(vertex);
+        //遍历其他的内容移除同样的元素
+        graph.forEach((k, v) -> {
+            v.remove(vertex);
+        });
+    }
+
+    //添加边
+    public void addEdge(Vertex from, Vertex to) {
+        if (null == graph) {
+            graph = new HashMap<>();
+        }
+        if (!graph.containsKey(from) || !graph.containsKey(to) || from == to)
+            throw new IllegalArgumentException();
+        graph.get(from).add(to);
+        graph.get(to).add(from);
+    }
+
+    //移除边
+    public void removeEdge(Vertex from, Vertex to) {
+        if (null == graph) {
+            graph = new HashMap<>();
+        }
+        if (!graph.containsKey(from) || !graph.containsKey(to) || from == to)
+            throw new IllegalArgumentException();
+        graph.get(from).remove(to);
+        graph.get(to).remove(from);
+    }
+
+    /* 打印邻接表 */
+    public void print() {
+        System.out.println("邻接表 =");
+        for (Map.Entry<Vertex, List<Vertex>> pair : graph.entrySet()) {
+            List<Integer> tmp = new ArrayList<>();
+            for (Vertex vertex : pair.getValue())
+                tmp.add(vertex.val);
+            System.out.println(pair.getKey().val + ": " + tmp + ",");
+        }
+    }
+
+    public static void main(String[] args) {
+        /* 初始化无向图 */
+        Vertex[] v = Vertex.valsToVets(new int[] { 1, 3, 2, 5, 4 });
+        Vertex[][] edges = { { v[0], v[1] }, { v[0], v[3] }, { v[1], v[2] },
+                { v[2], v[3] }, { v[2], v[4] }, { v[3], v[4] } };
+        GraphList graph = new GraphList(edges);
+        System.out.println("\n初始化后，图为");
+        graph.print();
+
+        /* 添加边 */
+        // 顶点 1, 2 即 v[0], v[2]
+        graph.addEdge(v[0], v[2]);
+        System.out.println("\n添加边 1-2 后，图为");
+        graph.print();
+
+        /* 删除边 */
+        // 顶点 1, 3 即 v[0], v[1]
+        graph.removeEdge(v[0], v[1]);
+        System.out.println("\n删除边 1-3 后，图为");
+        graph.print();
+
+        /* 添加顶点 */
+        Vertex v5 = new Vertex(6);
+        graph.addVertex(v5);
+        System.out.println("\n添加顶点 6 后，图为");
+        graph.print();
+
+        /* 删除顶点 */
+        // 顶点 3 即 v[1]
+        graph.removeVertex(v[1]);
+        System.out.println("\n删除顶点 3 后，图为");
+        graph.print();
+    }
+}
+```
+- 图的遍历
+```java
+package MyTest.graph;
+
+
+import java.util.*;
+
+public class GraphSearch {
+    //按照list形式的图结构生成dfs/bfs
+
+    //广度优先搜索
+    public static List<Integer> bfs(Map<Vertex, List<Vertex>> graph, Vertex start) {
+        //1.需要一个set集合记录已经遍历过的顶点
+        Set<Vertex> vertexSet = new HashSet<>();
+        //2.需要一个queue用来记录遍历过的顶点
+        Queue<Vertex> queue = new LinkedList<>();
+        //3. 记录结果的List
+        List<Integer> res = new ArrayList<>();
+        queue.offer(start);
+        vertexSet.add(start);
+        while (!queue.isEmpty()) {
+            Vertex poll = queue.poll();
+            res.add(poll.val);
+            for (Vertex vertex : graph.get(poll)) {
+                //已经走过的就跳过
+                if (!vertexSet.contains(vertex)) {
+                    queue.offer(vertex);
+                    vertexSet.add(vertex);
+                }
+            }
+        }
+        return res;
+    }
+
+    public static List<Integer> dfs(Map<Vertex, List<Vertex>> graph, Vertex start) {
+        Set<Vertex> vertexSet = new HashSet<>();
+        List<Integer> res = new ArrayList<>();
+        dfs(graph, start, vertexSet, res);
+        return res;
+    }
+
+    // 深度优先搜索
+    private static void dfs(Map<Vertex, List<Vertex>> graph, Vertex vertex, Set<Vertex> vertexSet, List<Integer> res) {
+        //不包含这个顶点的时候才开始继续递归
+        if (!vertexSet.contains(vertex)) {
+            vertexSet.add(vertex);
+            res.add(vertex.val);
+            //已经走过的就跳过
+            for (Vertex v : graph.get(vertex)) {
+                dfs(graph, v, vertexSet, res);
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        Vertex[] v = Vertex.valsToVets(new int[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
+        Vertex[][] edges = {{v[0], v[1]}, {v[0], v[3]}, {v[1], v[2]}, {v[1], v[4]},
+                {v[2], v[5]}, {v[3], v[4]}, {v[3], v[6]}, {v[4], v[5]},
+                {v[4], v[7]}, {v[5], v[8]}, {v[6], v[7]}, {v[7], v[8]}};
+        GraphList graph = new GraphList(edges);
+        System.out.println("\n初始化后，图为");
+        graph.print();
+
+        /* 广度优先遍历 */
+        List<Integer> res = GraphSearch.bfs(graph.getGraph(), v[0]);
+        System.out.println("\n广度优先遍历（BFS）顶点序列为");
+        System.out.println(res);
+
+        /* 深度优先遍历 */
+        List<Integer> res2 = GraphSearch.dfs(graph.getGraph(), v[0]);
+        System.out.println("\n深度优先遍历（BFS）顶点序列为");
+        System.out.println(res2);
+    }
+}
+```
 
 # 三、算法题目详解
