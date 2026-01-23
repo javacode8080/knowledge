@@ -4012,5 +4012,1005 @@ public class GraphSearch {
     }
 }
 ```
+## 1.20 二分查找
+
+<u>二分查找（binary search）</u>是一种基于分治策略的高效搜索算法。它利用数据的有序性，每轮缩小一半搜索范围，直至找到目标元素或搜索区间为空为止。
+
+
+给定一个长度为 $n$ 的数组 `nums` ，元素按从小到大的顺序排列且不重复。请查找并返回元素 `target` 在该数组中的索引。若数组不包含该元素，则返回 $-1$ 。示例如下图所示。
+
+![二分查找示例数据](../assets/images/10-算法/136.binary_search_example.png)
+
+如下图所示，我们先初始化指针 $i = 0$ 和 $j = n - 1$ ，分别指向数组首元素和尾元素，代表搜索区间 $[0, n - 1]$ 。请注意，中括号表示闭区间，其包含边界值本身。
+
+接下来，循环执行以下两步。
+
+1. 计算中点索引 $m = \lfloor {(i + j) / 2} \rfloor$ ，其中 $\lfloor \: \rfloor$ 表示向下取整操作。
+2. 判断 `nums[m]` 和 `target` 的大小关系，分为以下三种情况。
+    1. 当 `nums[m] < target` 时，说明 `target` 在区间 $[m + 1, j]$ 中，因此执行 $i = m + 1$ 。
+    2. 当 `nums[m] > target` 时，说明 `target` 在区间 $[i, m - 1]$ 中，因此执行 $j = m - 1$ 。
+    3. 当 `nums[m] = target` 时，说明找到 `target` ，因此返回索引 $m$ 。
+
+若数组不包含目标元素，搜索区间最终会缩小为空。此时返回 $-1$ 。
+
+=== "<1>"
+    ![二分查找流程](../assets/images/10-算法/137.binary_search_step1.png)
+
+=== "<2>"
+    ![binary_search_step2](../assets/images/10-算法/138.binary_search_step2.png)
+
+=== "<3>"
+    ![binary_search_step3](../assets/images/10-算法/139.binary_search_step3.png)
+
+=== "<4>"
+    ![binary_search_step4](../assets/images/10-算法/140.binary_search_step4.png)
+
+=== "<5>"
+    ![binary_search_step5](../assets/images/10-算法/141.binary_search_step5.png)
+
+=== "<6>"
+    ![binary_search_step6](../assets/images/10-算法/142.binary_search_step6.png)
+
+=== "<7>"
+    ![binary_search_step7](../assets/images/10-算法/143.binary_search_step7.png)
+
+值得注意的是，由于 $i$ 和 $j$ 都是 `int` 类型，**因此 $i + j$ 可能会超出 `int` 类型的取值范围**。为了避免大数越界，我们通常采用公式 $m = \lfloor {i + (j - i) / 2} \rfloor$ 来计算中点。
+
+代码如下所示：
+
+```java
+/* 二分查找（双闭区间） */
+int binarySearch(int[] nums, int target) {
+    // 初始化双闭区间 [0, n-1] ，即 i, j 分别指向数组首元素、尾元素
+    int i = 0, j = nums.length - 1;
+    // 循环，当搜索区间为空时跳出（当 i > j 时为空）
+    while (i <= j) {
+        int m = i + (j - i) / 2; // 计算中点索引 m
+        if (nums[m] < target) // 此情况说明 target 在区间 [m+1, j] 中
+            i = m + 1;
+        else if (nums[m] > target) // 此情况说明 target 在区间 [i, m-1] 中
+            j = m - 1;
+        else // 找到目标元素，返回其索引
+            return m;
+    }
+    // 未找到目标元素，返回 -1
+    return -1;
+}
+```
+
+**时间复杂度为 $O(\log n)$** ：在二分循环中，区间每轮缩小一半，因此循环次数为 $\log_2 n$ 。
+
+**空间复杂度为 $O(1)$** ：指针 $i$ 和 $j$ 使用常数大小空间。
+
+### 1.20.1 区间表示方法
+
+除了上述双闭区间外，常见的区间表示还有“左闭右开”区间，定义为 $[0, n)$ ，即左边界包含自身，右边界不包含自身。在该表示下，区间 $[i, j)$ 在 $i = j$ 时为空。
+
+我们可以基于该表示实现具有相同功能的二分查找算法：
+
+```java
+/* 二分查找（左闭右开区间） */
+int binarySearchLCRO(int[] nums, int target) {
+    // 初始化左闭右开区间 [0, n) ，即 i, j 分别指向数组首元素、尾元素+1
+    int i = 0, j = nums.length;
+    // 循环，当搜索区间为空时跳出（当 i = j 时为空）
+    while (i < j) {
+        int m = i + (j - i) / 2; // 计算中点索引 m
+        if (nums[m] < target) // 此情况说明 target 在区间 [m+1, j) 中
+            i = m + 1;
+        else if (nums[m] > target) // 此情况说明 target 在区间 [i, m) 中
+            j = m;
+        else // 找到目标元素，返回其索引
+            return m;
+    }
+    // 未找到目标元素，返回 -1
+    return -1;
+}
+```
+
+如下图所示，在两种区间表示下，二分查找算法的初始化、循环条件和缩小区间操作皆有所不同。
+
+由于“双闭区间”表示中的左右边界都被定义为闭区间，因此通过指针 $i$ 和指针 $j$ 缩小区间的操作也是对称的。这样更不容易出错，**因此一般建议采用“双闭区间”的写法**。
+
+![两种区间定义](../assets/images/10-算法/144.binary_search_ranges.png)
+
+### 1.20.2 优点与局限性
+
+二分查找在时间和空间方面都有较好的性能。
+
+- 二分查找的时间效率高。在大数据量下，对数阶的时间复杂度具有显著优势。例如，当数据大小 $n = 2^{20}$ 时，线性查找需要 $2^{20} = 1048576$ 轮循环，而二分查找仅需 $\log_2 2^{20} = 20$ 轮循环。
+- 二分查找无须额外空间。相较于需要借助额外空间的搜索算法（例如哈希查找），二分查找更加节省空间。
+
+然而，二分查找并非适用于所有情况，主要有以下原因。
+
+- 二分查找仅适用于有序数据。若输入数据无序，为了使用二分查找而专门进行排序，得不偿失。因为排序算法的时间复杂度通常为 $O(n \log n)$ ，比线性查找和二分查找都更高。对于频繁插入元素的场景，为保持数组有序性，需要将元素插入到特定位置，时间复杂度为 $O(n)$ ，也是非常昂贵的。
+- 二分查找仅适用于数组。二分查找需要跳跃式（非连续地）访问元素，而在链表中执行跳跃式访问的效率较低，因此不适合应用在链表或基于链表实现的数据结构。
+- 小数据量下，线性查找性能更佳。在线性查找中，每轮只需 1 次判断操作；而在二分查找中，需要 1 次加法、1 次除法、1 ~ 3 次判断操作、1 次加法（减法），共 4 ~ 6 个单元操作；因此，当数据量 $n$ 较小时，线性查找反而比二分查找更快。
+
+## 1.21 二分查找插入点
+
+二分查找不仅可用于搜索目标元素，还可用于解决许多变种问题，比如搜索目标元素的插入位置。
+
+### 1.21.1 无重复元素的情况
+
+!!! question
+
+    给定一个长度为 $n$ 的有序数组 `nums` 和一个元素 `target` ，数组不存在重复元素。现将 `target` 插入数组 `nums` 中，并保持其有序性。若数组中已存在元素 `target` ，则插入到其左方。请返回插入后 `target` 在数组中的索引。示例如下图所示。
+
+![二分查找插入点示例数据](../assets/images/10-算法/145.binary_search_insertion_example.png)
+
+如果想复用上一节的二分查找代码，则需要回答以下两个问题。
+
+**问题一**：当数组中包含 `target` 时，插入点的索引是否是该元素的索引？
+
+题目要求将 `target` 插入到相等元素的左边，这意味着新插入的 `target` 替换了原来 `target` 的位置。也就是说，**当数组包含 `target` 时，插入点的索引就是该 `target` 的索引**。
+
+**问题二**：当数组中不存在 `target` 时，插入点是哪个元素的索引？
+
+进一步思考二分查找过程：当 `nums[m] < target` 时 $i$ 移动，这意味着指针 $i$ 在向大于等于 `target` 的元素靠近。同理，指针 $j$ 始终在向小于等于 `target` 的元素靠近。
+
+因此二分结束时一定有：$i$ 指向首个大于 `target` 的元素，$j$ 指向首个小于 `target` 的元素。**易得当数组不包含 `target` 时，插入索引为 $i$** 。代码如下所示：
+
+```java
+/* 二分查找插入点（无重复元素） */
+int binarySearchInsertionSimple(int[] nums, int target) {
+    int i = 0, j = nums.length - 1; // 初始化双闭区间 [0, n-1]
+    while (i <= j) {
+        int m = i + (j - i) / 2; // 计算中点索引 m
+        if (nums[m] < target) {
+            i = m + 1; // target 在区间 [m+1, j] 中
+        } else if (nums[m] > target) {
+            j = m - 1; // target 在区间 [i, m-1] 中
+        } else {
+            return m; // 找到 target ，返回插入点 m
+        }
+    }
+    // 未找到 target ，返回插入点 i
+    return i;
+}
+```
+
+### 1.21.2 存在重复元素的情况
+
+!!! question
+
+    在上一题的基础上，规定数组可能包含重复元素，其余不变。
+
+假设数组中存在多个 `target` ，则普通二分查找只能返回其中一个 `target` 的索引，**而无法确定该元素的左边和右边还有多少 `target`**。
+
+题目要求将目标元素插入到最左边，**所以我们需要查找数组中最左一个 `target` 的索引**。初步考虑通过下图所示的步骤实现。
+
+1. 执行二分查找，得到任意一个 `target` 的索引，记为 $k$ 。
+2. 从索引 $k$ 开始，向左进行线性遍历，当找到最左边的 `target` 时返回。
+
+![线性查找重复元素的插入点](../assets/images/10-算法/146.binary_search_insertion_naive.png)
+
+此方法虽然可用，但其包含线性查找，因此时间复杂度为 $O(n)$ 。当数组中存在很多重复的 `target` 时，该方法效率很低。
+
+现考虑拓展二分查找代码。如下图所示，整体流程保持不变，每轮先计算中点索引 $m$ ，再判断 `target` 和 `nums[m]` 的大小关系，分为以下几种情况。
+
+- 当 `nums[m] < target` 或 `nums[m] > target` 时，说明还没有找到 `target` ，因此采用普通二分查找的缩小区间操作，**从而使指针 $i$ 和 $j$ 向 `target` 靠近**。
+- 当 `nums[m] == target` 时，说明小于 `target` 的元素在区间 $[i, m - 1]$ 中，因此采用 $j = m - 1$ 来缩小区间，**从而使指针 $j$ 向小于 `target` 的元素靠近**。
+
+循环完成后，$i$ 指向最左边的 `target` ，$j$ 指向首个小于 `target` 的元素，**因此索引 $i$ 就是插入点**。
+
+=== "<1>"
+    ![二分查找重复元素的插入点的步骤](../assets/images/10-算法/147.binary_search_insertion_step1.png)
+
+=== "<2>"
+    ![binary_search_insertion_step2](../assets/images/10-算法/148.binary_search_insertion_step2.png)
+
+=== "<3>"
+    ![binary_search_insertion_step3](../assets/images/10-算法/149.binary_search_insertion_step3.png)
+
+=== "<4>"
+    ![binary_search_insertion_step4](../assets/images/10-算法/150.binary_search_insertion_step4.png)
+
+=== "<5>"
+    ![binary_search_insertion_step5](../assets/images/10-算法/151.binary_search_insertion_step5.png)
+
+=== "<6>"
+    ![binary_search_insertion_step6](../assets/images/10-算法/152.binary_search_insertion_step6.png)
+
+=== "<7>"
+    ![binary_search_insertion_step7](../assets/images/10-算法/153.binary_search_insertion_step7.png)
+
+=== "<8>"
+    ![binary_search_insertion_step8](../assets/images/10-算法/154.binary_search_insertion_step8.png)
+
+观察以下代码，判断分支 `nums[m] > target` 和 `nums[m] == target` 的操作相同，因此两者可以合并。
+
+即便如此，我们仍然可以将判断条件保持展开，因为其逻辑更加清晰、可读性更好。
+
+```java
+/* 二分查找插入点（存在重复元素） */
+int binarySearchInsertion(int[] nums, int target) {
+    int i = 0, j = nums.length - 1; // 初始化双闭区间 [0, n-1]
+    while (i <= j) {
+        int m = i + (j - i) / 2; // 计算中点索引 m
+        if (nums[m] < target) {
+            i = m + 1; // target 在区间 [m+1, j] 中
+        } else if (nums[m] > target) {
+            j = m - 1; // target 在区间 [i, m-1] 中
+        } else {
+            j = m - 1; // 首个小于 target 的元素在区间 [i, m-1] 中
+        }
+    }
+    // 返回插入点 i
+    return i;
+}
+```
+
+!!! tip
+
+    本节的代码都是“双闭区间”写法。有兴趣的读者可以自行实现“左闭右开”写法。
+
+总的来看，二分查找无非就是给指针 $i$ 和 $j$ 分别设定搜索目标，目标可能是一个具体的元素（例如 `target` ），也可能是一个元素范围（例如小于 `target` 的元素）。
+
+在不断的循环二分中，指针 $i$ 和 $j$ 都逐渐逼近预先设定的目标。最终，它们或是成功找到答案，或是越过边界后停止。
+
+### 二分查找+插入 - 代码demo
+```java
+package MyTest.search;
+
+public class binarySearch {
+
+
+    //二分查找
+    public static int search(int[] nums, int target) {
+        if (nums.length == 0) {
+            return -1;
+        }
+        int low = 0;
+        int high = nums.length - 1;
+
+        while (low <= high) {
+            int mid = low + (high - low) / 2;
+            if (nums[mid] == target) {
+                return mid;
+            } else if (nums[mid] < target) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return -1;
+    }
+
+    // 二分插入,找到指定的参数插入在左侧
+    public static int insertLeft(int[] nums, int target) {
+        if (nums.length == 0) {
+            return 0;
+        }
+        int low = 0;
+        int high = nums.length - 1;
+
+        while (low <= high) {
+            int mid = low + (high - low) / 2;
+            if (nums[mid] == target) {
+                high = mid - 1;
+            } else if (nums[mid] < target) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return low;
+    }
+
+    // 二分插入,找到指定的参数插入在右侧
+    public static int insertRight(int[] nums, int target) {
+        if (nums.length == 0) {
+            return 0;
+        }
+        int low = 0;
+        int high = nums.length - 1;
+
+        while (low <= high) {
+            int mid = low + (high - low) / 2;
+            if (nums[mid] == target) {
+                low = mid + 1;
+            } else if (nums[mid] < target) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return low;
+    }
+
+    public static void main(String[] args) {
+        int[] nums = new int[]{0, 1, 2, 3, 3, 4, 4, 5, 6, 7, 8};
+        int search = search(nums, 5);
+        System.out.println(search);
+        int insertLeft = insertLeft(nums, 5);
+        System.out.println(insertLeft);
+        int insertRight = insertRight(nums, 5);
+        System.out.println(insertRight);
+    }
+}
+```
+## 1.22 二分查找边界
+
+### 1.22.1 查找左边界
+
+!!! question
+
+    给定一个长度为 $n$ 的有序数组 `nums` ，其中可能包含重复元素。请返回数组中最左一个元素 `target` 的索引。若数组中不包含该元素，则返回 $-1$ 。
+
+回忆二分查找插入点的方法，搜索完成后 $i$ 指向最左一个 `target` ，**因此查找插入点本质上是在查找最左一个 `target` 的索引**。
+
+考虑通过查找插入点的函数实现查找左边界。请注意，数组中可能不包含 `target` ，这种情况可能导致以下两种结果。
+
+- 插入点的索引 $i$ 越界。
+- 元素 `nums[i]` 与 `target` 不相等。
+
+当遇到以上两种情况时，直接返回 $-1$ 即可。代码如下所示：
+
+```java
+/* 二分查找最左一个 target */
+int binarySearchLeftEdge(int[] nums, int target) {
+    // 等价于查找 target 的插入点
+    int i = binary_search_insertion.binarySearchInsertion(nums, target);
+    // 未找到 target ，返回 -1
+    if (i == nums.length || nums[i] != target) {
+        return -1;
+    }
+    // 找到 target ，返回索引 i
+    return i;
+}
+```
+
+### 1.22.2 查找右边界
+
+那么如何查找最右一个 `target` 呢？最直接的方式是修改代码，替换在 `nums[m] == target` 情况下的指针收缩操作。代码在此省略，有兴趣的读者可以自行实现。
+
+下面我们介绍两种更加取巧的方法。
+
+#### 1.22.2.1 复用查找左边界
+
+实际上，我们可以利用查找最左元素的函数来查找最右元素，具体方法为：**将查找最右一个 `target` 转化为查找最左一个 `target + 1`**。
+
+如下图所示，查找完成后，指针 $i$ 指向最左一个 `target + 1`（如果存在），而 $j$ 指向最右一个 `target` ，**因此返回 $j$ 即可**。
+
+![将查找右边界转化为查找左边界](../assets/images/10-算法/155.binary_search_right_edge_by_left_edge.png)
+
+请注意，返回的插入点是 $i$ ，因此需要将其减 $1$ ，从而获得 $j$ ：
+
+```java
+/* 二分查找最右一个 target */
+int binarySearchRightEdge(int[] nums, int target) {
+    // 转化为查找最左一个 target + 1
+    int i = binary_search_insertion.binarySearchInsertion(nums, target + 1);
+    // j 指向最右一个 target ，i 指向首个大于 target 的元素
+    int j = i - 1;
+    // 未找到 target ，返回 -1
+    if (j == -1 || nums[j] != target) {
+        return -1;
+    }
+    // 找到 target ，返回索引 j
+    return j;
+}
+```
+
+#### 1.22.2.2 转化为查找元素
+
+我们知道，当数组不包含 `target` 时，最终 $i$ 和 $j$ 会分别指向首个大于、小于 `target` 的元素。
+
+因此，如下图所示，我们可以构造一个数组中不存在的元素，用于查找左右边界。
+
+- 查找最左一个 `target` ：可以转化为查找 `target - 0.5` ，并返回指针 $i$ 。
+- 查找最右一个 `target` ：可以转化为查找 `target + 0.5` ，并返回指针 $j$ 。
+
+![将查找边界转化为查找元素](../assets/images/10-算法/156.binary_search_edge_by_element.png)
+
+代码在此省略，以下两点值得注意。
+
+- 给定数组不包含小数，这意味着我们无须关心如何处理相等的情况。
+- 因为该方法引入了小数，所以需要将函数中的变量 `target` 改为浮点数类型（Python 无须改动）。
+
+## 1.23 哈希优化策略
+
+在算法题中，**我们常通过将线性查找替换为哈希查找来降低算法的时间复杂度**。我们借助一个算法题来加深理解。
+
+!!! question
+
+    给定一个整数数组 `nums` 和一个目标元素 `target` ，请在数组中搜索“和”为 `target` 的两个元素，并返回它们的数组索引。返回任意一个解即可。
+
+### 1.23.1 线性查找：以时间换空间
+
+考虑直接遍历所有可能的组合。如下图所示，我们开启一个两层循环，在每轮中判断两个整数的和是否为 `target` ，若是，则返回它们的索引。
+
+![线性查找求解两数之和](../assets/images/10-算法/157.two_sum_brute_force.png)
+
+代码如下所示：
+
+```java
+/* 方法一：暴力枚举 */
+int[] twoSumBruteForce(int[] nums, int target) {
+    int size = nums.length;
+    // 两层循环，时间复杂度为 O(n^2)
+    for (int i = 0; i < size - 1; i++) {
+        for (int j = i + 1; j < size; j++) {
+            if (nums[i] + nums[j] == target)
+                return new int[] { i, j };
+        }
+    }
+    return new int[0];
+}
+```
+
+此方法的时间复杂度为 $O(n^2)$ ，空间复杂度为 $O(1)$ ，在大数据量下非常耗时。
+
+### 1.23.2 哈希查找：以空间换时间
+
+考虑借助一个哈希表，键值对分别为数组元素和元素索引。循环遍历数组，每轮执行下图所示的步骤。
+
+1. 判断数字 `target - nums[i]` 是否在哈希表中，若是，则直接返回这两个元素的索引。
+2. 将键值对 `nums[i]` 和索引 `i` 添加进哈希表。
+
+=== "<1>"
+    ![辅助哈希表求解两数之和](../assets/images/10-算法/158.two_sum_hashtable_step1.png)
+
+=== "<2>"
+    ![two_sum_hashtable_step2](../assets/images/10-算法/159.two_sum_hashtable_step2.png)
+
+=== "<3>"
+    ![two_sum_hashtable_step3](../assets/images/10-算法/160.two_sum_hashtable_step3.png)
+
+实现代码如下所示，仅需单层循环即可：
+
+```java
+/* 方法二：辅助哈希表 */
+int[] twoSumHashTable(int[] nums, int target) {
+    int size = nums.length;
+    // 辅助哈希表，空间复杂度为 O(n)
+    Map<Integer, Integer> dic = new HashMap<>();
+    // 单层循环，时间复杂度为 O(n)
+    for (int i = 0; i < size; i++) {
+        if (dic.containsKey(target - nums[i])) {
+            return new int[] { dic.get(target - nums[i]), i };
+        }
+        dic.put(nums[i], i);
+    }
+    return new int[0];
+}
+```
+
+此方法通过哈希查找将时间复杂度从 $O(n^2)$ 降至 $O(n)$ ，大幅提升运行效率。
+
+由于需要维护一个额外的哈希表，因此空间复杂度为 $O(n)$ 。**尽管如此，该方法的整体时空效率更为均衡，因此它是本题的最优解法**。
+
+## 1.24 重识搜索算法
+
+<u>搜索算法（searching algorithm）</u>用于在数据结构（例如数组、链表、树或图）中搜索一个或一组满足特定条件的元素。
+
+搜索算法可根据实现思路分为以下两类。
+
+- **通过遍历数据结构来定位目标元素**，例如数组、链表、树和图的遍历等。
+- **利用数据组织结构或数据包含的先验信息，实现高效元素查找**，例如二分查找、哈希查找和二叉搜索树查找等。
+
+不难发现，这些知识点都已在前面的章节中介绍过，因此搜索算法对于我们来说并不陌生。在本节中，我们将从更加系统的视角切入，重新审视搜索算法。
+
+### 1.24.1 暴力搜索
+
+暴力搜索通过遍历数据结构的每个元素来定位目标元素。
+
+- “线性搜索”适用于数组和链表等线性数据结构。它从数据结构的一端开始，逐个访问元素，直到找到目标元素或到达另一端仍没有找到目标元素为止。
+- “广度优先搜索”和“深度优先搜索”是图和树的两种遍历策略。广度优先搜索从初始节点开始逐层搜索，由近及远地访问各个节点。深度优先搜索从初始节点开始，沿着一条路径走到头，再回溯并尝试其他路径，直到遍历完整个数据结构。
+
+暴力搜索的优点是简单且通用性好，**无须对数据做预处理和借助额外的数据结构**。
+
+然而，**此类算法的时间复杂度为 $O(n)$** ，其中 $n$ 为元素数量，因此在数据量较大的情况下性能较差。
+
+### 1.24.2 自适应搜索
+
+自适应搜索利用数据的特有属性（例如有序性）来优化搜索过程，从而更高效地定位目标元素。
+
+- “二分查找”利用数据的有序性实现高效查找，仅适用于数组。
+- “哈希查找”利用哈希表将搜索数据和目标数据建立为键值对映射，从而实现查询操作。
+- “树查找”在特定的树结构（例如二叉搜索树）中，基于比较节点值来快速排除节点，从而定位目标元素。
+
+此类算法的优点是效率高，**时间复杂度可达到 $O(\log n)$ 甚至 $O(1)$** 。
+
+然而，**使用这些算法往往需要对数据进行预处理**。例如，二分查找需要预先对数组进行排序，哈希查找和树查找都需要借助额外的数据结构，维护这些数据结构也需要额外的时间和空间开销。
+
+!!! tip
+
+    自适应搜索算法常被称为查找算法，**主要用于在特定数据结构中快速检索目标元素**。
+
+### 1.24.3 搜索方法选取
+
+给定大小为 $n$ 的一组数据，我们可以使用线性搜索、二分查找、树查找、哈希查找等多种方法从中搜索目标元素。各个方法的工作原理如下图所示。
+
+![多种搜索策略](../assets/images/10-算法/161.searching_algorithms.png)
+
+上述几种方法的操作效率与特性如下表所示。
+
+<p align="center"> 表 <id> &nbsp; 查找算法效率对比 </p>
+
+|              | 线性搜索 | 二分查找           | 树查找             | 哈希查找        |
+| ------------ | -------- | ------------------ | ------------------ | --------------- |
+| 查找元素     | $O(n)$   | $O(\log n)$        | $O(\log n)$        | $O(1)$          |
+| 插入元素     | $O(1)$   | $O(n)$             | $O(\log n)$        | $O(1)$          |
+| 删除元素     | $O(n)$   | $O(n)$             | $O(\log n)$        | $O(1)$          |
+| 额外空间     | $O(1)$   | $O(1)$             | $O(n)$             | $O(n)$          |
+| 数据预处理   | /        | 排序 $O(n \log n)$ | 建树 $O(n \log n)$ | 建哈希表 $O(n)$ |
+| 数据是否有序 | 无序     | 有序               | 有序               | 无序            |
+
+搜索算法的选择还取决规模、搜索性能要求、数据查询与更新频率等。
+
+**线性搜索**
+
+- 通用性较好，无须任何数据预处理操作。假如我们仅需查询一次数据，那么其他三种方法的数据预处理的时间比线性搜索的时间还要更长。
+- 适用于体量较小的数据，此情况下时间复杂度对效率影响较小。
+- 适用于数据更新频率较高的场景，因为该方法不需要对数据进行任何额外维护。
+
+**二分查找**
+
+- 适用于大数据量的情况，效率表现稳定，最差时间复杂度为 $O(\log n)$ 。
+- 数据量不能过大，因为存储数组需要连续的内存空间。
+- 不适用于高频增删数据的场景，因为维护有序数组的开销较大。
+
+**哈希查找**
+
+- 适合对查询性能要求很高的场景，平均时间复杂度为 $O(1)$ 。
+- 不适合需要有序数据或范围查找的场景，因为哈希表无法维护数据的有序性。
+- 对哈希函数和哈希冲突处理策略的依赖性较高，具有较大的性能劣化风险。
+- 不适合数据量过大的情况，因为哈希表需要额外空间来最大程度地减少冲突，从而提供良好的查询性能。
+
+**树查找**
+
+- 适用于海量数据，因为树节点在内存中是分散存储的。
+- 适合需要维护有序数据或范围查找的场景。
+- 在持续增删节点的过程中，二叉搜索树可能产生倾斜，时间复杂度劣化至 $O(n)$ 。
+- 若使用 AVL 树或红黑树，则各项操作可在 $O(\log n)$ 效率下稳定运行，但维护树平衡的操作会增加额外的开销。
+
+## 1.25 排序算法
+
+<u>排序算法（sorting algorithm）</u>用于对一组数据按照特定顺序进行排列。排序算法有着广泛的应用，因为有序数据通常能够被更高效地查找、分析和处理。
+
+如下图所示，排序算法中的数据类型可以是整数、浮点数、字符或字符串等。排序的判断规则可根据需求设定，如数字大小、字符 ASCII 码顺序或自定义规则。
+
+![数据类型和判断规则示例](../assets/images/10-算法/162.sorting_examples.png)
+
+### 1.25.1 评价维度
+
+**运行效率**：我们期望排序算法的时间复杂度尽量低，且总体操作数量较少（时间复杂度中的常数项变小）。对于大数据量的情况，运行效率显得尤为重要。
+
+**就地性**：顾名思义，<u>原地排序</u>通过在原数组上直接操作实现排序，无须借助额外的辅助数组，从而节省内存。通常情况下，原地排序的数据搬运操作较少，运行速度也更快。
+
+**稳定性**：<u>稳定排序</u>在完成排序后，相等元素在数组中的相对顺序不发生改变。
+
+稳定排序是多级排序场景的必要条件。假设我们有一个存储学生信息的表格，第 1 列和第 2 列分别是姓名和年龄。在这种情况下，<u>非稳定排序</u>可能导致输入数据的有序性丧失：
+
+```shell
+# 输入数据是按照姓名排序好的
+# (name, age)
+  ('A', 19)
+  ('B', 18)
+  ('C', 21)
+  ('D', 19)
+  ('E', 23)
+
+# 假设使用非稳定排序算法按年龄排序列表，
+# 结果中 ('D', 19) 和 ('A', 19) 的相对位置改变，
+# 输入数据按姓名排序的性质丢失
+  ('B', 18)
+  ('D', 19)
+  ('A', 19)
+  ('C', 21)
+  ('E', 23)
+```
+
+**自适应性**：<u>自适应排序</u>能够利用输入数据已有的顺序信息来减少计算量，达到更优的时间效率。自适应排序算法的最佳时间复杂度通常优于平均时间复杂度。
+
+**是否基于比较**：<u>基于比较的排序</u>依赖比较运算符（$<$、$=$、$>$）来判断元素的相对顺序，从而排序整个数组，理论最优时间复杂度为 $O(n \log n)$ 。而<u>非比较排序</u>不使用比较运算符，时间复杂度可达 $O(n)$ ，但其通用性相对较差。
+
+### 1.25.2 理想排序算法
+
+**运行快、原地、稳定、自适应、通用性好**。显然，迄今为止尚未发现兼具以上所有特性的排序算法。因此，在选择排序算法时，需要根据具体的数据特点和问题需求来决定。
+
+接下来，我们将共同学习各种排序算法，并基于上述评价维度对各个排序算法的优缺点进行分析。
+
+## 1.26 选择排序
+### 1.26.1 详解
+<u>选择排序（selection sort）</u>的工作原理非常简单：开启一个循环，每轮从未排序区间选择最小的元素，将其放到已排序区间的末尾。
+
+设数组的长度为 $n$ ，选择排序的算法流程如下图所示。
+
+1. 初始状态下，所有元素未排序，即未排序（索引）区间为 $[0, n-1]$ 。
+2. 选取区间 $[0, n-1]$ 中的最小元素，将其与索引 $0$ 处的元素交换。完成后，数组前 1 个元素已排序。
+3. 选取区间 $[1, n-1]$ 中的最小元素，将其与索引 $1$ 处的元素交换。完成后，数组前 2 个元素已排序。
+4. 以此类推。经过 $n - 1$ 轮选择与交换后，数组前 $n - 1$ 个元素已排序。
+5. 仅剩的一个元素必定是最大元素，无须排序，因此数组排序完成。
+
+=== "<1>"
+    ![选择排序步骤](../assets/images/10-算法/163.selection_sort_step1.png)
+
+=== "<2>"
+    ![selection_sort_step2](../assets/images/10-算法/164.selection_sort_step2.png)
+
+=== "<3>"
+    ![selection_sort_step3](../assets/images/10-算法/165.selection_sort_step3.png)
+
+=== "<4>"
+    ![selection_sort_step4](../assets/images/10-算法/166.selection_sort_step4.png)
+
+=== "<5>"
+    ![selection_sort_step5](../assets/images/10-算法/167.selection_sort_step5.png)
+
+=== "<6>"
+    ![selection_sort_step6](../assets/images/10-算法/168.selection_sort_step6.png)
+
+=== "<7>"
+    ![selection_sort_step7](../assets/images/10-算法/169.selection_sort_step7.png)
+
+=== "<8>"
+    ![selection_sort_step8](../assets/images/10-算法/170.selection_sort_step8.png)
+
+=== "<9>"
+    ![selection_sort_step9](../assets/images/10-算法/171.selection_sort_step9.png)
+
+=== "<10>"
+    ![selection_sort_step10](../assets/images/10-算法/172.selection_sort_step10.png)
+
+=== "<11>"
+    ![selection_sort_step11](../assets/images/10-算法/173.selection_sort_step11.png)
+
+在代码中，我们用 $k$ 来记录未排序区间内的最小元素：
+
+```java
+/* 选择排序 */
+void selectionSort(int[] nums) {
+    int n = nums.length;
+    // 外循环：未排序区间为 [i, n-1]
+    for (int i = 0; i < n - 1; i++) {
+        // 内循环：找到未排序区间内的最小元素
+        int k = i;
+        for (int j = i + 1; j < n; j++) {
+            if (nums[j] < nums[k])
+                k = j; // 记录最小元素的索引
+        }
+        // 将该最小元素与未排序区间的首个元素交换
+        int temp = nums[i];
+        nums[i] = nums[k];
+        nums[k] = temp;
+    }
+}
+```
+
+### 1.26.2 算法特性
+
+- **时间复杂度为 $O(n^2)$、非自适应排序**：外循环共 $n - 1$ 轮，第一轮的未排序区间长度为 $n$ ，最后一轮的未排序区间长度为 $2$ ，即各轮外循环分别包含 $n$、$n - 1$、$\dots$、$3$、$2$ 轮内循环，求和为 $\frac{(n - 1)(n + 2)}{2}$ 。
+- **空间复杂度为 $O(1)$、原地排序**：指针 $i$ 和 $j$ 使用常数大小的额外空间。
+- **非稳定排序**：如下图所示，元素 `nums[i]` 有可能被交换至与其相等的元素的右边，导致两者的相对顺序发生改变。
+
+![选择排序非稳定示例](../assets/images/10-算法/174.selection_sort_instability.png)
+
+## 1.27 冒泡排序
+
+<u>冒泡排序（bubble sort）</u>通过连续地比较与交换相邻元素实现排序。这个过程就像气泡从底部升到顶部一样，因此得名冒泡排序。
+
+如下图所示，冒泡过程可以利用元素交换操作来模拟：从数组最左端开始向右遍历，依次比较相邻元素大小，如果“左元素 > 右元素”就交换二者。遍历完成后，最大的元素会被移动到数组的最右端。
+
+=== "<1>"
+    ![利用元素交换操作模拟冒泡](../assets/images/10-算法/175.bubble_operation_step1.png)
+
+=== "<2>"
+    ![bubble_operation_step2](../assets/images/10-算法/176.bubble_operation_step2.png)
+
+=== "<3>"
+    ![bubble_operation_step3](../assets/images/10-算法/177.bubble_operation_step3.png)
+
+=== "<4>"
+    ![bubble_operation_step4](../assets/images/10-算法/178.bubble_operation_step4.png)
+
+=== "<5>"
+    ![bubble_operation_step5](../assets/images/10-算法/179.bubble_operation_step5.png)
+
+=== "<6>"
+    ![bubble_operation_step6](../assets/images/10-算法/180.bubble_operation_step6.png)
+
+=== "<7>"
+    ![bubble_operation_step7](../assets/images/10-算法/181.bubble_operation_step7.png)
+
+### 1.27.1 算法流程
+
+设数组的长度为 $n$ ，冒泡排序的步骤如下图所示。
+
+1. 首先，对 $n$ 个元素执行“冒泡”，**将数组的最大元素交换至正确位置**。
+2. 接下来，对剩余 $n - 1$ 个元素执行“冒泡”，**将第二大元素交换至正确位置**。
+3. 以此类推，经过 $n - 1$ 轮“冒泡”后，**前 $n - 1$ 大的元素都被交换至正确位置**。
+4. 仅剩的一个元素必定是最小元素，无须排序，因此数组排序完成。
+
+![冒泡排序流程](../assets/images/10-算法/182.bubble_sort_overview.png)
+
+示例代码如下：
+
+```java
+/* 冒泡排序 */
+void bubbleSort(int[] nums) {
+    // 外循环：未排序区间为 [0, i]
+    for (int i = nums.length - 1; i > 0; i--) {
+        // 内循环：将未排序区间 [0, i] 中的最大元素交换至该区间的最右端
+        for (int j = 0; j < i; j++) {
+            if (nums[j] > nums[j + 1]) {
+                // 交换 nums[j] 与 nums[j + 1]
+                int tmp = nums[j];
+                nums[j] = nums[j + 1];
+                nums[j + 1] = tmp;
+            }
+        }
+    }
+}
+```
+
+### 1.27.2 效率优化
+
+我们发现，如果某轮“冒泡”中没有执行任何交换操作，说明数组已经完成排序，可直接返回结果。因此，可以增加一个标志位 `flag` 来监测这种情况，一旦出现就立即返回。
+
+经过优化，冒泡排序的最差时间复杂度和平均时间复杂度仍为 $O(n^2)$ ；但当输入数组完全有序时，可达到最佳时间复杂度 $O(n)$ 。
+
+```java
+/* 冒泡排序（标志优化） */
+void bubbleSortWithFlag(int[] nums) {
+    // 外循环：未排序区间为 [0, i]
+    for (int i = nums.length - 1; i > 0; i--) {
+        boolean flag = false; // 初始化标志位
+        // 内循环：将未排序区间 [0, i] 中的最大元素交换至该区间的最右端
+        for (int j = 0; j < i; j++) {
+            if (nums[j] > nums[j + 1]) {
+                // 交换 nums[j] 与 nums[j + 1]
+                int tmp = nums[j];
+                nums[j] = nums[j + 1];
+                nums[j + 1] = tmp;
+                flag = true; // 记录交换元素
+            }
+        }
+        if (!flag)
+            break; // 此轮“冒泡”未交换任何元素，直接跳出
+    }
+}
+```
+
+### 1.27.3 算法特性
+
+- **时间复杂度为 $O(n^2)$、自适应排序**：各轮“冒泡”遍历的数组长度依次为 $n - 1$、$n - 2$、$\dots$、$2$、$1$ ，总和为 $(n - 1) n / 2$ 。在引入 `flag` 优化后，最佳时间复杂度可达到 $O(n)$ 。
+- **空间复杂度为 $O(1)$、原地排序**：指针 $i$ 和 $j$ 使用常数大小的额外空间。
+- **稳定排序**：由于在“冒泡”中遇到相等元素不交换。
+
+## 1.28 插入排序
+
+<u>插入排序（insertion sort）</u>是一种简单的排序算法，它的工作原理与手动整理一副牌的过程非常相似。
+
+具体来说，我们在未排序区间选择一个基准元素，将该元素与其左侧已排序区间的元素逐一比较大小，并将该元素插入到正确的位置。
+
+下图展示了数组插入元素的操作流程。设基准元素为 `base` ，我们需要将从目标索引到 `base` 之间的所有元素向右移动一位，然后将 `base` 赋值给目标索引。
+
+![单次插入操作](../assets/images/10-算法/183.insertion_operation.png)
+
+### 1.28.1 算法流程
+
+插入排序的整体流程如下图所示。
+
+1. 初始状态下，数组的第 1 个元素已完成排序。
+2. 选取数组的第 2 个元素作为 `base` ，将其插入到正确位置后，**数组的前 2 个元素已排序**。
+3. 选取第 3 个元素作为 `base` ，将其插入到正确位置后，**数组的前 3 个元素已排序**。
+4. 以此类推，在最后一轮中，选取最后一个元素作为 `base` ，将其插入到正确位置后，**所有元素均已排序**。
+
+![插入排序流程](../assets/images/10-算法/184.insertion_sort_overview.png)
+
+示例代码如下：
+
+```java
+/* 插入排序 */
+void insertionSort(int[] nums) {
+    // 外循环：已排序区间为 [0, i-1]
+    for (int i = 1; i < nums.length; i++) {
+        int base = nums[i], j = i - 1;
+        // 内循环：将 base 插入到已排序区间 [0, i-1] 中的正确位置
+        while (j >= 0 && nums[j] > base) {
+            nums[j + 1] = nums[j]; // 将 nums[j] 向右移动一位
+            j--;
+        }
+        nums[j + 1] = base;        // 将 base 赋值到正确位置
+    }
+}
+```
+
+### 1.28.2 算法特性
+
+- **时间复杂度为 $O(n^2)$、自适应排序**：在最差情况下，每次插入操作分别需要循环 $n - 1$、$n-2$、$\dots$、$2$、$1$ 次，求和得到 $(n - 1) n / 2$ ，因此时间复杂度为 $O(n^2)$ 。在遇到有序数据时，插入操作会提前终止。当输入数组完全有序时，插入排序达到最佳时间复杂度 $O(n)$ 。
+- **空间复杂度为 $O(1)$、原地排序**：指针 $i$ 和 $j$ 使用常数大小的额外空间。
+- **稳定排序**：在插入操作过程中，我们会将元素插入到相等元素的右侧，不会改变它们的顺序。
+
+### 1.28.3 插入排序的优势
+
+插入排序的时间复杂度为 $O(n^2)$ ，而我们即将学习的快速排序的时间复杂度为 $O(n \log n)$ 。尽管插入排序的时间复杂度更高，**但在数据量较小的情况下，插入排序通常更快**。
+
+这个结论与线性查找和二分查找的适用情况的结论类似。快速排序这类 $O(n \log n)$ 的算法属于基于分治策略的排序算法，往往包含更多单元计算操作。而在数据量较小时，$n^2$ 和 $n \log n$ 的数值比较接近，复杂度不占主导地位，每轮中的单元操作数量起到决定性作用。
+
+实际上，许多编程语言（例如 Java）的内置排序函数采用了插入排序，大致思路为：对于长数组，采用基于分治策略的排序算法，例如快速排序；对于短数组，直接使用插入排序。
+
+虽然冒泡排序、选择排序和插入排序的时间复杂度都为 $O(n^2)$ ，但在实际情况中，**插入排序的使用频率显著高于冒泡排序和选择排序**，主要有以下原因。
+
+- 冒泡排序基于元素交换实现，需要借助一个临时变量，共涉及 3 个单元操作；插入排序基于元素赋值实现，仅需 1 个单元操作。因此，**冒泡排序的计算开销通常比插入排序更高**。
+- 选择排序在任何情况下的时间复杂度都为 $O(n^2)$ 。**如果给定一组部分有序的数据，插入排序通常比选择排序效率更高**。
+- 选择排序不稳定，无法应用于多级排序。
+
+## 1.29 快速排序
+
+<u>快速排序（quick sort）</u>是一种基于分治策略的排序算法，运行高效，应用广泛。
+
+快速排序的核心操作是“哨兵划分”，其目标是：选择数组中的某个元素作为“基准数”，将所有小于基准数的元素移到其左侧，而大于基准数的元素移到其右侧。具体来说，哨兵划分的流程如下图所示。
+
+1. 选取数组最左端元素作为基准数，初始化两个指针 `i` 和 `j` 分别指向数组的两端。
+2. 设置一个循环，在每轮中使用 `i`（`j`）分别寻找第一个比基准数大（小）的元素，然后交换这两个元素。
+3. 循环执行步骤 `2.` ，直到 `i` 和 `j` 相遇时停止，最后将基准数交换至两个子数组的分界线。
+
+=== "<1>"
+    ![哨兵划分步骤](../assets/images/10-算法/185.pivot_division_step1.png)
+
+=== "<2>"
+    ![pivot_division_step2](../assets/images/10-算法/186.pivot_division_step2.png)
+
+=== "<3>"
+    ![pivot_division_step3](../assets/images/10-算法/187.pivot_division_step3.png)
+
+=== "<4>"
+    ![pivot_division_step4](../assets/images/10-算法/188.pivot_division_step4.png)
+
+=== "<5>"
+    ![pivot_division_step5](../assets/images/10-算法/189.pivot_division_step5.png)
+
+=== "<6>"
+    ![pivot_division_step6](../assets/images/10-算法/190.pivot_division_step6.png)
+
+=== "<7>"
+    ![pivot_division_step7](../assets/images/10-算法/191.pivot_division_step7.png)
+
+=== "<8>"
+    ![pivot_division_step8](../assets/images/10-算法/192.pivot_division_step8.png)
+
+=== "<9>"
+    ![pivot_division_step9](../assets/images/10-算法/193.pivot_division_step9.png)
+
+哨兵划分完成后，原数组被划分成三部分：左子数组、基准数、右子数组，且满足“左子数组任意元素 $\leq$ 基准数 $\leq$ 右子数组任意元素”。因此，我们接下来只需对这两个子数组进行排序。
+
+!!! note "快速排序的分治策略"
+
+    哨兵划分的实质是将一个较长数组的排序问题简化为两个较短数组的排序问题。
+
+```java
+/* 元素交换 */
+void swap(int[] nums, int i, int j) {
+    int tmp = nums[i];
+    nums[i] = nums[j];
+    nums[j] = tmp;
+}
+
+/* 哨兵划分 */
+int partition(int[] nums, int left, int right) {
+    // 以 nums[left] 为基准数
+    int i = left, j = right;
+    while (i < j) {
+        while (i < j && nums[j] >= nums[left])
+            j--;          // 从右向左找首个小于基准数的元素
+        while (i < j && nums[i] <= nums[left])
+            i++;          // 从左向右找首个大于基准数的元素
+        swap(nums, i, j); // 交换这两个元素
+    }
+    swap(nums, i, left);  // 将基准数交换至两子数组的分界线
+    return i;             // 返回基准数的索引
+}
+```
+
+### 1.29.1 算法流程
+
+快速排序的整体流程如下图所示。
+
+1. 首先，对原数组执行一次“哨兵划分”，得到未排序的左子数组和右子数组。
+2. 然后，对左子数组和右子数组分别递归执行“哨兵划分”。
+3. 持续递归，直至子数组长度为 1 时终止，从而完成整个数组的排序。
+
+![快速排序流程](../assets/images/10-算法/194.quick_sort_overview.png)
+
+```java
+/* 快速排序 */
+void quickSort(int[] nums, int left, int right) {
+    // 子数组长度为 1 时终止递归
+    if (left >= right)
+        return;
+    // 哨兵划分
+    int pivot = partition(nums, left, right);
+    // 递归左子数组、右子数组
+    quickSort(nums, left, pivot - 1);
+    quickSort(nums, pivot + 1, right);
+}
+```
+
+### 1.29.2 算法特性
+
+- **时间复杂度为 $O(n \log n)$、非自适应排序**：在平均情况下，哨兵划分的递归层数为 $\log n$ ，每层中的总循环数为 $n$ ，总体使用 $O(n \log n)$ 时间。在最差情况下，每轮哨兵划分操作都将长度为 $n$ 的数组划分为长度为 $0$ 和 $n - 1$ 的两个子数组，此时递归层数达到 $n$ ，每层中的循环数为 $n$ ，总体使用 $O(n^2)$ 时间。
+- **空间复杂度为 $O(n)$、原地排序**：在输入数组完全倒序的情况下，达到最差递归深度 $n$ ，使用 $O(n)$ 栈帧空间。排序操作是在原数组上进行的，未借助额外数组。
+- **非稳定排序**：在哨兵划分的最后一步，基准数可能会被交换至相等元素的右侧。
+
+### 1.29.3 快速排序为什么快
+
+从名称上就能看出，快速排序在效率方面应该具有一定的优势。尽管快速排序的平均时间复杂度与“归并排序”和“堆排序”相同，但通常快速排序的效率更高，主要有以下原因。
+
+- **出现最差情况的概率很低**：虽然快速排序的最差时间复杂度为 $O(n^2)$ ，没有归并排序稳定，但在绝大多数情况下，快速排序能在 $O(n \log n)$ 的时间复杂度下运行。
+- **缓存使用效率高**：在执行哨兵划分操作时，系统可将整个子数组加载到缓存，因此访问元素的效率较高。而像“堆排序”这类算法需要跳跃式访问元素，从而缺乏这一特性。
+- **复杂度的常数系数小**：在上述三种算法中，快速排序的比较、赋值、交换等操作的总数量最少。这与“插入排序”比“冒泡排序”更快的原因类似。
+
+### 1.29.4 基准数优化
+
+**快速排序在某些输入下的时间效率可能降低**。举一个极端例子，假设输入数组是完全倒序的，由于我们选择最左端元素作为基准数，那么在哨兵划分完成后，基准数被交换至数组最右端，导致左子数组长度为 $n - 1$、右子数组长度为 $0$ 。如此递归下去，每轮哨兵划分后都有一个子数组的长度为 $0$ ，分治策略失效，快速排序退化为“冒泡排序”的近似形式。
+
+为了尽量避免这种情况发生，**我们可以优化哨兵划分中的基准数的选取策略**。例如，我们可以随机选取一个元素作为基准数。然而，如果运气不佳，每次都选到不理想的基准数，效率仍然不尽如人意。
+
+需要注意的是，编程语言通常生成的是“伪随机数”。如果我们针对伪随机数序列构建一个特定的测试样例，那么快速排序的效率仍然可能劣化。
+
+为了进一步改进，我们可以在数组中选取三个候选元素（通常为数组的首、尾、中点元素），**并将这三个候选元素的中位数作为基准数**。这样一来，基准数“既不太小也不太大”的概率将大幅提升。当然，我们还可以选取更多候选元素，以进一步提高算法的稳健性。采用这种方法后，时间复杂度劣化至 $O(n^2)$ 的概率大大降低。
+
+示例代码如下：
+
+```java
+/* 选取三个候选元素的中位数 */
+int medianThree(int[] nums, int left, int mid, int right) {
+    int l = nums[left], m = nums[mid], r = nums[right];
+    if ((l <= m && m <= r) || (r <= m && m <= l))
+        return mid; // m 在 l 和 r 之间
+    if ((m <= l && l <= r) || (r <= l && l <= m))
+        return left; // l 在 m 和 r 之间
+    return right;
+}
+
+/* 哨兵划分（三数取中值） */
+int partition(int[] nums, int left, int right) {
+    // 选取三个候选元素的中位数
+    int med = medianThree(nums, left, (left + right) / 2, right);
+    // 将中位数交换至数组最左端
+    swap(nums, left, med);
+    // 以 nums[left] 为基准数
+    int i = left, j = right;
+    while (i < j) {
+        while (i < j && nums[j] >= nums[left])
+            j--;          // 从右向左找首个小于基准数的元素
+        while (i < j && nums[i] <= nums[left])
+            i++;          // 从左向右找首个大于基准数的元素
+        swap(nums, i, j); // 交换这两个元素
+    }
+    swap(nums, i, left);  // 将基准数交换至两子数组的分界线
+    return i;             // 返回基准数的索引
+}
+```
+
+### 1.29.5 递归深度优化
+
+**在某些输入下，快速排序可能占用空间较多**。以完全有序的输入数组为例，设递归中的子数组长度为 $m$ ，每轮哨兵划分操作都将产生长度为 $0$ 的左子数组和长度为 $m - 1$ 的右子数组，这意味着每一层递归调用减少的问题规模非常小（只减少一个元素），递归树的高度会达到 $n - 1$ ，此时需要占用 $O(n)$ 大小的栈帧空间。
+
+为了防止栈帧空间的累积，我们可以在每轮哨兵排序完成后，比较两个子数组的长度，**仅对较短的子数组进行递归**。由于较短子数组的长度不会超过 $n / 2$ ，因此这种方法能确保递归深度不超过 $\log n$ ，从而将最差空间复杂度优化至 $O(\log n)$ 。代码如下所示：
+
+```java
+/* 快速排序（递归深度优化） */
+void quickSort(int[] nums, int left, int right) {
+    // 子数组长度为 1 时终止
+    while (left < right) {
+        // 哨兵划分操作
+        int pivot = partition(nums, left, right);
+        // 对两个子数组中较短的那个执行快速排序
+        if (pivot - left < right - pivot) {
+            quickSort(nums, left, pivot - 1); // 递归排序左子数组
+            left = pivot + 1; // 剩余未排序区间为 [pivot + 1, right]
+        } else {
+            quickSort(nums, pivot + 1, right); // 递归排序右子数组
+            right = pivot - 1; // 剩余未排序区间为 [left, pivot - 1]
+        }
+    }
+}
+```
+
 
 # 三、算法题目详解
