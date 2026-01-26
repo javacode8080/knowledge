@@ -5011,6 +5011,905 @@ void quickSort(int[] nums, int left, int right) {
     }
 }
 ```
+## 1.30 归并排序
+
+<u>归并排序（merge sort）</u>是一种基于分治策略的排序算法，包含下图所示的“划分”和“合并”阶段。
+
+1. **划分阶段**：通过递归不断地将数组从中点处分开，将长数组的排序问题转换为短数组的排序问题。
+2. **合并阶段**：当子数组长度为 1 时终止划分，开始合并，持续地将左右两个较短的有序数组合并为一个较长的有序数组，直至结束。
+
+![归并排序的划分与合并阶段](../assets/images/10-算法/195.merge_sort_overview.png)
+
+### 1.30.1 算法流程
+
+如下图所示，“划分阶段”从顶至底递归地将数组从中点切分为两个子数组。
+
+1. 计算数组中点 `mid` ，递归划分左子数组（区间 `[left, mid]` ）和右子数组（区间 `[mid + 1, right]` ）。
+2. 递归执行步骤 `1.` ，直至子数组区间长度为 1 时终止。
+
+“合并阶段”从底至顶地将左子数组和右子数组合并为一个有序数组。需要注意的是，从长度为 1 的子数组开始合并，合并阶段中的每个子数组都是有序的。
+
+=== "<1>"
+    ![归并排序步骤](../assets/images/10-算法/196.merge_sort_step1.png)
+
+=== "<2>"
+    ![merge_sort_step2](../assets/images/10-算法/197.merge_sort_step2.png)
+
+=== "<3>"
+    ![merge_sort_step3](../assets/images/10-算法/198.merge_sort_step3.png)
+
+=== "<4>"
+    ![merge_sort_step4](../assets/images/10-算法/199.merge_sort_step4.png)
+
+=== "<5>"
+    ![merge_sort_step5](../assets/images/10-算法/200.merge_sort_step5.png)
+
+=== "<6>"
+    ![merge_sort_step6](../assets/images/10-算法/201.merge_sort_step6.png)
+
+=== "<7>"
+    ![merge_sort_step7](../assets/images/10-算法/202.merge_sort_step7.png)
+
+=== "<8>"
+    ![merge_sort_step8](../assets/images/10-算法/203.merge_sort_step8.png)
+
+=== "<9>"
+    ![merge_sort_step9](../assets/images/10-算法/204.merge_sort_step9.png)
+
+=== "<10>"
+    ![merge_sort_step10](../assets/images/10-算法/205.merge_sort_step10.png)
+
+观察发现，归并排序与二叉树后序遍历的递归顺序是一致的。
+
+- **后序遍历**：先递归左子树，再递归右子树，最后处理根节点。
+- **归并排序**：先递归左子数组，再递归右子数组，最后处理合并。
+
+归并排序的实现如以下代码所示。请注意，`nums` 的待合并区间为 `[left, right]` ，而 `tmp` 的对应区间为 `[0, right - left]` 。
+
+```java
+/* 合并左子数组和右子数组 */
+void merge(int[] nums, int left, int mid, int right) {
+    // 左子数组区间为 [left, mid], 右子数组区间为 [mid+1, right]
+    // 创建一个临时数组 tmp ，用于存放合并后的结果
+    int[] tmp = new int[right - left + 1];
+    // 初始化左子数组和右子数组的起始索引
+    int i = left, j = mid + 1, k = 0;
+    // 当左右子数组都还有元素时，进行比较并将较小的元素复制到临时数组中
+    while (i <= mid && j <= right) {
+        if (nums[i] <= nums[j])
+            tmp[k++] = nums[i++];
+        else
+            tmp[k++] = nums[j++];
+    }
+    // 将左子数组和右子数组的剩余元素复制到临时数组中
+    while (i <= mid) {
+        tmp[k++] = nums[i++];
+    }
+    while (j <= right) {
+        tmp[k++] = nums[j++];
+    }
+    // 将临时数组 tmp 中的元素复制回原数组 nums 的对应区间
+    for (k = 0; k < tmp.length; k++) {
+        nums[left + k] = tmp[k];
+    }
+}
+
+/* 归并排序 */
+void mergeSort(int[] nums, int left, int right) {
+    // 终止条件
+    if (left >= right)
+        return; // 当子数组长度为 1 时终止递归
+    // 划分阶段
+    int mid = left + (right - left) / 2; // 计算中点
+    mergeSort(nums, left, mid); // 递归左子数组
+    mergeSort(nums, mid + 1, right); // 递归右子数组
+    // 合并阶段
+    merge(nums, left, mid, right);
+}
+```
+
+### 1.30.2 算法特性
+
+- **时间复杂度为 $O(n \log n)$、非自适应排序**：划分产生高度为 $\log n$ 的递归树，每层合并的总操作数量为 $n$ ，因此总体时间复杂度为 $O(n \log n)$ 。
+- **空间复杂度为 $O(n)$、非原地排序**：递归深度为 $\log n$ ，使用 $O(\log n)$ 大小的栈帧空间。合并操作需要借助辅助数组实现，使用 $O(n)$ 大小的额外空间。
+- **稳定排序**：在合并过程中，相等元素的次序保持不变。
+
+### 1.30.3 链表排序
+
+对于链表，归并排序相较于其他排序算法具有显著优势，**可以将链表排序任务的空间复杂度优化至 $O(1)$** 。
+
+- **划分阶段**：可以使用“迭代”替代“递归”来实现链表划分工作，从而省去递归使用的栈帧空间。
+- **合并阶段**：在链表中，节点增删操作仅需改变引用（指针）即可实现，因此合并阶段（将两个短有序链表合并为一个长有序链表）无须创建额外链表。
+
+具体实现细节比较复杂，有兴趣的读者可以查阅相关资料进行学习。
+
+## 1.31 堆排序
+
+!!! tip
+
+    阅读本节前，请确保已学完“堆”章节。
+
+<u>堆排序（heap sort）</u>是一种基于堆数据结构实现的高效排序算法。我们可以利用已经学过的“建堆操作”和“元素出堆操作”实现堆排序。
+
+1. 输入数组并建立小顶堆，此时最小元素位于堆顶。
+2. 不断执行出堆操作，依次记录出堆元素，即可得到从小到大排序的序列。
+
+以上方法虽然可行，但需要借助一个额外数组来保存弹出的元素，比较浪费空间。在实际中，我们通常使用一种更加优雅的实现方式。
+
+### 1.31.1 算法流程
+
+设数组的长度为 $n$ ，堆排序的流程如下图所示。
+
+1. 输入数组并建立大顶堆。完成后，最大元素位于堆顶。
+2. 将堆顶元素（第一个元素）与堆底元素（最后一个元素）交换。完成交换后，堆的长度减 $1$ ，已排序元素数量加 $1$ 。
+3. 从堆顶元素开始，从顶到底执行堆化操作（sift down）。完成堆化后，堆的性质得到修复。
+4. 循环执行第 `2.` 步和第 `3.` 步。循环 $n - 1$ 轮后，即可完成数组排序。
+
+!!! tip
+
+    实际上，元素出堆操作中也包含第 `2.` 步和第 `3.` 步，只是多了一个弹出元素的步骤。
+
+=== "<1>"
+    ![堆排序步骤](../assets/images/10-算法/206.heap_sort_step1.png)
+
+=== "<2>"
+    ![heap_sort_step2](../assets/images/10-算法/207.heap_sort_step2.png)
+
+=== "<3>"
+    ![heap_sort_step3](../assets/images/10-算法/208.heap_sort_step3.png)
+
+=== "<4>"
+    ![heap_sort_step4](../assets/images/10-算法/209.heap_sort_step4.png)
+
+=== "<5>"
+    ![heap_sort_step5](../assets/images/10-算法/210.heap_sort_step5.png)
+
+=== "<6>"
+    ![heap_sort_step6](../assets/images/10-算法/211.heap_sort_step6.png)
+
+=== "<7>"
+    ![heap_sort_step7](../assets/images/10-算法/212.heap_sort_step7.png)
+
+=== "<8>"
+    ![heap_sort_step8](../assets/images/10-算法/213.heap_sort_step8.png)
+
+=== "<9>"
+    ![heap_sort_step9](../assets/images/10-算法/214.heap_sort_step9.png)
+
+=== "<10>"
+    ![heap_sort_step10](../assets/images/10-算法/215.heap_sort_step10.png)
+
+=== "<11>"
+    ![heap_sort_step11](../assets/images/10-算法/216.heap_sort_step11.png)
+
+=== "<12>"
+    ![heap_sort_step12](../assets/images/10-算法/217.heap_sort_step12.png)
+
+在代码实现中，我们使用了与“堆”章节相同的从顶至底堆化 `sift_down()` 函数。值得注意的是，由于堆的长度会随着提取最大元素而减小，因此我们需要给 `sift_down()` 函数添加一个长度参数 $n$ ，用于指定堆的当前有效长度。代码如下所示：
+
+```java
+/* 堆的长度为 n ，从节点 i 开始，从顶至底堆化 */
+void siftDown(int[] nums, int n, int i) {
+    while (true) {
+        // 判断节点 i, l, r 中值最大的节点，记为 ma
+        int l = 2 * i + 1;
+        int r = 2 * i + 2;
+        int ma = i;
+        if (l < n && nums[l] > nums[ma])
+            ma = l;
+        if (r < n && nums[r] > nums[ma])
+            ma = r;
+        // 若节点 i 最大或索引 l, r 越界，则无须继续堆化，跳出
+        if (ma == i)
+            break;
+        // 交换两节点
+        int temp = nums[i];
+        nums[i] = nums[ma];
+        nums[ma] = temp;
+        // 循环向下堆化
+        i = ma;
+    }
+}
+
+/* 堆排序 */
+void heapSort(int[] nums) {
+    // 建堆操作：堆化除叶节点以外的其他所有节点
+    for (int i = nums.length / 2 - 1; i >= 0; i--) {
+        siftDown(nums, nums.length, i);
+    }
+    // 从堆中提取最大元素，循环 n-1 轮
+    for (int i = nums.length - 1; i > 0; i--) {
+        // 交换根节点与最右叶节点（交换首元素与尾元素）
+        int tmp = nums[0];
+        nums[0] = nums[i];
+        nums[i] = tmp;
+        // 以根节点为起点，从顶至底进行堆化
+        siftDown(nums, i, 0);
+    }
+}
+```
+
+### 1.31.2 算法特性
+
+- **时间复杂度为 $O(n \log n)$、非自适应排序**：建堆操作使用 $O(n)$ 时间。从堆中提取最大元素的时间复杂度为 $O(\log n)$ ，共循环 $n - 1$ 轮。
+- **空间复杂度为 $O(1)$、原地排序**：几个指针变量使用 $O(1)$ 空间。元素交换和堆化操作都是在原数组上进行的。
+- **非稳定排序**：在交换堆顶元素和堆底元素时，相等元素的相对位置可能发生变化。
+
+## 1.32 桶排序
+
+前述几种排序算法都属于“基于比较的排序算法”，它们通过比较元素间的大小来实现排序。此类排序算法的时间复杂度无法超越 $O(n \log n)$ 。接下来，我们将探讨几种“非比较排序算法”，它们的时间复杂度可以达到线性阶。
+
+<u>桶排序（bucket sort）</u>是分治策略的一个典型应用。它通过设置一些具有大小顺序的桶，每个桶对应一个数据范围，将数据平均分配到各个桶中；然后，在每个桶内部分别执行排序；最终按照桶的顺序将所有数据合并。
+
+### 1.32.1 算法流程
+
+考虑一个长度为 $n$ 的数组，其元素是范围 $[0, 1)$ 内的浮点数。桶排序的流程如下图所示。
+
+1. 初始化 $k$ 个桶，将 $n$ 个元素分配到 $k$ 个桶中。
+2. 对每个桶分别执行排序（这里采用编程语言的内置排序函数）。
+3. 按照桶从小到大的顺序合并结果。
+
+![桶排序算法流程](../assets/images/10-算法/218.bucket_sort_overview.png)
+
+代码如下所示：
+
+```java
+/* 桶排序 */
+void bucketSort(float[] nums) {
+    // 初始化 k = n/2 个桶，预期向每个桶分配 2 个元素
+    int k = nums.length / 2;
+    List<List<Float>> buckets = new ArrayList<>();
+    for (int i = 0; i < k; i++) {
+        buckets.add(new ArrayList<>());
+    }
+    // 1. 将数组元素分配到各个桶中
+    for (float num : nums) {
+        // 输入数据范围为 [0, 1)，使用 num * k 映射到索引范围 [0, k-1]
+        int i = (int) (num * k);
+        // 将 num 添加进桶 i
+        buckets.get(i).add(num);
+    }
+    // 2. 对各个桶执行排序
+    for (List<Float> bucket : buckets) {
+        // 使用内置排序函数，也可以替换成其他排序算法
+        Collections.sort(bucket);
+    }
+    // 3. 遍历桶合并结果
+    int i = 0;
+    for (List<Float> bucket : buckets) {
+        for (float num : bucket) {
+            nums[i++] = num;
+        }
+    }
+}
+```
+
+### 1.32.2 算法特性
+
+桶排序适用于处理体量很大的数据。例如，输入数据包含 100 万个元素，由于空间限制，系统内存无法一次性加载所有数据。此时，可以将数据分成 1000 个桶，然后分别对每个桶进行排序，最后将结果合并。
+
+- **时间复杂度为 $O(n + k)$** ：假设元素在各个桶内平均分布，那么每个桶内的元素数量为 $\frac{n}{k}$ 。假设排序单个桶使用 $O(\frac{n}{k} \log\frac{n}{k})$ 时间，则排序所有桶使用 $O(n \log\frac{n}{k})$ 时间。**当桶数量 $k$ 比较大时，时间复杂度则趋向于 $O(n)$** 。合并结果时需要遍历所有桶和元素，花费 $O(n + k)$ 时间。在最差情况下，所有数据被分配到一个桶中，且排序该桶使用 $O(n^2)$ 时间。
+- **空间复杂度为 $O(n + k)$、非原地排序**：需要借助 $k$ 个桶和总共 $n$ 个元素的额外空间。
+- 桶排序是否稳定取决于排序桶内元素的算法是否稳定。
+
+## 如何实现平均分配
+
+桶排序的时间复杂度理论上可以达到 $O(n)$ ，**关键在于将元素均匀分配到各个桶中**，因为实际数据往往不是均匀分布的。例如，我们想要将淘宝上的所有商品按价格范围平均分配到 10 个桶中，但商品价格分布不均，低于 100 元的非常多，高于 1000 元的非常少。若将价格区间平均划分为 10 个，各个桶中的商品数量差距会非常大。
+
+为实现平均分配，我们可以先设定一条大致的分界线，将数据粗略地分到 3 个桶中。**分配完毕后，再将商品较多的桶继续划分为 3 个桶，直至所有桶中的元素数量大致相等**。
+
+如下图所示，这种方法本质上是创建一棵递归树，目标是让叶节点的值尽可能平均。当然，不一定要每轮将数据划分为 3 个桶，具体划分方式可根据数据特点灵活选择。
+
+![递归划分桶](../assets/images/10-算法/219.scatter_in_buckets_recursively.png)
+
+如果我们提前知道商品价格的概率分布，**则可以根据数据概率分布设置每个桶的价格分界线**。值得注意的是，数据分布并不一定需要特意统计，也可以根据数据特点采用某种概率模型进行近似。
+
+如下图所示，我们假设商品价格服从正态分布，这样就可以合理地设定价格区间，从而将商品平均分配到各个桶中。
+
+![根据概率分布划分桶](../assets/images/10-算法/220.scatter_in_buckets_distribution.png)
+
+## 1.33 计数排序
+
+<u>计数排序（counting sort）</u>通过统计元素数量来实现排序，通常应用于整数数组。
+
+### 1.33.1 简单实现
+
+先来看一个简单的例子。给定一个长度为 $n$ 的数组 `nums` ，其中的元素都是“非负整数”，计数排序的整体流程如下图所示。
+
+1. 遍历数组，找出其中的最大数字，记为 $m$ ，然后创建一个长度为 $m + 1$ 的辅助数组 `counter` 。
+2. **借助 `counter` 统计 `nums` 中各数字的出现次数**，其中 `counter[num]` 对应数字 `num` 的出现次数。统计方法很简单，只需遍历 `nums`（设当前数字为 `num`），每轮将 `counter[num]` 增加 $1$ 即可。
+3. **由于 `counter` 的各个索引天然有序，因此相当于所有数字已经排序好了**。接下来，我们遍历 `counter` ，根据各数字出现次数从小到大的顺序填入 `nums` 即可。
+
+![计数排序流程](../assets/images/10-算法/221.counting_sort_overview.png)
+
+代码如下所示：
+
+```java
+/* 计数排序 */
+// 简单实现，无法用于排序对象
+void countingSortNaive(int[] nums) {
+    // 1. 统计数组最大元素 m
+    int m = 0;
+    for (int num : nums) {
+        m = Math.max(m, num);
+    }
+    // 2. 统计各数字的出现次数
+    // counter[num] 代表 num 的出现次数
+    int[] counter = new int[m + 1];
+    for (int num : nums) {
+        counter[num]++;
+    }
+    // 3. 遍历 counter ，将各元素填入原数组 nums
+    int i = 0;
+    for (int num = 0; num < m + 1; num++) {
+        for (int j = 0; j < counter[num]; j++, i++) {
+            nums[i] = num;
+        }
+    }
+}
+```
+
+!!! note "计数排序与桶排序的联系"
+
+    从桶排序的角度看，我们可以将计数排序中的计数数组 `counter` 的每个索引视为一个桶，将统计数量的过程看作将各个元素分配到对应的桶中。本质上，计数排序是桶排序在整型数据下的一个特例。
+
+### 1.33.2 完整实现
+
+细心的读者可能发现了，**如果输入数据是对象，上述步骤 `3.` 就失效了**。假设输入数据是商品对象，我们想按照商品价格（类的成员变量）对商品进行排序，而上述算法只能给出价格的排序结果。
+
+那么如何才能得到原数据的排序结果呢？我们首先计算 `counter` 的“前缀和”。顾名思义，索引 `i` 处的前缀和 `prefix[i]` 等于数组前 `i` 个元素之和：
+
+$$
+\text{prefix}[i] = \sum_{j=0}^i \text{counter[j]}
+$$
+
+**前缀和具有明确的意义，`prefix[num] - 1` 代表元素 `num` 在结果数组 `res` 中最后一次出现的索引**。这个信息非常关键，因为它告诉我们各个元素应该出现在结果数组的哪个位置。接下来，我们倒序遍历原数组 `nums` 的每个元素 `num` ，在每轮迭代中执行以下两步。
+
+1. 将 `num` 填入数组 `res` 的索引 `prefix[num] - 1` 处。
+2. 令前缀和 `prefix[num]` 减小 $1$ ，从而得到下次放置 `num` 的索引。
+
+遍历完成后，数组 `res` 中就是排序好的结果，最后使用 `res` 覆盖原数组 `nums` 即可。下图展示了完整的计数排序流程。
+
+=== "<1>"
+    ![计数排序步骤](../assets/images/10-算法/222.counting_sort_step1.png)
+
+=== "<2>"
+    ![counting_sort_step2](../assets/images/10-算法/223.counting_sort_step2.png)
+
+=== "<3>"
+    ![counting_sort_step3](../assets/images/10-算法/224.counting_sort_step3.png)
+
+=== "<4>"
+    ![counting_sort_step4](../assets/images/10-算法/225.counting_sort_step4.png)
+
+=== "<5>"
+    ![counting_sort_step5](../assets/images/10-算法/226.counting_sort_step5.png)
+
+=== "<6>"
+    ![counting_sort_step6](../assets/images/10-算法/227.counting_sort_step6.png)
+
+=== "<7>"
+    ![counting_sort_step7](../assets/images/10-算法/228.counting_sort_step7.png)
+
+=== "<8>"
+    ![counting_sort_step8](../assets/images/10-算法/229.counting_sort_step8.png)
+
+计数排序的实现代码如下所示：
+
+```java
+/* 计数排序 */
+// 完整实现，可排序对象，并且是稳定排序
+void countingSort(int[] nums) {
+    // 1. 统计数组最大元素 m
+    int m = 0;
+    for (int num : nums) {
+        m = Math.max(m, num);
+    }
+    // 2. 统计各数字的出现次数
+    // counter[num] 代表 num 的出现次数
+    int[] counter = new int[m + 1];
+    for (int num : nums) {
+        counter[num]++;
+    }
+    // 3. 求 counter 的前缀和，将“出现次数”转换为“尾索引”
+    // 即 counter[num]-1 是 num 在 res 中最后一次出现的索引
+    for (int i = 0; i < m; i++) {
+        counter[i + 1] += counter[i];
+    }
+    // 4. 倒序遍历 nums ，将各元素填入结果数组 res
+    // 初始化数组 res 用于记录结果
+    int n = nums.length;
+    int[] res = new int[n];
+    for (int i = n - 1; i >= 0; i--) {
+        int num = nums[i];
+        res[counter[num] - 1] = num; // 将 num 放置到对应索引处
+        counter[num]--; // 令前缀和自减 1 ，得到下次放置 num 的索引
+    }
+    // 使用结果数组 res 覆盖原数组 nums
+    for (int i = 0; i < n; i++) {
+        nums[i] = res[i];
+    }
+}
+```
+
+### 1.33.3 算法特性
+
+- **时间复杂度为 $O(n + m)$、非自适应排序** ：涉及遍历 `nums` 和遍历 `counter` ，都使用线性时间。一般情况下 $n \gg m$ ，时间复杂度趋于 $O(n)$ 。
+- **空间复杂度为 $O(n + m)$、非原地排序**：借助了长度分别为 $n$ 和 $m$ 的数组 `res` 和 `counter` 。
+- **稳定排序**：由于向 `res` 中填充元素的顺序是“从右向左”的，因此倒序遍历 `nums` 可以避免改变相等元素之间的相对位置，从而实现稳定排序。实际上，正序遍历 `nums` 也可以得到正确的排序结果，但结果是非稳定的。
+
+### 1.33.4 局限性
+
+看到这里，你也许会觉得计数排序非常巧妙，仅通过统计数量就可以实现高效的排序。然而，使用计数排序的前置条件相对较为严格。
+
+**计数排序只适用于非负整数**。若想将其用于其他类型的数据，需要确保这些数据可以转换为非负整数，并且在转换过程中不能改变各个元素之间的相对大小关系。例如，对于包含负数的整数数组，可以先给所有数字加上一个常数，将全部数字转化为正数，排序完成后再转换回去。
+
+**计数排序适用于数据量大但数据范围较小的情况**。比如，在上述示例中 $m$ 不能太大，否则会占用过多空间。而当 $n \ll m$ 时，计数排序使用 $O(m)$ 时间，可能比 $O(n \log n)$ 的排序算法还要慢。
+
+## 1.34 基数排序
+
+上一节介绍了计数排序，它适用于数据量 $n$ 较大但数据范围 $m$ 较小的情况。假设我们需要对 $n = 10^6$ 个学号进行排序，而学号是一个 $8$ 位数字，这意味着数据范围 $m = 10^8$ 非常大，使用计数排序需要分配大量内存空间，而基数排序可以避免这种情况。
+
+<u>基数排序（radix sort）</u>的核心思想与计数排序一致，也通过统计个数来实现排序。在此基础上，基数排序利用数字各位之间的递进关系，依次对每一位进行排序，从而得到最终的排序结果。
+
+### 1.34.1 算法流程
+
+以学号数据为例，假设数字的最低位是第 $1$ 位，最高位是第 $8$ 位，基数排序的流程如下图所示。
+
+1. 初始化位数 $k = 1$ 。
+2. 对学号的第 $k$ 位执行“计数排序”。完成后，数据会根据第 $k$ 位从小到大排序。
+3. 将 $k$ 增加 $1$ ，然后返回步骤 `2.` 继续迭代，直到所有位都排序完成后结束。
+
+![基数排序算法流程](../assets/images/10-算法/230.radix_sort_overview.png)
+
+下面剖析代码实现。对于一个 $d$ 进制的数字 $x$ ，要获取其第 $k$ 位 $x_k$ ，可以使用以下计算公式：
+
+$$
+x_k = \lfloor\frac{x}{d^{k-1}}\rfloor \bmod d
+$$
+
+其中 $\lfloor a \rfloor$ 表示对浮点数 $a$ 向下取整，而 $\bmod \: d$ 表示对 $d$ 取模（取余）。对于学号数据，$d = 10$ 且 $k \in [1, 8]$ 。
+
+此外，我们需要小幅改动计数排序代码，使之可以根据数字的第 $k$ 位进行排序：
+
+```java
+/* 获取元素 num 的第 k 位，其中 exp = 10^(k-1) */
+int digit(int num, int exp) {
+    // 传入 exp 而非 k 可以避免在此重复执行昂贵的次方计算
+    return (num / exp) % 10;
+}
+
+/* 计数排序（根据 nums 第 k 位排序） */
+void countingSortDigit(int[] nums, int exp) {
+    // 十进制的位范围为 0~9 ，因此需要长度为 10 的桶数组
+    int[] counter = new int[10];
+    int n = nums.length;
+    // 统计 0~9 各数字的出现次数
+    for (int i = 0; i < n; i++) {
+        int d = digit(nums[i], exp); // 获取 nums[i] 第 k 位，记为 d
+        counter[d]++;                // 统计数字 d 的出现次数
+    }
+    // 求前缀和，将“出现个数”转换为“数组索引”
+    for (int i = 1; i < 10; i++) {
+        counter[i] += counter[i - 1];
+    }
+    // 倒序遍历，根据桶内统计结果，将各元素填入 res
+    int[] res = new int[n];
+    for (int i = n - 1; i >= 0; i--) {
+        int d = digit(nums[i], exp);
+        int j = counter[d] - 1; // 获取 d 在数组中的索引 j
+        res[j] = nums[i];       // 将当前元素填入索引 j
+        counter[d]--;           // 将 d 的数量减 1
+    }
+    // 使用结果覆盖原数组 nums
+    for (int i = 0; i < n; i++)
+        nums[i] = res[i];
+}
+
+/* 基数排序 */
+void radixSort(int[] nums) {
+    // 获取数组的最大元素，用于判断最大位数
+    int m = Integer.MIN_VALUE;
+    for (int num : nums)
+        if (num > m)
+            m = num;
+    // 按照从低位到高位的顺序遍历
+    for (int exp = 1; exp <= m; exp *= 10) {
+        // 对数组元素的第 k 位执行计数排序
+        // k = 1 -> exp = 1
+        // k = 2 -> exp = 10
+        // 即 exp = 10^(k-1)
+        countingSortDigit(nums, exp);
+    }
+}
+```
+
+!!! question "为什么从最低位开始排序？"
+
+    在连续的排序轮次中，后一轮排序会覆盖前一轮排序的结果。举例来说，如果第一轮排序结果 $a < b$ ，而第二轮排序结果 $a > b$ ，那么第二轮的结果将取代第一轮的结果。由于数字的高位优先级高于低位，因此应该先排序低位再排序高位。
+
+### 1.34.2 算法特性
+
+相较于计数排序，基数排序适用于数值范围较大的情况，**但前提是数据必须可以表示为固定位数的格式，且位数不能过大**。例如，浮点数不适合使用基数排序，因为其位数 $k$ 过大，可能导致时间复杂度 $O(nk) \gg O(n^2)$ 。
+
+- **时间复杂度为 $O(nk)$、非自适应排序**：设数据量为 $n$、数据为 $d$ 进制、最大位数为 $k$ ，则对某一位执行计数排序使用 $O(n + d)$ 时间，排序所有 $k$ 位使用 $O((n + d)k)$ 时间。通常情况下，$d$ 和 $k$ 都相对较小，时间复杂度趋向 $O(n)$ 。
+- **空间复杂度为 $O(n + d)$、非原地排序**：与计数排序相同，基数排序需要借助长度为 $n$ 和 $d$ 的数组 `res` 和 `counter` 。
+- **稳定排序**：当计数排序稳定时，基数排序也稳定；当计数排序不稳定时，基数排序无法保证得到正确的排序结果。
+
+### 排序 - 代码demo
+```java
+package MyTest.sort;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * @author sunjian23
+ * @title Sort
+ * @date 2026/1/23 15:43
+ * @description TODO
+ */
+public class Sort {
+
+    /* 元素交换 */
+    public static void swap(int[] nums, int i, int j) {
+        int tmp = nums[i];
+        nums[i] = nums[j];
+        nums[j] = tmp;
+    }
+
+    //1.选择排序（非稳定排序）
+    public static int[] selectSort(int[] nums) {
+        for (int i = 0; i < nums.length - 1; i++) {
+            int minIndex = i;
+            for (int j = i + 1; j < nums.length; j++) {
+                if (nums[minIndex] > nums[j]) {
+                    minIndex = j;
+                }
+            }
+            swap(nums, i, minIndex);
+        }
+        return nums;
+    }
+
+    //2.冒泡排序（稳定排序）
+    public static int[] bubbleSort(int[] nums) {
+        for (int i = nums.length - 1; i > 0; i--) {
+            boolean flag = false; // 初始化标志位
+            for (int j = 0; j < i; j++) {
+                if (nums[j] > nums[j + 1]) {
+                    swap(nums, j, j + 1);
+                    flag = true;
+                }
+            }
+            if (!flag) break; // 此轮“冒泡”未交换任何元素，直接跳出
+        }
+        return nums;
+    }
+
+    //3.插入排序（稳定排序）
+    public static int[] insertSort(int[] nums) {
+        // 外循环：已排序区间为 [0, i-1]
+        for (int i = 1; i < nums.length; i++) {
+            int base = nums[i], j = i - 1;
+            // 内循环：将 base 插入到已排序区间 [0, i-1] 中的正确位置
+            while (j >= 0 && nums[j] > base) {
+                nums[j + 1] = nums[j]; // 将 nums[j] 向右移动一位
+                j--;
+            }
+            nums[j + 1] = base;        // 将 base 赋值到正确位置
+        }
+        return nums;
+    }
+
+    //4. 快速排序（稳定排序）
+    private static int partition(int[] nums, int left, int right) {
+        // 1.选取三个候选元素的中位数
+        int med = medianThree(nums, left, (left + right) / 2, right);
+        // 2.将中位数交换至数组最左端
+        swap(nums, left, med);
+        // 3.以左作为基准
+        int baseIndex = left;
+        // 以 nums[left] 为基准数
+        int base = nums[baseIndex];
+        while (left < right) {
+            //1. 从右侧往前找到第一个小于基准值的数
+            while (nums[right] >= base && right > left) {
+                right--;  // 从右向左找首个小于基准数的元素
+            }
+            //2.从左侧找到第一个大于基准的数
+            while (nums[left] <= base && left < right) {
+                left++; // 从左向右找首个大于基准数的元素
+            }
+            //交换两者的值
+            swap(nums, left, right);
+        }
+        //将基准值进行交换
+        swap(nums, left, baseIndex); // 将基准数交换至两子数组的分界线
+        return left;
+    }
+
+    /* 选取三个候选元素的中位数 */
+    private static int medianThree(int[] nums, int left, int mid, int right) {
+        int l = nums[left], m = nums[mid], r = nums[right];
+        if ((l <= m && m <= r) || (r <= m && m <= l)) return mid; // m 在 l 和 r 之间
+        if ((m <= l && l <= r) || (r <= l && l <= m)) return left; // l 在 m 和 r 之间
+        return right;
+    }
+
+    /* 快速排序（普通方案） */
+//    public static void quickSort(int[] nums, int left, int right) {
+//        if (left < right) {
+//            //1. 先进行第一次划分
+//            int mid = partition(nums, left, right);
+//            //2.进行左递归
+//            quickSort(nums, left, mid - 1);
+//            //3.进行有递归
+//            quickSort(nums, mid + 1, right);
+//        }
+//    }
+
+    /* 快速排序（递归深度优化） */
+    public static void quickSort(int[] nums, int left, int right) {
+        // 子数组长度为 1 时终止
+        // 注意这里和普通递归的区别，这里是while循环，可以理解为先把所有的短分区递归完然后再进入循环去递归长的那部分。
+        // 每次 partition 后，基准点已经处于正确位置，而左右子数组需要进一步排序。
+        // 优化方法通过递归处理一个子数组（较短的），另一个子数组通过循环“推迟”处理。
+        while (left < right) {
+            // 哨兵划分操作
+            int pivot = partition(nums, left, right);
+            // 对两个子数组中较短的那个执行快速排序
+            if (pivot - left < right - pivot) {
+                quickSort(nums, left, pivot - 1); // 递归排序左子数组
+                left = pivot + 1; // 剩余未排序区间为 [pivot + 1, right]
+            } else {
+                quickSort(nums, pivot + 1, right); // 递归排序右子数组
+                right = pivot - 1; // 剩余未排序区间为 [left, pivot - 1]
+            }
+        }
+    }
+
+    public static int[] quickSort(int[] nums) {
+        quickSort(nums, 0, nums.length - 1);
+        return nums;
+    }
+
+    // 归并排序（稳定排序）
+    private static void merge(int[] nums, int left, int right, int mid) {
+        //用来暂存排序的内容
+        int[] temp = new int[right - left + 1];
+        //引入中间变量
+        int i = left, j = mid + 1, k = 0;
+        while (i <= mid && j <= right) {
+            if (nums[i] < nums[j]) {
+                // 左半部分小入
+                temp[k++] = nums[i++];
+            } else {
+                // 右半部分小入
+                temp[k++] = nums[j++];
+            }
+        }
+        //如果左半部分有剩余左入
+        while (i <= mid) {
+            temp[k++] = nums[i++];
+        }
+        //如果右半部分有剩余右入
+        while (j <= right) {
+            temp[k++] = nums[j++];
+        }
+        //合并完成赋值到原始队列中
+        for (int m = 0; m < temp.length; m++) {
+            nums[left++] = temp[m];
+        }
+    }
+
+    private static void mergeSort(int[] nums, int left, int right) {
+        int mid = left + (right - left) / 2;
+        if (left < right) {
+            mergeSort(nums, left, mid);
+            mergeSort(nums, mid + 1, right);
+            merge(nums, left, right, mid);
+        }
+    }
+
+    public static int[] mergeSort(int[] nums) {
+        mergeSort(nums, 0, nums.length - 1);
+        return nums;
+    }
+
+    //堆排序（稳定排序）
+    //1.获取父节点
+    private static int getParent(int i) {
+        if (i == 0) {
+            return -1;
+        }
+        return (i - 1) / 2;
+    }
+
+    //获取左子节点
+    private static int getLeft(int i) {
+        return 2 * i + 1;
+    }
+
+    //获取右子节点
+    private static int getRight(int i) {
+        return 2 * i + 2;
+    }
+
+    private static void shiftDown(int[] nums, int length, int i) {
+        //初始化左右节点数
+        while (true) {
+            int left = getLeft(i);
+            int right = getRight(i);
+            //先假设父节点最大
+            int max = i;
+            // 注意这里非常巧妙，我们采用一个最大值索引记录，然后假定索引最大为父节点然后先和左节点比较如果左节点大就切为左节点，然后再和右节点比较，
+            // 注意比较的都是nums[max]而不是nums[i]，这样就不需要后面再判断这个最大值所以取自哪个节点了。
+            if (left < length && nums[left] > nums[max]) {
+                max = left;
+            }
+            if (right < length && nums[right] > nums[max]) {
+                max = right;
+            }
+            if (max == i) {
+                break;
+            }
+            swap(nums, i, max);
+            i = max;
+        }
+    }
+
+    //建堆（大顶堆）
+    private static void maxHeap(int[] nums, int length) {
+        // 堆化除叶节点以外的其他所有节点
+        for (int i = getParent(length - 1); i >= 0; i--) {
+            shiftDown(nums, length, i);
+        }
+
+    }
+
+    //堆排序
+    public static int[] heapSort(int[] nums) {
+        //1. 建堆
+        maxHeap(nums, nums.length);
+        for (int i = nums.length - 1; i > 0; i--) {
+            //交换0和i的位置(最后一个位置保证是最大值)
+            swap(nums, i, 0);
+            //将剩下的重新进行shiftDown（从第一个元素开始，并且数组长度-1，不排序尾部已经归为的内容）
+            shiftDown(nums, i, 0);
+        }
+        return nums;
+    }
+
+    //桶排序
+    /* 桶排序 */
+    public static float[] bucketSort(float[] nums) {
+        // 初始化 k = n/2 个桶，预期向每个桶分配 2 个元素
+        int k = nums.length / 2;
+        List<List<Float>> buckets = new ArrayList<>();
+        for (int i = 0; i < k; i++) {
+            buckets.add(new ArrayList<>());
+        }
+        // 1. 将数组元素分配到各个桶中
+        for (float num : nums) {
+            // 输入数据范围为 [0, 1)，使用 num * k 映射到索引范围 [0, k-1]
+            int i = (int) (num * k);
+            // 将 num 添加进桶 i
+            buckets.get(i).add(num);
+        }
+        // 2. 对各个桶执行排序
+        for (List<Float> bucket : buckets) {
+            // 使用内置排序函数，也可以替换成其他排序算法
+            Collections.sort(bucket);
+        }
+        // 3. 遍历桶合并结果
+        int i = 0;
+        for (List<Float> bucket : buckets) {
+            for (float num : bucket) {
+                nums[i++] = num;
+            }
+        }
+        return nums;
+    }
+
+    //计数排序
+    public static int[] countSort(int[] nums) {
+        int max = nums[0];
+        for (int i = 1; i < nums.length; i++) {
+            max = Math.max(max, nums[i]);
+        }
+        //可能存在0，所以要申请+1
+        int[] counter = new int[max + 1];
+        for (int num : nums) {
+            counter[num] += 1;
+        }
+        int i = 0;
+        for (int k = 0; k < counter.length; k++) {
+            for (int m = 0; m < counter[k]; m++)
+                nums[i++] = k;
+        }
+        return nums;
+    }
+    //基数排序
+    /* 获取元素 num 的第 k 位，其中 exp = 10^(k-1) */
+    private static int digit(int num, int exp) {
+        // 传入 exp 而非 k 可以避免在此重复执行昂贵的次方计算
+        return (num / exp) % 10;
+    }
+
+    /* 计数排序（根据 nums 第 k 位排序） */
+    private static void countingSortDigit(int[] nums, int exp) {
+        // 十进制的位范围为 0~9 ，因此需要长度为 10 的桶数组
+        int[] counter = new int[10];
+        int n = nums.length;
+        // 统计 0~9 各数字的出现次数
+        for (int i = 0; i < n; i++) {
+            int d = digit(nums[i], exp); // 获取 nums[i] 第 k 位，记为 d
+            counter[d]++;                // 统计数字 d 的出现次数
+        }
+        // 求前缀和，将“出现个数”转换为“数组索引”
+        for (int i = 1; i < 10; i++) {
+            counter[i] += counter[i - 1];
+        }
+        // 倒序遍历，根据桶内统计结果，将各元素填入 res
+        int[] res = new int[n];
+        for (int i = n - 1; i >= 0; i--) {
+            int d = digit(nums[i], exp);
+            int j = counter[d] - 1; // 获取 d 在数组中的索引 j
+            res[j] = nums[i];       // 将当前元素填入索引 j
+            counter[d]--;           // 将 d 的数量减 1
+        }
+        // 使用结果覆盖原数组 nums
+        for (int i = 0; i < n; i++)
+            nums[i] = res[i];
+    }
+
+    /* 基数排序 */
+    public static int[] radixSort(int[] nums) {
+        // 获取数组的最大元素，用于判断最大位数
+        int m = Integer.MIN_VALUE;
+        for (int num : nums)
+            if (num > m)
+                m = num;
+        // 按照从低位到高位的顺序遍历
+        for (int exp = 1; exp <= m; exp *= 10) {
+            // 对数组元素的第 k 位执行计数排序
+            // k = 1 -> exp = 1
+            // k = 2 -> exp = 10
+            // 即 exp = 10^(k-1)
+            countingSortDigit(nums, exp);
+        }
+        return nums;
+    }
+
+
+    public static void main(String[] args) {
+        int[] nums = new int[]{1, 5, 3, 6, 2, 5, 7, 3, 6, 4, 5};
+        float[] nums2 = new float[]{0.1f, 0.5f, 0.3f, 0.6f, 0.2f, 0.5f, 0.7f, 0.3f, 0.6f, 0.4f, 0.5f};
+        //1. 选择排序
+//        System.out.println(Arrays.toString(selectSort(nums)));
+        //2. 冒泡排序
+//        System.out.println(Arrays.toString(bubbleSort(nums)));
+        //3. 插入排序
+//        System.out.println(Arrays.toString(insertSort(nums)));
+        //4. 快速排序
+//        System.out.println(Arrays.toString(quickSort(nums)));
+        //5. 归并排序
+//        System.out.println(Arrays.toString(mergeSort(mergeSort(nums))));
+        //6. 堆排序
+//        System.out.println(Arrays.toString(heapSort(nums)));
+        //7. 桶排序
+//        System.out.println(Arrays.toString(bucketSort(nums2)));
+        //8. 计数排序
+//        System.out.println(Arrays.toString(countSort(nums)));
+        //9. 基数排序
+        System.out.println(Arrays.toString(countSort(nums)));
+    }
+
+}
+```
 
 
 # 三、算法题目详解
