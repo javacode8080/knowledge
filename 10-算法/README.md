@@ -6466,4 +6466,2681 @@ public class DivideAndConquer {
 }
 
 ```
+
+## 1.39 回溯算法
+
+<u>回溯算法（backtracking algorithm）</u>是一种通过穷举来解决问题的方法，它的核心思想是从一个初始状态出发，暴力搜索所有可能的解决方案，当遇到正确的解则将其记录，直到找到解或者尝试了所有可能的选择都无法找到解为止。
+
+回溯算法通常采用“深度优先搜索”来遍历解空间。在“二叉树”章节中，我们提到前序、中序和后序遍历都属于深度优先搜索。接下来，我们利用前序遍历构造一个回溯问题，逐步了解回溯算法的工作原理。
+
+!!! question "例题一"
+
+    给定一棵二叉树，搜索并记录所有值为 $7$ 的节点，请返回节点列表。
+
+对于此题，我们前序遍历这棵树，并判断当前节点的值是否为 $7$ ，若是，则将该节点的值加入结果列表 `res` 之中。相关过程实现如下图和以下代码所示：
+
+```java
+/* 前序遍历：例题一 */
+void preOrder(TreeNode root) {
+    if (root == null) {
+        return;
+    }
+    if (root.val == 7) {
+        // 记录解
+        res.add(root);
+    }
+    preOrder(root.left);
+    preOrder(root.right);
+}
+```
+
+![在前序遍历中搜索节点](../assets/images/10-算法/260.preorder_find_nodes.png)
+
+### 1.39.1 尝试与回退
+
+**之所以称之为回溯算法，是因为该算法在搜索解空间时会采用“尝试”与“回退”的策略**。当算法在搜索过程中遇到某个状态无法继续前进或无法得到满足条件的解时，它会撤销上一步的选择，退回到之前的状态，并尝试其他可能的选择。
+
+对于例题一，访问每个节点都代表一次“尝试”，而越过叶节点或返回父节点的 `return` 则表示“回退”。
+
+值得说明的是，**回退并不仅仅包括函数返回**。为解释这一点，我们对例题一稍作拓展。
+
+!!! question "例题二"
+
+    在二叉树中搜索所有值为 $7$ 的节点，**请返回根节点到这些节点的路径**。
+
+在例题一代码的基础上，我们需要借助一个列表 `path` 记录访问过的节点路径。当访问到值为 $7$ 的节点时，则复制 `path` 并添加进结果列表 `res` 。遍历完成后，`res` 中保存的就是所有的解。代码如下所示：
+
+```java
+/* 前序遍历：例题二 */
+void preOrder(TreeNode root) {
+    if (root == null) {
+        return;
+    }
+    // 尝试
+    path.add(root);
+    if (root.val == 7) {
+        // 记录解
+        res.add(new ArrayList<>(path));
+    }
+    preOrder(root.left);
+    preOrder(root.right);
+    // 回退
+    path.remove(path.size() - 1);
+}
+```
+
+在每次“尝试”中，我们通过将当前节点添加进 `path` 来记录路径；而在“回退”前，我们需要将该节点从 `path` 中弹出，**以恢复本次尝试之前的状态**。
+
+观察下图所示的过程，**我们可以将尝试和回退理解为“前进”与“撤销”**，两个操作互为逆向。
+
+=== "<1>"
+    ![尝试与回退](../assets/images/10-算法/261.preorder_find_paths_step1.png)
+
+=== "<2>"
+    ![preorder_find_paths_step2](../assets/images/10-算法/262.preorder_find_paths_step2.png)
+
+=== "<3>"
+    ![preorder_find_paths_step3](../assets/images/10-算法/263.preorder_find_paths_step3.png)
+
+=== "<4>"
+    ![preorder_find_paths_step4](../assets/images/10-算法/264.preorder_find_paths_step4.png)
+
+=== "<5>"
+    ![preorder_find_paths_step5](../assets/images/10-算法/265.preorder_find_paths_step5.png)
+
+=== "<6>"
+    ![preorder_find_paths_step6](../assets/images/10-算法/266.preorder_find_paths_step6.png)
+
+=== "<7>"
+    ![preorder_find_paths_step7](../assets/images/10-算法/267.preorder_find_paths_step7.png)
+
+=== "<8>"
+    ![preorder_find_paths_step8](../assets/images/10-算法/268.preorder_find_paths_step8.png)
+
+=== "<9>"
+    ![preorder_find_paths_step9](../assets/images/10-算法/269.preorder_find_paths_step9.png)
+
+=== "<10>"
+    ![preorder_find_paths_step10](../assets/images/10-算法/270.preorder_find_paths_step10.png)
+
+=== "<11>"
+    ![preorder_find_paths_step11](../assets/images/10-算法/271.preorder_find_paths_step11.png)
+
+### 1.39.2 剪枝
+
+复杂的回溯问题通常包含一个或多个约束条件，**约束条件通常可用于“剪枝”**。
+
+!!! question "例题三"
+
+    在二叉树中搜索所有值为 $7$ 的节点，请返回根节点到这些节点的路径，**并要求路径中不包含值为 $3$ 的节点**。
+
+为了满足以上约束条件，**我们需要添加剪枝操作**：在搜索过程中，若遇到值为 $3$ 的节点，则提前返回，不再继续搜索。代码如下所示：
+
+```java
+/* 前序遍历：例题三 */
+void preOrder(TreeNode root) {
+    // 剪枝
+    if (root == null || root.val == 3) {
+        return;
+    }
+    // 尝试
+    path.add(root);
+    if (root.val == 7) {
+        // 记录解
+        res.add(new ArrayList<>(path));
+    }
+    preOrder(root.left);
+    preOrder(root.right);
+    // 回退
+    path.remove(path.size() - 1);
+}
+```
+
+“剪枝”是一个非常形象的名词。如下图所示，在搜索过程中，**我们“剪掉”了不满足约束条件的搜索分支**，避免许多无意义的尝试，从而提高了搜索效率。
+
+![根据约束条件剪枝](../assets/images/10-算法/272.preorder_find_constrained_paths.png)
+
+### 1.39.3 框架代码
+
+接下来，我们尝试将回溯的“尝试、回退、剪枝”的主体框架提炼出来，提升代码的通用性。
+
+在以下框架代码中，`state` 表示问题的当前状态，`choices` 表示当前状态下可以做出的选择：
+```java
+    /* 回溯算法框架 */
+    void backtrack(State state, List<Choice> choices, List<State> res) {
+        // 判断是否为解
+        if (isSolution(state)) {
+            // 记录解
+            recordSolution(state, res);
+            // 不再继续搜索
+            return;
+        }
+        // 遍历所有选择
+        for (Choice choice : choices) {
+            // 剪枝：判断选择是否合法
+            if (isValid(state, choice)) {
+                // 尝试：做出选择，更新状态
+                makeChoice(state, choice);
+                backtrack(state, choices, res);
+                // 回退：撤销选择，恢复到之前的状态
+                undoChoice(state, choice);
+            }
+        }
+    }
+```
+
+接下来，我们基于框架代码来解决例题三。状态 `state` 为节点遍历路径，选择 `choices` 为当前节点的左子节点和右子节点，结果 `res` 是路径列表：
+
+```java
+/* 判断当前状态是否为解 */
+boolean isSolution(List<TreeNode> state) {
+    return !state.isEmpty() && state.get(state.size() - 1).val == 7;
+}
+
+/* 记录解 */
+void recordSolution(List<TreeNode> state, List<List<TreeNode>> res) {
+    res.add(new ArrayList<>(state));
+}
+
+/* 判断在当前状态下，该选择是否合法 */
+boolean isValid(List<TreeNode> state, TreeNode choice) {
+    return choice != null && choice.val != 3;
+}
+
+/* 更新状态 */
+void makeChoice(List<TreeNode> state, TreeNode choice) {
+    state.add(choice);
+}
+
+/* 恢复状态 */
+void undoChoice(List<TreeNode> state, TreeNode choice) {
+    state.remove(state.size() - 1);
+}
+
+/* 回溯算法：例题三 */
+void backtrack(List<TreeNode> state, List<TreeNode> choices, List<List<TreeNode>> res) {
+    // 检查是否为解
+    if (isSolution(state)) {
+        // 记录解
+        recordSolution(state, res);
+    }
+    // 遍历所有选择
+    for (TreeNode choice : choices) {
+        // 剪枝：检查选择是否合法
+        if (isValid(state, choice)) {
+            // 尝试：做出选择，更新状态
+            makeChoice(state, choice);
+            // 进行下一轮选择
+            backtrack(state, Arrays.asList(choice.left, choice.right), res);
+            // 回退：撤销选择，恢复到之前的状态
+            undoChoice(state, choice);
+        }
+    }
+}
+```
+
+根据题意，我们在找到值为 $7$ 的节点后应该继续搜索，**因此需要将记录解之后的 `return` 语句删除**。下图对比了保留或删除 `return` 语句的搜索过程。
+
+![保留与删除 return 的搜索过程对比](../assets/images/10-算法/273.backtrack_remove_return_or_not.png)
+
+相比基于前序遍历的代码实现，基于回溯算法框架的代码实现虽然显得啰唆，但通用性更好。实际上，**许多回溯问题可以在该框架下解决**。我们只需根据具体问题来定义 `state` 和 `choices` ，并实现框架中的各个方法即可。
+
+### 1.39.4 常用术语
+
+为了更清晰地分析算法问题，我们总结一下回溯算法中常用术语的含义，并对照例题三给出对应示例，如下表所示。
+
+<p align="center"> 表 <id> &nbsp; 常见的回溯算法术语 </p>
+
+| 名词                   | 定义                                                                       | 例题三                                                               |
+| ---------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 解（solution）         | 解是满足问题特定条件的答案，可能有一个或多个                               | 根节点到节点 $7$ 的满足约束条件的所有路径                            |
+| 约束条件（constraint） | 约束条件是问题中限制解的可行性的条件，通常用于剪枝                         | 路径中不包含节点 $3$                                                 |
+| 状态（state）          | 状态表示问题在某一时刻的情况，包括已经做出的选择                           | 当前已访问的节点路径，即 `path` 节点列表                             |
+| 尝试（attempt）        | 尝试是根据可用选择来探索解空间的过程，包括做出选择，更新状态，检查是否为解 | 递归访问左（右）子节点，将节点添加进 `path` ，判断节点的值是否为 $7$ |
+| 回退（backtracking）   | 回退指遇到不满足约束条件的状态时，撤销前面做出的选择，回到上一个状态       | 当越过叶节点、结束节点访问、遇到值为 $3$ 的节点时终止搜索，函数返回  |
+| 剪枝（pruning）        | 剪枝是根据问题特性和约束条件避免无意义的搜索路径的方法，可提高搜索效率     | 当遇到值为 $3$ 的节点时，则不再继续搜索                              |
+
+!!! tip
+
+    问题、解、状态等概念是通用的，在分治、回溯、动态规划、贪心等算法中都有涉及。
+
+### 1.39.5 优点与局限性
+
+回溯算法本质上是一种深度优先搜索算法，它尝试所有可能的解决方案直到找到满足条件的解。这种方法的优点在于能够找到所有可能的解决方案，而且在合理的剪枝操作下，具有很高的效率。
+
+然而，在处理大规模或者复杂问题时，**回溯算法的运行效率可能难以接受**。
+
+- **时间**：回溯算法通常需要遍历状态空间的所有可能，时间复杂度可以达到指数阶或阶乘阶。
+- **空间**：在递归调用中需要保存当前的状态（例如路径、用于剪枝的辅助变量等），当深度很大时，空间需求可能会变得很大。
+
+即便如此，**回溯算法仍然是某些搜索问题和约束满足问题的最佳解决方案**。对于这些问题，由于无法预测哪些选择可生成有效的解，因此我们必须对所有可能的选择进行遍历。在这种情况下，**关键是如何优化效率**，常见的效率优化方法有两种。
+
+- **剪枝**：避免搜索那些肯定不会产生解的路径，从而节省时间和空间。
+- **启发式搜索**：在搜索过程中引入一些策略或者估计值，从而优先搜索最有可能产生有效解的路径。
+
+### 1.39.6 回溯典型例题
+
+回溯算法可用于解决许多搜索问题、约束满足问题和组合优化问题。
+
+**搜索问题**：这类问题的目标是找到满足特定条件的解决方案。
+
+- 全排列问题：给定一个集合，求出其所有可能的排列组合。
+- 子集和问题：给定一个集合和一个目标和，找到集合中所有和为目标和的子集。
+- 汉诺塔问题：给定三根柱子和一系列大小不同的圆盘，要求将所有圆盘从一根柱子移动到另一根柱子，每次只能移动一个圆盘，且不能将大圆盘放在小圆盘上。
+
+**约束满足问题**：这类问题的目标是找到满足所有约束条件的解。
+
+- $n$ 皇后：在 $n \times n$ 的棋盘上放置 $n$ 个皇后，使得它们互不攻击。
+- 数独：在 $9 \times 9$ 的网格中填入数字 $1$ ~ $9$ ，使得每行、每列和每个 $3 \times 3$ 子网格中的数字不重复。
+- 图着色问题：给定一个无向图，用最少的颜色给图的每个顶点着色，使得相邻顶点颜色不同。
+
+**组合优化问题**：这类问题的目标是在一个组合空间中找到满足某些条件的最优解。
+
+- 0-1 背包问题：给定一组物品和一个背包，每个物品有一定的价值和重量，要求在背包容量限制内，选择物品使得总价值最大。
+- 旅行商问题：在一个图中，从一个点出发，访问所有其他点恰好一次后返回起点，求最短路径。
+- 最大团问题：给定一个无向图，找到最大的完全子图，即子图中的任意两个顶点之间都有边相连。
+
+请注意，对于许多组合优化问题，回溯不是最优解决方案。
+
+- 0-1 背包问题通常使用动态规划解决，以达到更高的时间效率。
+- 旅行商是一个著名的 NP-Hard 问题，常用解法有遗传算法和蚁群算法等。
+- 最大团问题是图论中的一个经典问题，可用贪心算法等启发式算法来解决。
+
+### 回溯实现二叉树路径搜索 - 代码demo
+```java
+package MyTest.backtrack;
+
+import MyTest.tree.TreeNode;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+public class BackTrack {
+    /**************************题目：找到从根节点到节点为7的所有路径，如果遇到2则返回不记录****************************************************/
+
+    /**************************解法1：通过回溯模板****************************************************/
+    /* 判断当前状态是否为解 */
+    static boolean isSolution(List<TreeNode> state) {
+        return !state.isEmpty() && state.get(state.size() - 1).getVal() == 7;
+    }
+
+    /* 记录解 */
+    static void recordSolution(List<TreeNode> state, List<List<TreeNode>> res) {
+        res.add(new ArrayList<>(state));
+    }
+
+    /* 判断在当前状态下，该选择是否合法 */
+    static boolean isValid(List<TreeNode> state, TreeNode choice) {
+        return choice != null && choice.getVal() != 2;
+    }
+
+    /* 更新状态 */
+    static void makeChoice(List<TreeNode> state, TreeNode choice) {
+        state.add(choice);
+    }
+
+    /* 恢复状态 */
+    static void undoChoice(List<TreeNode> state, TreeNode choice) {
+        state.remove(state.size() - 1);
+    }
+
+    /* 回溯算法：例题三 */
+    static void backtrack(List<TreeNode> state, List<TreeNode> choices, List<List<TreeNode>> res) {
+        // 检查是否为解
+        if (isSolution(state)) {
+            // 记录解
+            recordSolution(state, res);
+        }
+        // 遍历所有选择
+        for (TreeNode choice : choices) {
+            // 剪枝：检查选择是否合法
+            if (isValid(state, choice)) {
+                // 尝试：做出选择，更新状态
+                makeChoice(state, choice);
+                // 进行下一轮选择
+                backtrack(state, Arrays.asList(choice.getLeft(), choice.getRight()), res);
+                // 回退：撤销选择，恢复到之前的状态
+                undoChoice(state, choice);
+            }
+        }
+    }
+
+    public static List<List<TreeNode>> backTrack(TreeNode root) {
+        List<List<TreeNode>> result = new ArrayList<>();
+        List<TreeNode> state = new ArrayList<>();
+        state.add(root);
+        List<TreeNode> choice = new ArrayList<>();
+        choice.add(root.getLeft());
+        choice.add(root.getRight());
+        backtrack(state, choice, result);
+        return result;
+    }
+
+    /**************************解法2：通过前序遍历***************************************************/
+    public static void preOrder(TreeNode treeNode, List<TreeNode> path, List<List<TreeNode>> res) {
+        if (treeNode == null || treeNode.getVal() == 2) {
+            return;
+        }
+        // 尝试
+        path.add(treeNode);
+        //判断当前节点
+        if (treeNode.getVal() == 7) {
+            res.add(new ArrayList<>(path));
+        }
+        // 前序遍历左节点
+        preOrder(treeNode.getLeft(), path, res);
+        // 前序遍历右节点
+        preOrder(treeNode.getRight(), path, res);
+        //回溯
+        path.remove(path.size() - 1);
+    }
+
+    public static List<List<TreeNode>> backTrackByPreOrder(TreeNode root) {
+        List<List<TreeNode>> result = new ArrayList<>();
+        List<TreeNode> path = new ArrayList<>();
+        preOrder(root, path, result);
+        return result;
+    }
+
+    public static void main(String[] args) {
+        TreeNode root = new TreeNode(0);
+        TreeNode c1 = new TreeNode(1);
+        TreeNode c2 = new TreeNode(5);
+        TreeNode c3 = new TreeNode(7);
+        TreeNode c4 = new TreeNode(8);
+        TreeNode c5 = new TreeNode(10);
+        TreeNode c6 = new TreeNode(16);
+        TreeNode c7 = new TreeNode(4);
+        TreeNode c8 = new TreeNode(2);
+        TreeNode c9 = new TreeNode(3);
+        TreeNode c10 = new TreeNode(7);
+        TreeNode c11 = new TreeNode(61);
+        TreeNode c12 = new TreeNode(67);
+        TreeNode c13 = new TreeNode(7);
+        TreeNode c14 = new TreeNode(5);
+        TreeNode c15 = new TreeNode(31);
+        root.setLeft(c1);
+        root.setRight(c2);
+        c1.setLeft(c4);
+        c1.setRight(c8);
+        c4.setRight(c3);
+        c4.setLeft(c5);
+        c2.setLeft(c6);
+        c2.setRight(c7);
+        c8.setLeft(c9);
+        c8.setRight(c11);
+        c6.setLeft(c12);
+        c6.setRight(c14);
+        c7.setLeft(c15);
+        c7.setRight(c13);
+        c11.setRight(c10);
+        TreeNode.printTreePretty(root);
+        List<List<TreeNode>> lists = backTrack(root);
+        System.out.println("使用回溯模板生成的路径：");
+        print(lists);
+        System.out.println("使用前序遍历生成的路径：");
+        List<List<TreeNode>> lists2 = backTrackByPreOrder(root);
+        print(lists2);
+    }
+
+    public static void print(List<List<TreeNode>> lists) {
+        for (List<TreeNode> list : lists) {
+            System.out.print("[");
+            for (TreeNode treeNode : list) {
+                System.out.print(treeNode.getVal());
+                if (treeNode != list.get(list.size() - 1)) {
+                    System.out.print(", ");
+                }
+            }
+            System.out.println("]");
+        }
+    }
+
+
+}
+```
+
+## 1.40 全排列问题
+
+全排列问题是回溯算法的一个典型应用。它的定义是在给定一个集合（如一个数组或字符串）的情况下，找出其中元素的所有可能的排列。
+
+下表列举了几个示例数据，包括输入数组和对应的所有排列。
+
+<p align="center"> 表 <id> &nbsp; 全排列示例 </p>
+
+| 输入数组    | 所有排列                                                           |
+| :---------- | :----------------------------------------------------------------- |
+| $[1]$       | $[1]$                                                              |
+| $[1, 2]$    | $[1, 2], [2, 1]$                                                   |
+| $[1, 2, 3]$ | $[1, 2, 3], [1, 3, 2], [2, 1, 3], [2, 3, 1], [3, 1, 2], [3, 2, 1]$ |
+
+### 1.40.1 无相等元素的情况
+
+!!! question
+
+    输入一个整数数组，其中不包含重复元素，返回所有可能的排列。
+
+从回溯算法的角度看，**我们可以把生成排列的过程想象成一系列选择的结果**。假设输入数组为 $[1, 2, 3]$ ，如果我们先选择 $1$ ，再选择 $3$ ，最后选择 $2$ ，则获得排列 $[1, 3, 2]$ 。回退表示撤销一个选择，之后继续尝试其他选择。
+
+从回溯代码的角度看，候选集合 `choices` 是输入数组中的所有元素，状态 `state` 是直至目前已被选择的元素。请注意，每个元素只允许被选择一次，**因此 `state` 中的所有元素都应该是唯一的**。
+
+如下图所示，我们可以将搜索过程展开成一棵递归树，树中的每个节点代表当前状态 `state` 。从根节点开始，经过三轮选择后到达叶节点，每个叶节点都对应一个排列。
+
+![全排列的递归树](../assets/images/10-算法/274.permutations_i.png)
+
+#### 1.40.1.1 重复选择剪枝
+
+为了实现每个元素只被选择一次，我们考虑引入一个布尔型数组 `selected` ，其中 `selected[i]` 表示 `choices[i]` 是否已被选择，并基于它实现以下剪枝操作。
+
+- 在做出选择 `choice[i]` 后，我们就将 `selected[i]` 赋值为 $\text{True}$ ，代表它已被选择。
+- 遍历选择列表 `choices` 时，跳过所有已被选择的节点，即剪枝。
+
+如下图所示，假设我们第一轮选择 1 ，第二轮选择 3 ，第三轮选择 2 ，则需要在第二轮剪掉元素 1 的分支，在第三轮剪掉元素 1 和元素 3 的分支。
+
+![全排列剪枝示例](../assets/images/10-算法/275.permutations_i_pruning.png)
+
+观察上图发现，该剪枝操作将搜索空间大小从 $O(n^n)$ 减小至 $O(n!)$ 。
+
+#### 1.40.1.2 代码实现
+
+想清楚以上信息之后，我们就可以在框架代码中做“完形填空”了。为了缩短整体代码，我们不单独实现框架代码中的各个函数，而是将它们展开在 `backtrack()` 函数中：
+
+```java
+/* 回溯算法：全排列 I */
+void backtrack(List<Integer> state, int[] choices, boolean[] selected, List<List<Integer>> res) {
+    // 当状态长度等于元素数量时，记录解
+    if (state.size() == choices.length) {
+        res.add(new ArrayList<Integer>(state));
+        return;
+    }
+    // 遍历所有选择
+    for (int i = 0; i < choices.length; i++) {
+        int choice = choices[i];
+        // 剪枝：不允许重复选择元素
+        if (!selected[i]) {
+            // 尝试：做出选择，更新状态
+            selected[i] = true;
+            state.add(choice);
+            // 进行下一轮选择
+            backtrack(state, choices, selected, res);
+            // 回退：撤销选择，恢复到之前的状态
+            selected[i] = false;
+            state.remove(state.size() - 1);
+        }
+    }
+}
+
+/* 全排列 I */
+List<List<Integer>> permutationsI(int[] nums) {
+    List<List<Integer>> res = new ArrayList<List<Integer>>();
+    backtrack(new ArrayList<Integer>(), nums, new boolean[nums.length], res);
+    return res;
+}
+```
+
+### 1.40.2 考虑相等元素的情况
+
+!!! question
+
+    输入一个整数数组，**数组中可能包含重复元素**，返回所有不重复的排列。
+
+假设输入数组为 $[1, 1, 2]$ 。为了方便区分两个重复元素 $1$ ，我们将第二个 $1$ 记为 $\hat{1}$ 。
+
+如下图所示，上述方法生成的排列有一半是重复的。
+
+![重复排列](../assets/images/10-算法/276.permutations_ii.png)
+
+那么如何去除重复的排列呢？最直接地，考虑借助一个哈希集合，直接对排列结果进行去重。然而这样做不够优雅，**因为生成重复排列的搜索分支没有必要，应当提前识别并剪枝**，这样可以进一步提升算法效率。
+
+#### 1.40.2.1 相等元素剪枝
+
+观察下图，在第一轮中，选择 $1$ 或选择 $\hat{1}$ 是等价的，在这两个选择之下生成的所有排列都是重复的。因此应该把 $\hat{1}$ 剪枝。
+
+同理，在第一轮选择 $2$ 之后，第二轮选择中的 $1$ 和 $\hat{1}$ 也会产生重复分支，因此也应将第二轮的 $\hat{1}$ 剪枝。
+
+从本质上看，**我们的目标是在某一轮选择中，保证多个相等的元素仅被选择一次**。
+
+![重复排列剪枝](../assets/images/10-算法/277.permutations_ii_pruning.png)
+
+#### 1.40.2.2 代码实现
+
+在上一题的代码的基础上，我们考虑在每一轮选择中开启一个哈希集合 `duplicated` ，用于记录该轮中已经尝试过的元素，并将重复元素剪枝：
+
+```java
+/* 回溯算法：全排列 II */
+void backtrack(List<Integer> state, int[] choices, boolean[] selected, List<List<Integer>> res) {
+    // 当状态长度等于元素数量时，记录解
+    if (state.size() == choices.length) {
+        res.add(new ArrayList<Integer>(state));
+        return;
+    }
+    // 遍历所有选择
+    Set<Integer> duplicated = new HashSet<Integer>();
+    for (int i = 0; i < choices.length; i++) {
+        int choice = choices[i];
+        // 剪枝：不允许重复选择元素 且 不允许重复选择相等元素
+        if (!selected[i] && !duplicated.contains(choice)) {
+            // 尝试：做出选择，更新状态
+            duplicated.add(choice); // 记录选择过的元素值
+            selected[i] = true;
+            state.add(choice);
+            // 进行下一轮选择
+            backtrack(state, choices, selected, res);
+            // 回退：撤销选择，恢复到之前的状态
+            selected[i] = false;
+            state.remove(state.size() - 1);
+        }
+    }
+}
+
+/* 全排列 II */
+List<List<Integer>> permutationsII(int[] nums) {
+    List<List<Integer>> res = new ArrayList<List<Integer>>();
+    backtrack(new ArrayList<Integer>(), nums, new boolean[nums.length], res);
+    return res;
+}
+```
+
+假设元素两两之间互不相同，则 $n$ 个元素共有 $n!$  种排列（阶乘）；在记录结果时，需要复制长度为 $n$ 的列表，使用 $O(n)$ 时间。**因此时间复杂度为 $O(n!n)$** 。
+
+最大递归深度为 $n$ ，使用 $O(n)$ 栈帧空间。`selected` 使用 $O(n)$ 空间。同一时刻最多共有 $n$ 个 `duplicated` ，使用 $O(n^2)$ 空间。**因此空间复杂度为 $O(n^2)$** 。
+
+### 1.40.3 两种剪枝对比
+
+请注意，虽然 `selected` 和 `duplicated` 都用于剪枝，但两者的目标不同。
+
+- **重复选择剪枝**：整个搜索过程中只有一个 `selected` 。它记录的是当前状态中包含哪些元素，其作用是避免某个元素在 `state` 中重复出现。
+- **相等元素剪枝**：每轮选择（每个调用的 `backtrack` 函数）都包含一个 `duplicated` 。它记录的是在本轮遍历（`for` 循环）中哪些元素已被选择过，其作用是保证相等元素只被选择一次。
+
+下图展示了两个剪枝条件的生效范围。注意，树中的每个节点代表一个选择，从根节点到叶节点的路径上的各个节点构成一个排列。
+
+![两种剪枝条件的作用范围](../assets/images/10-算法/278.permutations_ii_pruning_summary.png)
+
+### 全排列 - 代码demo
+```java
+package MyTest.backtrack;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+//全排列问题
+public class Permutations {
+
+    // 全排列
+
+    /**
+     * @param nums:给定的数组
+     * @param deduplication：是否去重
+     * @return {@link List< List< Integer>>}
+     * @author sunjian23
+     * @description TODO
+     * @date 2026/1/29 13:59
+     *
+     *
+     **/
+
+    public static List<List<Integer>> permutations(int[] nums, boolean deduplication) {
+        List<List<Integer>> result = new ArrayList<>();
+        List<Integer> state = new ArrayList<>();
+        boolean[] selected = new boolean[nums.length];
+        backTrack(state, nums, result, selected, deduplication);
+        return result;
+    }
+
+
+    public static void backTrack(List<Integer> state, int[] choices, List<List<Integer>> res, boolean[] selected, boolean deduplication) {
+        //1.是否满足条件
+        if (isSolution(state, choices)) {
+            solutionRecord(state, res);
+        }
+        Set<Integer> duplication = new HashSet<>();
+        //2.遍历可能的选择
+        for (int i = 0; i < choices.length; i++) {
+            // 3. 剪枝
+            if (isValid(selected, i) && deduplication(deduplication, choices[i], duplication)) {
+                // 4. 尝试
+                putChoice(state, choices[i], selected, i, duplication);
+                // 5. 迭代
+                backTrack(state, choices, res, selected, deduplication);
+                //6. 回溯
+                undoChoice(state, selected, i);
+            }
+        }
+    }
+
+    //是否去重
+    private static boolean deduplication(boolean deduplication, int choice, Set<Integer> duplication) {
+        if (deduplication) {
+            return !duplication.contains(choice);
+        }
+        return true;
+    }
+
+    private static void undoChoice(List<Integer> state, boolean[] selected, int i) {
+        state.remove(state.size() - 1);
+        selected[i] = false;
+    }
+
+    private static void putChoice(List<Integer> state, Integer choice, boolean[] selected, int i, Set<Integer> duplication) {
+        state.add(choice);
+        selected[i] = true;
+        duplication.add(choice);
+    }
+
+    private static boolean isValid(boolean[] selected, int i) {
+        return !selected[i];
+    }
+
+    public static boolean isSolution(List<Integer> state, int[] choices) {
+        return state.size() == choices.length;
+    }
+
+    public static void solutionRecord(List<Integer> state, List<List<Integer>> res) {
+        res.add(new ArrayList<>(state));
+    }
+
+    public static void main(String[] args) {
+        int[] nums = new int[]{1, 2, 3, 3};
+        print(permutations(nums, true));
+    }
+
+    public static void print(List<List<Integer>> lists) {
+        for (List<Integer> list : lists) {
+            System.out.print("[");
+            for (int i = 0; i < list.size(); i++) {
+                Integer val = list.get(i);
+                System.out.print(val);
+                if (i != list.size() - 1) {
+                    System.out.print(", ");
+                }
+            }
+            System.out.println("]");
+        }
+    }
+}
+```
+
+## 1.41 子集和问题
+
+### 1.41.1 无重复元素的情况
+
+!!! question
+
+    给定一个正整数数组 `nums` 和一个目标正整数 `target` ，请找出所有可能的组合，使得组合中的元素和等于 `target` 。给定数组无重复元素，每个元素可以被选取多次。请以列表形式返回这些组合，列表中不应包含重复组合。
+
+例如，输入集合 $\{3, 4, 5\}$ 和目标整数 $9$ ，解为 $\{3, 3, 3\}, \{4, 5\}$ 。需要注意以下两点。
+
+- 输入集合中的元素可以被无限次重复选取。
+- 子集不区分元素顺序，比如 $\{4, 5\}$ 和 $\{5, 4\}$ 是同一个子集。
+
+#### 1.41.1.1 参考全排列解法
+
+类似于全排列问题，我们可以把子集的生成过程想象成一系列选择的结果，并在选择过程中实时更新“元素和”，当元素和等于 `target` 时，就将子集记录至结果列表。
+
+而与全排列问题不同的是，**本题集合中的元素可以被无限次选取**，因此无须借助 `selected` 布尔列表来记录元素是否已被选择。我们可以对全排列代码进行小幅修改，初步得到解题代码：
+
+```java
+/* 回溯算法：子集和 I */
+void backtrack(List<Integer> state, int target, int total, int[] choices, List<List<Integer>> res) {
+    // 子集和等于 target 时，记录解
+    if (total == target) {
+        res.add(new ArrayList<>(state));
+        return;
+    }
+    // 遍历所有选择
+    for (int i = 0; i < choices.length; i++) {
+        // 剪枝：若子集和超过 target ，则跳过该选择
+        if (total + choices[i] > target) {
+            continue;
+        }
+        // 尝试：做出选择，更新元素和 total
+        state.add(choices[i]);
+        // 进行下一轮选择
+        backtrack(state, target, total + choices[i], choices, res);
+        // 回退：撤销选择，恢复到之前的状态
+        state.remove(state.size() - 1);
+    }
+}
+
+/* 求解子集和 I（包含重复子集） */
+List<List<Integer>> subsetSumINaive(int[] nums, int target) {
+    List<Integer> state = new ArrayList<>(); // 状态（子集）
+    int total = 0; // 子集和
+    List<List<Integer>> res = new ArrayList<>(); // 结果列表（子集列表）
+    backtrack(state, target, total, nums, res);
+    return res;
+}
+```
+
+向以上代码输入数组 $[3, 4, 5]$ 和目标元素 $9$ ，输出结果为 $[3, 3, 3], [4, 5], [5, 4]$ 。**虽然成功找出了所有和为 $9$ 的子集，但其中存在重复的子集 $[4, 5]$ 和 $[5, 4]$** 。
+
+这是因为搜索过程是区分选择顺序的，然而子集不区分选择顺序。如下图所示，先选 $4$ 后选 $5$ 与先选 $5$ 后选 $4$ 是不同的分支，但对应同一个子集。
+
+![子集搜索与越界剪枝](../assets/images/10-算法/279.subset_sum_i_naive.png)
+
+为了去除重复子集，**一种直接的思路是对结果列表进行去重**。但这个方法效率很低，有两方面原因。
+
+- 当数组元素较多，尤其是当 `target` 较大时，搜索过程会产生大量的重复子集。
+- 比较子集（数组）的异同非常耗时，需要先排序数组，再比较数组中每个元素的异同。
+
+#### 1.41.1.2 重复子集剪枝
+
+**我们考虑在搜索过程中通过剪枝进行去重**。观察下图，重复子集是在以不同顺序选择数组元素时产生的，例如以下情况。
+
+1. 当第一轮和第二轮分别选择 $3$ 和 $4$ 时，会生成包含这两个元素的所有子集，记为 $[3, 4, \dots]$ 。
+2. 之后，当第一轮选择 $4$ 时，**则第二轮应该跳过 $3$** ，因为该选择产生的子集 $[4, 3, \dots]$ 和第 `1.` 步中生成的子集完全重复。
+
+在搜索过程中，每一层的选择都是从左到右被逐个尝试的，因此越靠右的分支被剪掉的越多。
+
+1. 前两轮选择 $3$ 和 $5$ ，生成子集 $[3, 5, \dots]$ 。
+2. 前两轮选择 $4$ 和 $5$ ，生成子集 $[4, 5, \dots]$ 。
+3. 若第一轮选择 $5$ ，**则第二轮应该跳过 $3$ 和 $4$** ，因为子集 $[5, 3, \dots]$ 和 $[5, 4, \dots]$ 与第 `1.` 步和第 `2.` 步中描述的子集完全重复。
+
+![不同选择顺序导致的重复子集](../assets/images/10-算法/280.subset_sum_i_pruning.png)
+
+总结来看，给定输入数组 $[x_1, x_2, \dots, x_n]$ ，设搜索过程中的选择序列为 $[x_{i_1}, x_{i_2}, \dots, x_{i_m}]$ ，则该选择序列需要满足 $i_1 \leq i_2 \leq \dots \leq i_m$ ，**不满足该条件的选择序列都会造成重复，应当剪枝**。
+
+#### 1.41.1.3 代码实现
+
+为实现该剪枝，我们初始化变量 `start` ，用于指示遍历起始点。**当做出选择 $x_{i}$ 后，设定下一轮从索引 $i$ 开始遍历**。这样做就可以让选择序列满足 $i_1 \leq i_2 \leq \dots \leq i_m$ ，从而保证子集唯一。
+
+除此之外，我们还对代码进行了以下两项优化。
+
+- 在开启搜索前，先将数组 `nums` 排序。在遍历所有选择时，**当子集和超过 `target` 时直接结束循环**，因为后边的元素更大，其子集和一定超过 `target` 。
+- 省去元素和变量 `total` ，**通过在 `target` 上执行减法来统计元素和**，当 `target` 等于 $0$ 时记录解。
+
+```java
+/* 回溯算法：子集和 I */
+void backtrack(List<Integer> state, int target, int[] choices, int start, List<List<Integer>> res) {
+    // 子集和等于 target 时，记录解
+    if (target == 0) {
+        res.add(new ArrayList<>(state));
+        return;
+    }
+    // 遍历所有选择
+    // 剪枝二：从 start 开始遍历，避免生成重复子集
+    for (int i = start; i < choices.length; i++) {
+        // 剪枝一：若子集和超过 target ，则直接结束循环
+        // 这是因为数组已排序，后边元素更大，子集和一定超过 target
+        if (target - choices[i] < 0) {
+            break;
+        }
+        // 尝试：做出选择，更新 target, start
+        state.add(choices[i]);
+        // 进行下一轮选择
+        backtrack(state, target - choices[i], choices, i, res);
+        // 回退：撤销选择，恢复到之前的状态
+        state.remove(state.size() - 1);
+    }
+}
+
+/* 求解子集和 I */
+List<List<Integer>> subsetSumI(int[] nums, int target) {
+    List<Integer> state = new ArrayList<>(); // 状态（子集）
+    Arrays.sort(nums); // 对 nums 进行排序
+    int start = 0; // 遍历起始点
+    List<List<Integer>> res = new ArrayList<>(); // 结果列表（子集列表）
+    backtrack(state, target, nums, start, res);
+    return res;
+}
+```
+
+下图所示为将数组 $[3, 4, 5]$ 和目标元素 $9$ 输入以上代码后的整体回溯过程。
+
+![子集和 I 回溯过程](../assets/images/10-算法/281.subset_sum_i.png)
+
+### 1.41.2 考虑重复元素的情况
+
+!!! question
+
+    给定一个正整数数组 `nums` 和一个目标正整数 `target` ，请找出所有可能的组合，使得组合中的元素和等于 `target` 。**给定数组可能包含重复元素，每个元素只可被选择一次**。请以列表形式返回这些组合，列表中不应包含重复组合。
+
+相比于上题，**本题的输入数组可能包含重复元素**，这引入了新的问题。例如，给定数组 $[4, \hat{4}, 5]$ 和目标元素 $9$ ，则现有代码的输出结果为 $[4, 5], [\hat{4}, 5]$ ，出现了重复子集。
+
+**造成这种重复的原因是相等元素在某轮中被多次选择**。在下图中，第一轮共有三个选择，其中两个都为 $4$ ，会产生两个重复的搜索分支，从而输出重复子集；同理，第二轮的两个 $4$ 也会产生重复子集。
+
+![相等元素导致的重复子集](../assets/images/10-算法/282.subset_sum_ii_repeat.png)
+
+#### 1.41.2.1 相等元素剪枝
+
+为解决此问题，**我们需要限制相等元素在每一轮中只能被选择一次**。实现方式比较巧妙：由于数组是已排序的，因此相等元素都是相邻的。这意味着在某轮选择中，若当前元素与其左边元素相等，则说明它已经被选择过，因此直接跳过当前元素。
+
+与此同时，**本题规定每个数组元素只能被选择一次**。幸运的是，我们也可以利用变量 `start` 来满足该约束：当做出选择 $x_{i}$ 后，设定下一轮从索引 $i + 1$ 开始向后遍历。这样既能去除重复子集，也能避免重复选择元素。
+
+#### 1.41.2.2 代码实现
+
+```java
+/* 回溯算法：子集和 II */
+void backtrack(List<Integer> state, int target, int[] choices, int start, List<List<Integer>> res) {
+    // 子集和等于 target 时，记录解
+    if (target == 0) {
+        res.add(new ArrayList<>(state));
+        return;
+    }
+    // 遍历所有选择
+    // 剪枝二：从 start 开始遍历，避免生成重复子集
+    // 剪枝三：从 start 开始遍历，避免重复选择同一元素
+    for (int i = start; i < choices.length; i++) {
+        // 剪枝一：若子集和超过 target ，则直接结束循环
+        // 这是因为数组已排序，后边元素更大，子集和一定超过 target
+        if (target - choices[i] < 0) {
+            break;
+        }
+        // 剪枝四：如果该元素与左边元素相等，说明该搜索分支重复，直接跳过
+        if (i > start && choices[i] == choices[i - 1]) {
+            continue;
+        }
+        // 尝试：做出选择，更新 target, start
+        state.add(choices[i]);
+        // 进行下一轮选择
+        backtrack(state, target - choices[i], choices, i + 1, res);
+        // 回退：撤销选择，恢复到之前的状态
+        state.remove(state.size() - 1);
+    }
+}
+
+/* 求解子集和 II */
+List<List<Integer>> subsetSumII(int[] nums, int target) {
+    List<Integer> state = new ArrayList<>(); // 状态（子集）
+    Arrays.sort(nums); // 对 nums 进行排序
+    int start = 0; // 遍历起始点
+    List<List<Integer>> res = new ArrayList<>(); // 结果列表（子集列表）
+    backtrack(state, target, nums, start, res);
+    return res;
+}
+```
+
+下图展示了数组 $[4, 4, 5]$ 和目标元素 $9$ 的回溯过程，共包含四种剪枝操作。请你将图示与代码注释相结合，理解整个搜索过程，以及每种剪枝操作是如何工作的。
+
+![子集和 II 回溯过程](../assets/images/10-算法/283.subset_sum_ii.png)
+
+### 子集和 -代码demo
+```java
+package MyTest.backtrack;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 子集和问题1:
+ * 给定一个正整数数组 nums 和一个目标正整数 target ，
+ * 请找出所有可能的组合，使得组合中的元素和等于 target 。
+ * 给定数组无重复元素，每个元素可以被选取多次。
+ * 请以列表形式返回这些组合，列表中不应包含重复组合。
+ *
+ **/
+public class SubsetSum {
+    public static List<List<Integer>> subsetSum(int[] nums, int target) {
+        List<List<Integer>> result = new ArrayList<>();
+        List<Integer> state = new ArrayList<>();
+        backTrack(state, nums, result, target);
+        return result;
+    }
+
+    public static void backTrack(List<Integer> state, int[] choices, List<List<Integer>> res, int target) {
+        //1.是否满足结果
+        if (isSolution(state, target)) {
+            solutionRecord(state, res);
+        }
+        //2. 循环选择
+        for (int i = 0; i < choices.length; i++) {
+            if (isValid(state, choices[i], target)) {
+                choice(state, choices[i]);
+                backTrack(state, choices, res, target);
+                undoChoice(state);
+            }
+        }
+    }
+
+    private static void undoChoice(List<Integer> state) {
+        state.remove(state.size() - 1);
+    }
+
+    private static void choice(List<Integer> state, int choice) {
+        state.add(choice);
+    }
+
+    private static boolean isValid(List<Integer> state, int choice, int target) {
+        return sum(state) + choice <= target && uper(state, choice);
+    }
+
+    private static boolean uper(List<Integer> state, int choice) {
+        return state.isEmpty() || state.get(state.size() - 1) <= choice;
+    }
+
+    public static boolean isSolution(List<Integer> state, int target) {
+        return sum(state) == target;
+
+    }
+
+    public static void solutionRecord(List<Integer> state, List<List<Integer>> res) {
+        res.add(new ArrayList<>(state));
+    }
+
+    public static int sum(List<Integer> state) {
+        int sum = 0;
+        for (Integer i : state) {
+            sum += i;
+        }
+        return sum;
+    }
+
+    public static void main(String[] args) {
+        int[] nums = new int[]{4, 5, 3, 6, 2, 7, 1};
+        int target = 9;
+        print(subsetSum(nums, target));
+    }
+
+    public static void print(List<List<Integer>> lists) {
+        for (List<Integer> list : lists) {
+            System.out.print("[");
+            for (int i = 0; i < list.size(); i++) {
+                Integer val = list.get(i);
+                System.out.print(val);
+                if (i != list.size() - 1) {
+                    System.out.print(", ");
+                }
+            }
+            System.out.println("]");
+        }
+    }
+}
+
+```
+
+```java
+package MyTest.backtrack;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * 子集和问题2:
+ * <p>
+ * 给定一个正整数数组 nums 和一个目标正整数 target ，
+ * 请找出所有可能的组合，使得组合中的元素和等于 target 。
+ * 给定数组无重复元素，每个元素可以被选取多次。
+ * 请以列表形式返回这些组合，列表中不应包含重复组合。
+ * 注意：书中的示例比我的这个实现更简单高效
+ **/
+public class SubsetSum2 {
+    public static List<List<Integer>> subsetSum(int[] nums, int target) {
+        List<List<Integer>> result = new ArrayList<>();
+        List<Integer> state = new ArrayList<>();
+        boolean[] selected = new boolean[nums.length];
+        backTrack(state, nums, result, target, selected);
+        return result;
+    }
+
+    public static void backTrack(List<Integer> state, int[] choices, List<List<Integer>> res, int target, boolean[] selected) {
+        //1.是否满足结果
+        if (isSolution(state, target)) {
+            solutionRecord(state, res);
+        }
+        //2. 循环选择
+        Set<Integer> dep = new HashSet<>();
+        for (int i = 0; i < choices.length; i++) {
+            if (isValid(state, choices[i], target, selected[i], dep)) {
+                choice(state, choices[i], selected, i, dep);
+                backTrack(state, choices, res, target, selected);
+                undoChoice(state, selected, i);
+            }
+        }
+    }
+
+    private static void undoChoice(List<Integer> state, boolean[] selected, int i) {
+        state.remove(state.size() - 1);
+        selected[i] = false;
+    }
+
+    private static void choice(List<Integer> state, int choice, boolean[] selected, int i, Set<Integer> dep) {
+        state.add(choice);
+        selected[i] = true;
+        dep.add(choice);
+    }
+
+    private static boolean isValid(List<Integer> state, int choice, int target, boolean selected, Set<Integer> dep) {
+        return sum(state) + choice <= target && uper(state, choice) && !selected && !dep.contains(choice);
+    }
+
+    private static boolean uper(List<Integer> state, int choice) {
+        return state.isEmpty() || state.get(state.size() - 1) <= choice;
+    }
+
+    public static boolean isSolution(List<Integer> state, int target) {
+        return sum(state) == target;
+
+    }
+
+    public static void solutionRecord(List<Integer> state, List<List<Integer>> res) {
+        res.add(new ArrayList<>(state));
+    }
+
+    public static int sum(List<Integer> state) {
+        int sum = 0;
+        for (Integer i : state) {
+            sum += i;
+        }
+        return sum;
+    }
+
+    public static void main(String[] args) {
+        int[] nums = new int[]{4, 5, 3, 6, 2, 5, 1, 3, 3};
+        int target = 9;
+        print(subsetSum(nums, target));
+    }
+
+    public static void print(List<List<Integer>> lists) {
+        for (List<Integer> list : lists) {
+            System.out.print("[");
+            for (int i = 0; i < list.size(); i++) {
+                Integer val = list.get(i);
+                System.out.print(val);
+                if (i != list.size() - 1) {
+                    System.out.print(", ");
+                }
+            }
+            System.out.println("]");
+        }
+    }
+}
+```
+
+## 1.42 n 皇后问题
+
+!!! question
+
+    根据国际象棋的规则，皇后可以攻击与同处一行、一列或一条斜线上的棋子。给定 $n$ 个皇后和一个 $n \times n$ 大小的棋盘，寻找使得所有皇后之间无法相互攻击的摆放方案。
+
+如下图所示，当 $n = 4$ 时，共可以找到两个解。从回溯算法的角度看，$n \times n$ 大小的棋盘共有 $n^2$ 个格子，给出了所有的选择 `choices` 。在逐个放置皇后的过程中，棋盘状态在不断地变化，每个时刻的棋盘就是状态 `state` 。
+
+![4 皇后问题的解](../assets/images/10-算法/284.solution_4_queens.png)
+
+下图展示了本题的三个约束条件：**多个皇后不能在同一行、同一列、同一条对角线上**。值得注意的是，对角线分为主对角线 `\` 和次对角线 `/` 两种。
+
+![n 皇后问题的约束条件](../assets/images/10-算法/285.n_queens_constraints.png)
+
+### 1.42.1 逐行放置策略
+
+皇后的数量和棋盘的行数都为 $n$ ，因此我们容易得到一个推论：**棋盘每行都允许且只允许放置一个皇后**。
+
+也就是说，我们可以采取逐行放置策略：从第一行开始，在每行放置一个皇后，直至最后一行结束。
+
+下图所示为 4 皇后问题的逐行放置过程。受画幅限制，下图仅展开了第一行的其中一个搜索分支，并且将不满足列约束和对角线约束的方案都进行了剪枝。
+
+![逐行放置策略](../assets/images/10-算法/286.n_queens_placing.png)
+
+从本质上看，**逐行放置策略起到了剪枝的作用**，它避免了同一行出现多个皇后的所有搜索分支。
+
+### 1.42.2 列与对角线剪枝
+
+为了满足列约束，我们可以利用一个长度为 $n$ 的布尔型数组 `cols` 记录每一列是否有皇后。在每次决定放置前，我们通过 `cols` 将已有皇后的列进行剪枝，并在回溯中动态更新 `cols` 的状态。
+
+!!! tip
+
+    请注意，矩阵的起点位于左上角，其中行索引从上到下增加，列索引从左到右增加。
+
+那么，如何处理对角线约束呢？设棋盘中某个格子的行列索引为 $(row, col)$ ，选定矩阵中的某条主对角线，我们发现该对角线上所有格子的行索引减列索引都相等，**即主对角线上所有格子的 $row - col$ 为恒定值**。
+
+也就是说，如果两个格子满足 $row_1 - col_1 = row_2 - col_2$ ，则它们一定处在同一条主对角线上。利用该规律，我们可以借助下图所示的数组 `diags1` 记录每条主对角线上是否有皇后。
+
+同理，**次对角线上的所有格子的 $row + col$ 是恒定值**。我们同样也可以借助数组 `diags2` 来处理次对角线约束。
+
+![处理列约束和对角线约束](../assets/images/10-算法/287.n_queens_cols_diagonals.png)
+
+### 1.42.3 代码实现
+
+请注意，$n$ 维方阵中 $row - col$ 的范围是 $[-n + 1, n - 1]$ ，$row + col$ 的范围是 $[0, 2n - 2]$ ，所以主对角线和次对角线的数量都为 $2n - 1$ ，即数组 `diags1` 和 `diags2` 的长度都为 $2n - 1$ 。
+
+```java
+/* 回溯算法：n 皇后 */
+void backtrack(int row, int n, List<List<String>> state, List<List<List<String>>> res,
+        boolean[] cols, boolean[] diags1, boolean[] diags2) {
+    // 当放置完所有行时，记录解
+    if (row == n) {
+        List<List<String>> copyState = new ArrayList<>();
+        for (List<String> sRow : state) {
+            copyState.add(new ArrayList<>(sRow));
+        }
+        res.add(copyState);
+        return;
+    }
+    // 遍历所有列
+    for (int col = 0; col < n; col++) {
+        // 计算该格子对应的主对角线和次对角线
+        int diag1 = row - col + n - 1;
+        int diag2 = row + col;
+        // 剪枝：不允许该格子所在列、主对角线、次对角线上存在皇后
+        if (!cols[col] && !diags1[diag1] && !diags2[diag2]) {
+            // 尝试：将皇后放置在该格子
+            state.get(row).set(col, "Q");
+            cols[col] = diags1[diag1] = diags2[diag2] = true;
+            // 放置下一行
+            backtrack(row + 1, n, state, res, cols, diags1, diags2);
+            // 回退：将该格子恢复为空位
+            state.get(row).set(col, "#");
+            cols[col] = diags1[diag1] = diags2[diag2] = false;
+        }
+    }
+}
+
+/* 求解 n 皇后 */
+List<List<List<String>>> nQueens(int n) {
+    // 初始化 n*n 大小的棋盘，其中 'Q' 代表皇后，'#' 代表空位
+    List<List<String>> state = new ArrayList<>();
+    for (int i = 0; i < n; i++) {
+        List<String> row = new ArrayList<>();
+        for (int j = 0; j < n; j++) {
+            row.add("#");
+        }
+        state.add(row);
+    }
+    boolean[] cols = new boolean[n]; // 记录列是否有皇后
+    boolean[] diags1 = new boolean[2 * n - 1]; // 记录主对角线上是否有皇后
+    boolean[] diags2 = new boolean[2 * n - 1]; // 记录次对角线上是否有皇后
+    List<List<List<String>>> res = new ArrayList<>();
+
+    backtrack(0, n, state, res, cols, diags1, diags2);
+
+    return res;
+}
+```
+
+逐行放置 $n$ 次，考虑列约束，则从第一行到最后一行分别有 $n$、$n-1$、$\dots$、$2$、$1$ 个选择，使用 $O(n!)$ 时间。当记录解时，需要复制矩阵 `state` 并添加进 `res` ，复制操作使用 $O(n^2)$ 时间。因此，**总体时间复杂度为 $O(n! \cdot n^2)$** 。实际上，根据对角线约束的剪枝也能够大幅缩小搜索空间，因而搜索效率往往优于以上时间复杂度。
+
+数组 `state` 使用 $O(n^2)$ 空间，数组 `cols`、`diags1` 和 `diags2` 皆使用 $O(n)$ 空间。最大递归深度为 $n$ ，使用 $O(n)$ 栈帧空间。因此，**空间复杂度为 $O(n^2)$** 。
+
+### N皇后 - 代码demo
+```java
+package MyTest.backtrack;
+
+/**
+ * @author sunjian23
+ * @title Nqueens
+ * @date 2026/1/29 15:18
+ * @description TODO
+ */
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * n皇后问题
+ * 根据国际象棋的规则，皇后可以攻击与同处一行、一列或一条斜线上的棋子。
+ * 给定n个皇后和一个n x n大小的棋盘，
+ * 寻找使得所有皇后之间无法相互攻击的摆放方案。
+ **/
+public class NQueens {
+
+    public static List<List<Pair>> nQueens(int n) {
+        // 按照行一行一行放，然后剪枝列重复/主次对角线重复的情况
+        //1.列
+        boolean[] cols = new boolean[n];
+        //2.主对角线
+        boolean[] diags1 = new boolean[2 * n - 1];
+        //3.此对角线
+        boolean[] diags2 = new boolean[2 * n - 1];
+        //4. state
+        List<Pair> state = new ArrayList<>();
+        List<List<Pair>> result = new ArrayList<>();
+        backtrack(0, n, state, result, cols, diags1, diags2);
+        return result;
+    }
+
+    public static void backtrack(int start, int n, List<Pair> state,
+                                 List<List<Pair>> res,
+                                 boolean[] cols, boolean[] diags1, boolean[] diags2) {
+        if (isSolution(state, n)) {
+            solutionRecord(state, res);
+            return;
+        }
+        // 行循环
+        // 列循环
+        for (int j = 0; j < n; j++) {
+            Pair st = new Pair(start, j);
+            if (isValid(st, cols, n, diags1, diags2)) {
+                choice(state, st, cols, n, diags1, diags2);
+                backtrack(start + 1, n, state, res, cols, diags1, diags2);
+                undoChoice(state, st, cols, n, diags1, diags2);
+            }
+        }
+    }
+
+    private static void undoChoice(List<Pair> state, Pair st, boolean[] cols, int n, boolean[] diags1, boolean[] diags2) {
+        state.remove(state.size() - 1);
+        cols[st.col] = false;
+        diags1[st.row - st.col + n - 1] = false;
+        diags2[st.row + st.col] = false;
+    }
+
+    private static void choice(List<Pair> state, Pair st, boolean[] cols, int n, boolean[] diags1, boolean[] diags2) {
+        state.add(st);
+        cols[st.col] = true;
+        diags1[st.row - st.col + n - 1] = true;
+        diags2[st.row + st.col] = true;
+    }
+
+    private static boolean isValid(Pair st, boolean[] cols, int n, boolean[] diags1, boolean[] diags2) {
+        //1.判断列/主/次对角线是否重复
+        return !cols[st.col] && !diags1[st.row - st.col + n - 1] && !diags2[st.row + st.col];
+
+    }
+
+    private static void solutionRecord(List<Pair> state,
+                                       List<List<Pair>> res) {
+        res.add(new ArrayList<>(state));
+    }
+
+    public static boolean isSolution(List<Pair> state, int n) {
+        return state.size() == n;
+    }
+
+    // 打印棋盘
+    public static void printChessBoard(List<Pair> solution) {
+        int n = solution.size();
+        char[][] board = new char[n][n];
+
+        // 初始化棋盘为 '#'
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < n; j++) {
+                board[i][j] = '#';
+            }
+        }
+
+        // 放置皇后 'Q'
+        for (Pair queen : solution) {
+            board[queen.row][queen.col] = 'Q';
+        }
+
+        // 打印棋盘
+        System.out.println("┌" + "─".repeat(n * 2 + 1) + "┐");
+        for (int i = 0; i < n; i++) {
+            System.out.print("│ ");
+            for (int j = 0; j < n; j++) {
+                System.out.print(board[i][j] + " ");
+            }
+            System.out.println("│");
+        }
+        System.out.println("└" + "─".repeat(n * 2 + 1) + "┘");
+    }
+
+    static class Pair {
+        int row;
+        int col;
+
+        public Pair(int row, int col) {
+            //行
+            this.row = row;
+            //列
+            this.col = col;
+        }
+
+        @Override
+        public String toString() {
+            return "(" + row + "," + col + ")";
+        }
+    }
+
+    public static void main(String[] args) {
+        List<List<Pair>> lists = nQueens(5);
+        for (int i = 1; i <= lists.size(); i++) {
+            System.out.println("n皇后解法" + i + ":");
+            printChessBoard(lists.get(i-1));
+        }
+    }
+}
+```
+
+## 1.43 初探动态规划
+
+<u>动态规划（dynamic programming）</u>是一个重要的算法范式，它将一个问题分解为一系列更小的子问题，并通过存储子问题的解来避免重复计算，从而大幅提升时间效率。
+
+在本节中，我们从一个经典例题入手，先给出它的暴力回溯解法，观察其中包含的重叠子问题，再逐步导出更高效的动态规划解法。
+
+!!! question "爬楼梯"
+
+    给定一个共有 $n$ 阶的楼梯，你每步可以上 $1$ 阶或者 $2$ 阶，请问有多少种方案可以爬到楼顶？
+
+如下图所示，对于一个 $3$ 阶楼梯，共有 $3$ 种方案可以爬到楼顶。
+
+![爬到第 3 阶的方案数量](../assets/images/10-算法/288.climbing_stairs_example.png)
+
+本题的目标是求解方案数量，**我们可以考虑通过回溯来穷举所有可能性**。具体来说，将爬楼梯想象为一个多轮选择的过程：从地面出发，每轮选择上 $1$ 阶或 $2$ 阶，每当到达楼梯顶部时就将方案数量加 $1$ ，当越过楼梯顶部时就将其剪枝。代码如下所示：
+
+```java
+/* 回溯 */
+void backtrack(List<Integer> choices, int state, int n, List<Integer> res) {
+    // 当爬到第 n 阶时，方案数量加 1
+    if (state == n)
+        res.set(0, res.get(0) + 1);
+    // 遍历所有选择
+    for (Integer choice : choices) {
+        // 剪枝：不允许越过第 n 阶
+        if (state + choice > n)
+            continue;
+        // 尝试：做出选择，更新状态
+        backtrack(choices, state + choice, n, res);
+        // 回退
+    }
+}
+
+/* 爬楼梯：回溯 */
+int climbingStairsBacktrack(int n) {
+    List<Integer> choices = Arrays.asList(1, 2); // 可选择向上爬 1 阶或 2 阶
+    int state = 0; // 从第 0 阶开始爬
+    List<Integer> res = new ArrayList<>();
+    res.add(0); // 使用 res[0] 记录方案数量
+    backtrack(choices, state, n, res);
+    return res.get(0);
+}
+```
+
+### 1.43.1 方法一：暴力搜索
+
+回溯算法通常并不显式地对问题进行拆解，而是将求解问题看作一系列决策步骤，通过试探和剪枝，搜索所有可能的解。
+
+我们可以尝试从问题分解的角度分析这道题。设爬到第 $i$ 阶共有 $dp[i]$ 种方案，那么 $dp[i]$ 就是原问题，其子问题包括：
+
+$$
+dp[i-1], dp[i-2], \dots, dp[2], dp[1]
+$$
+
+由于每轮只能上 $1$ 阶或 $2$ 阶，因此当我们站在第 $i$ 阶楼梯上时，上一轮只可能站在第 $i - 1$ 阶或第 $i - 2$ 阶上。换句话说，我们只能从第 $i -1$ 阶或第 $i - 2$ 阶迈向第 $i$ 阶。
+
+由此便可得出一个重要推论：**爬到第 $i - 1$ 阶的方案数加上爬到第 $i - 2$ 阶的方案数就等于爬到第 $i$ 阶的方案数**。公式如下：
+
+$$
+dp[i] = dp[i-1] + dp[i-2]
+$$
+
+这意味着在爬楼梯问题中，各个子问题之间存在递推关系，**原问题的解可以由子问题的解构建得来**。下图展示了该递推关系。
+
+![方案数量递推关系](../assets/images/10-算法/289.climbing_stairs_state_transfer.png)
+
+我们可以根据递推公式得到暴力搜索解法。以 $dp[n]$ 为起始点，**递归地将一个较大问题拆解为两个较小问题的和**，直至到达最小子问题 $dp[1]$ 和 $dp[2]$ 时返回。其中，最小子问题的解是已知的，即 $dp[1] = 1$、$dp[2] = 2$ ，表示爬到第 $1$、$2$ 阶分别有 $1$、$2$ 种方案。
+
+观察以下代码，它和标准回溯代码都属于深度优先搜索，但更加简洁：
+
+```java
+/* 搜索 */
+int dfs(int i) {
+    // 已知 dp[1] 和 dp[2] ，返回之
+    if (i == 1 || i == 2)
+        return i;
+    // dp[i] = dp[i-1] + dp[i-2]
+    int count = dfs(i - 1) + dfs(i - 2);
+    return count;
+}
+
+/* 爬楼梯：搜索 */
+int climbingStairsDFS(int n) {
+    return dfs(n);
+}
+```
+
+下图展示了暴力搜索形成的递归树。对于问题 $dp[n]$ ，其递归树的深度为 $n$ ，时间复杂度为 $O(2^n)$ 。指数阶属于爆炸式增长，如果我们输入一个比较大的 $n$ ，则会陷入漫长的等待之中。
+
+![爬楼梯对应递归树](../assets/images/10-算法/290.climbing_stairs_dfs_tree.png)
+
+观察上图，**指数阶的时间复杂度是“重叠子问题”导致的**。例如 $dp[9]$ 被分解为 $dp[8]$ 和 $dp[7]$ ，$dp[8]$ 被分解为 $dp[7]$ 和 $dp[6]$ ，两者都包含子问题 $dp[7]$ 。
+
+以此类推，子问题中包含更小的重叠子问题，子子孙孙无穷尽也。绝大部分计算资源都浪费在这些重叠的子问题上。
+
+### 1.43.2 方法二：记忆化搜索
+
+为了提升算法效率，**我们希望所有的重叠子问题都只被计算一次**。为此，我们声明一个数组 `mem` 来记录每个子问题的解，并在搜索过程中将重叠子问题剪枝。
+
+1. 当首次计算 $dp[i]$ 时，我们将其记录至 `mem[i]` ，以便之后使用。
+2. 当再次需要计算 $dp[i]$ 时，我们便可直接从 `mem[i]` 中获取结果，从而避免重复计算该子问题。
+
+代码如下所示：
+
+```java
+/* 记忆化搜索 */
+int dfs(int i, int[] mem) {
+    // 已知 dp[1] 和 dp[2] ，返回之
+    if (i == 1 || i == 2)
+        return i;
+    // 若存在记录 dp[i] ，则直接返回之
+    if (mem[i] != -1)
+        return mem[i];
+    // dp[i] = dp[i-1] + dp[i-2]
+    int count = dfs(i - 1, mem) + dfs(i - 2, mem);
+    // 记录 dp[i]
+    mem[i] = count;
+    return count;
+}
+
+/* 爬楼梯：记忆化搜索 */
+int climbingStairsDFSMem(int n) {
+    // mem[i] 记录爬到第 i 阶的方案总数，-1 代表无记录
+    int[] mem = new int[n + 1];
+    Arrays.fill(mem, -1);
+    return dfs(n, mem);
+}
+```
+
+观察下图，**经过记忆化处理后，所有重叠子问题都只需计算一次，时间复杂度优化至 $O(n)$** ，这是一个巨大的飞跃。
+
+![记忆化搜索对应递归树](../assets/images/10-算法/291.climbing_stairs_dfs_memo_tree.png)
+
+### 1.43.3 方法三：动态规划
+
+**记忆化搜索是一种“从顶至底”的方法**：我们从原问题（根节点）开始，递归地将较大子问题分解为较小子问题，直至解已知的最小子问题（叶节点）。之后，通过回溯逐层收集子问题的解，构建出原问题的解。
+
+与之相反，**动态规划是一种“从底至顶”的方法**：从最小子问题的解开始，迭代地构建更大子问题的解，直至得到原问题的解。
+
+由于动态规划不包含回溯过程，因此只需使用循环迭代实现，无须使用递归。在以下代码中，我们初始化一个数组 `dp` 来存储子问题的解，它起到了与记忆化搜索中数组 `mem` 相同的记录作用：
+
+```java
+/* 爬楼梯：动态规划 */
+int climbingStairsDP(int n) {
+    if (n == 1 || n == 2)
+        return n;
+    // 初始化 dp 表，用于存储子问题的解
+    int[] dp = new int[n + 1];
+    // 初始状态：预设最小子问题的解
+    dp[1] = 1;
+    dp[2] = 2;
+    // 状态转移：从较小子问题逐步求解较大子问题
+    for (int i = 3; i <= n; i++) {
+        dp[i] = dp[i - 1] + dp[i - 2];
+    }
+    return dp[n];
+}
+```
+
+下图模拟了以上代码的执行过程。
+
+![爬楼梯的动态规划过程](../assets/images/10-算法/292.climbing_stairs_dp.png)
+
+与回溯算法一样，动态规划也使用“状态”概念来表示问题求解的特定阶段，每个状态都对应一个子问题以及相应的局部最优解。例如，爬楼梯问题的状态定义为当前所在楼梯阶数 $i$ 。
+
+根据以上内容，我们可以总结出动态规划的常用术语。
+
+- 将数组 `dp` 称为 <u>dp 表</u>，$dp[i]$ 表示状态 $i$ 对应子问题的解。
+- 将最小子问题对应的状态（第 $1$ 阶和第 $2$ 阶楼梯）称为<u>初始状态</u>。
+- 将递推公式 $dp[i] = dp[i-1] + dp[i-2]$ 称为<u>状态转移方程</u>。
+
+### 1.43.4 空间优化
+
+细心的读者可能发现了，**由于 $dp[i]$ 只与 $dp[i-1]$ 和 $dp[i-2]$ 有关，因此我们无须使用一个数组 `dp` 来存储所有子问题的解**，而只需两个变量滚动前进即可。代码如下所示：
+
+```java
+/* 爬楼梯：空间优化后的动态规划 */
+int climbingStairsDPComp(int n) {
+    if (n == 1 || n == 2)
+        return n;
+    int a = 1, b = 2;
+    for (int i = 3; i <= n; i++) {
+        int tmp = b;
+        b = a + b;
+        a = tmp;
+    }
+    return b;
+}
+```
+
+观察以上代码，由于省去了数组 `dp` 占用的空间，因此空间复杂度从 $O(n)$ 降至 $O(1)$ 。
+
+在动态规划问题中，当前状态往往仅与前面有限个状态有关，这时我们可以只保留必要的状态，通过“降维”来节省内存空间。**这种空间优化技巧被称为“滚动变量”或“滚动数组”**。
+
+## 1.44 动态规划问题特性
+
+在上一节中，我们学习了动态规划是如何通过子问题分解来求解原问题的。实际上，子问题分解是一种通用的算法思路，在分治、动态规划、回溯中的侧重点不同。
+
+- 分治算法递归地将原问题划分为多个相互独立的子问题，直至最小子问题，并在回溯中合并子问题的解，最终得到原问题的解。
+- 动态规划也对问题进行递归分解，但与分治算法的主要区别是，动态规划中的子问题是相互依赖的，在分解过程中会出现许多重叠子问题。
+- 回溯算法在尝试和回退中穷举所有可能的解，并通过剪枝避免不必要的搜索分支。原问题的解由一系列决策步骤构成，我们可以将每个决策步骤之前的子序列看作一个子问题。
+
+实际上，动态规划常用来求解最优化问题，它们不仅包含重叠子问题，还具有另外两大特性：最优子结构、无后效性。
+
+### 1.44.1 最优子结构
+
+我们对爬楼梯问题稍作改动，使之更加适合展示最优子结构概念。
+
+!!! question "爬楼梯最小代价"
+
+    给定一个楼梯，你每步可以上 $1$ 阶或者 $2$ 阶，每一阶楼梯上都贴有一个非负整数，表示你在该台阶所需要付出的代价。给定一个非负整数数组 $cost$ ，其中 $cost[i]$ 表示在第 $i$ 个台阶需要付出的代价，$cost[0]$ 为地面（起始点）。请计算最少需要付出多少代价才能到达顶部？
+
+如下图所示，若第 $1$、$2$、$3$ 阶的代价分别为 $1$、$10$、$1$ ，则从地面爬到第 $3$ 阶的最小代价为 $2$ 。
+
+![爬到第 3 阶的最小代价](../assets/images/10-算法/293.min_cost_cs_example.png)
+
+设 $dp[i]$ 为爬到第 $i$ 阶累计付出的代价，由于第 $i$ 阶只可能从 $i - 1$ 阶或 $i - 2$ 阶走来，因此 $dp[i]$ 只可能等于 $dp[i - 1] + cost[i]$ 或 $dp[i - 2] + cost[i]$ 。为了尽可能减少代价，我们应该选择两者中较小的那一个：
+
+$$
+dp[i] = \min(dp[i-1], dp[i-2]) + cost[i]
+$$
+
+这便可以引出最优子结构的含义：**原问题的最优解是从子问题的最优解构建得来的**。
+
+本题显然具有最优子结构：我们从两个子问题最优解 $dp[i-1]$ 和 $dp[i-2]$ 中挑选出较优的那一个，并用它构建出原问题 $dp[i]$ 的最优解。
+
+那么，上一节的爬楼梯题目有没有最优子结构呢？它的目标是求解方案数量，看似是一个计数问题，但如果换一种问法：“求解最大方案数量”。我们意外地发现，**虽然题目修改前后是等价的，但最优子结构浮现出来了**：第 $n$ 阶最大方案数量等于第 $n-1$ 阶和第 $n-2$ 阶最大方案数量之和。所以说，最优子结构的解释方式比较灵活，在不同问题中会有不同的含义。
+
+根据状态转移方程，以及初始状态 $dp[1] = cost[1]$ 和 $dp[2] = cost[2]$ ，我们就可以得到动态规划代码：
+
+```java
+/* 爬楼梯最小代价：动态规划 */
+int minCostClimbingStairsDP(int[] cost) {
+    int n = cost.length - 1;
+    if (n == 1 || n == 2)
+        return cost[n];
+    // 初始化 dp 表，用于存储子问题的解
+    int[] dp = new int[n + 1];
+    // 初始状态：预设最小子问题的解
+    dp[1] = cost[1];
+    dp[2] = cost[2];
+    // 状态转移：从较小子问题逐步求解较大子问题
+    for (int i = 3; i <= n; i++) {
+        dp[i] = Math.min(dp[i - 1], dp[i - 2]) + cost[i];
+    }
+    return dp[n];
+}
+```
+
+下图展示了以上代码的动态规划过程。
+
+![爬楼梯最小代价的动态规划过程](../assets/images/10-算法/294.min_cost_cs_dp.png)
+
+本题也可以进行空间优化，将一维压缩至零维，使得空间复杂度从 $O(n)$ 降至 $O(1)$ ：
+
+```java
+/* 爬楼梯最小代价：空间优化后的动态规划 */
+int minCostClimbingStairsDPComp(int[] cost) {
+    int n = cost.length - 1;
+    if (n == 1 || n == 2)
+        return cost[n];
+    int a = cost[1], b = cost[2];
+    for (int i = 3; i <= n; i++) {
+        int tmp = b;
+        b = Math.min(a, tmp) + cost[i];
+        a = tmp;
+    }
+    return b;
+}
+```
+
+### 1.44.2 无后效性
+
+无后效性是动态规划能够有效解决问题的重要特性之一，其定义为：**给定一个确定的状态，它的未来发展只与当前状态有关，而与过去经历的所有状态无关**。
+
+以爬楼梯问题为例，给定状态 $i$ ，它会发展出状态 $i+1$ 和状态 $i+2$ ，分别对应跳 $1$ 步和跳 $2$ 步。在做出这两种选择时，我们无须考虑状态 $i$ 之前的状态，它们对状态 $i$ 的未来没有影响。
+
+然而，如果我们给爬楼梯问题添加一个约束，情况就不一样了。
+
+!!! question "带约束爬楼梯"
+
+    给定一个共有 $n$ 阶的楼梯，你每步可以上 $1$ 阶或者 $2$ 阶，**但不能连续两轮跳 $1$ 阶**，请问有多少种方案可以爬到楼顶？
+
+如下图所示，爬上第 $3$ 阶仅剩 $2$ 种可行方案，其中连续三次跳 $1$ 阶的方案不满足约束条件，因此被舍弃。
+
+![带约束爬到第 3 阶的方案数量](../assets/images/10-算法/295.climbing_stairs_constraint_example.png)
+
+在该问题中，如果上一轮是跳 $1$ 阶上来的，那么下一轮就必须跳 $2$ 阶。这意味着，**下一步选择不能由当前状态（当前所在楼梯阶数）独立决定，还和前一个状态（上一轮所在楼梯阶数）有关**。
+
+不难发现，此问题已不满足无后效性，状态转移方程 $dp[i] = dp[i-1] + dp[i-2]$ 也失效了，因为 $dp[i-1]$ 代表本轮跳 $1$ 阶，但其中包含了许多“上一轮是跳 $1$ 阶上来的”方案，而为了满足约束，我们就不能将 $dp[i-1]$ 直接计入 $dp[i]$ 中。
+
+为此，我们需要扩展状态定义：**状态 $[i, j]$ 表示处在第 $i$ 阶并且上一轮跳了 $j$ 阶**，其中 $j \in \{1, 2\}$ 。此状态定义有效地区分了上一轮跳了 $1$ 阶还是 $2$ 阶，我们可以据此判断当前状态是从何而来的。
+
+- 当上一轮跳了 $1$ 阶时，上上一轮只能选择跳 $2$ 阶，即 $dp[i, 1]$ 只能从 $dp[i-1, 2]$ 转移过来。
+- 当上一轮跳了 $2$ 阶时，上上一轮可选择跳 $1$ 阶或跳 $2$ 阶，即 $dp[i, 2]$ 可以从 $dp[i-2, 1]$ 或 $dp[i-2, 2]$ 转移过来。
+
+如下图所示，在该定义下，$dp[i, j]$ 表示状态 $[i, j]$ 对应的方案数。此时状态转移方程为：
+
+$$
+\begin{cases}
+dp[i, 1] = dp[i-1, 2] \\
+dp[i, 2] = dp[i-2, 1] + dp[i-2, 2]
+\end{cases}
+$$
+
+![考虑约束下的递推关系](../assets/images/10-算法/296.climbing_stairs_constraint_state_transfer.png)
+
+最终，返回 $dp[n, 1] + dp[n, 2]$ 即可，两者之和代表爬到第 $n$ 阶的方案总数：
+
+```java
+/* 带约束爬楼梯：动态规划 */
+int climbingStairsConstraintDP(int n) {
+    if (n == 1 || n == 2) {
+        return 1;
+    }
+    // 初始化 dp 表，用于存储子问题的解
+    int[][] dp = new int[n + 1][3];
+    // 初始状态：预设最小子问题的解
+    dp[1][1] = 1;
+    dp[1][2] = 0;
+    dp[2][1] = 0;
+    dp[2][2] = 1;
+    // 状态转移：从较小子问题逐步求解较大子问题
+    for (int i = 3; i <= n; i++) {
+        dp[i][1] = dp[i - 1][2];
+        dp[i][2] = dp[i - 2][1] + dp[i - 2][2];
+    }
+    return dp[n][1] + dp[n][2];
+}
+```
+
+在上面的案例中，由于仅需多考虑前面一个状态，因此我们仍然可以通过扩展状态定义，使得问题重新满足无后效性。然而，某些问题具有非常严重的“有后效性”。
+
+!!! question "爬楼梯与障碍生成"
+
+    给定一个共有 $n$ 阶的楼梯，你每步可以上 $1$ 阶或者 $2$ 阶。**规定当爬到第 $i$ 阶时，系统自动会在第 $2i$ 阶上放上障碍物，之后所有轮都不允许跳到第 $2i$ 阶上**。例如，前两轮分别跳到了第 $2$、$3$ 阶上，则之后就不能跳到第 $4$、$6$ 阶上。请问有多少种方案可以爬到楼顶？
+
+在这个问题中，下次跳跃依赖过去所有的状态，因为每一次跳跃都会在更高的阶梯上设置障碍，并影响未来的跳跃。对于这类问题，动态规划往往难以解决。
+
+实际上，许多复杂的组合优化问题（例如旅行商问题）不满足无后效性。对于这类问题，我们通常会选择使用其他方法，例如启发式搜索、遗传算法、强化学习等，从而在有限时间内得到可用的局部最优解。
+
+## 1.45 动态规划解题思路
+
+上两节介绍了动态规划问题的主要特征，接下来我们一起探究两个更加实用的问题。
+
+1. 如何判断一个问题是不是动态规划问题？
+2. 求解动态规划问题该从何处入手，完整步骤是什么？
+
+### 1.45.1 问题判断
+
+总的来说，如果一个问题包含重叠子问题、最优子结构，并满足无后效性，那么它通常适合用动态规划求解。然而，我们很难从问题描述中直接提取出这些特性。因此我们通常会放宽条件，**先观察问题是否适合使用回溯（穷举）解决**。
+
+**适合用回溯解决的问题通常满足“决策树模型”**，这种问题可以使用树形结构来描述，其中每一个节点代表一个决策，每一条路径代表一个决策序列。
+
+换句话说，如果问题包含明确的决策概念，并且解是通过一系列决策产生的，那么它就满足决策树模型，通常可以使用回溯来解决。
+
+在此基础上，动态规划问题还有一些判断的“加分项”。
+
+- 问题包含最大（小）或最多（少）等最优化描述。
+- 问题的状态能够使用一个列表、多维矩阵或树来表示，并且一个状态与其周围的状态存在递推关系。
+
+相应地，也存在一些“减分项”。
+
+- 问题的目标是找出所有可能的解决方案，而不是找出最优解。
+- 问题描述中有明显的排列组合的特征，需要返回具体的多个方案。
+
+如果一个问题满足决策树模型，并具有较为明显的“加分项”，我们就可以假设它是一个动态规划问题，并在求解过程中验证它。
+
+### 1.45.2 问题求解步骤
+
+动态规划的解题流程会因问题的性质和难度而有所不同，但通常遵循以下步骤：描述决策，定义状态，建立 $dp$ 表，推导状态转移方程，确定边界条件等。
+
+为了更形象地展示解题步骤，我们使用一个经典问题“最小路径和”来举例。
+
+!!! question
+
+    给定一个 $n \times m$ 的二维网格 `grid` ，网格中的每个单元格包含一个非负整数，表示该单元格的代价。机器人以左上角单元格为起始点，每次只能向下或者向右移动一步，直至到达右下角单元格。请返回从左上角到右下角的最小路径和。
+
+下图展示了一个例子，给定网格的最小路径和为 $13$ 。
+
+![最小路径和示例数据](../assets/images/10-算法/297.min_path_sum_example.png)
+
+**第一步：思考每轮的决策，定义状态，从而得到 $dp$ 表**
+
+本题的每一轮的决策就是从当前格子向下或向右走一步。设当前格子的行列索引为 $[i, j]$ ，则向下或向右走一步后，索引变为 $[i+1, j]$ 或 $[i, j+1]$ 。因此，状态应包含行索引和列索引两个变量，记为 $[i, j]$ 。
+
+状态 $[i, j]$ 对应的子问题为：从起始点 $[0, 0]$ 走到 $[i, j]$ 的最小路径和，解记为 $dp[i, j]$ 。
+
+至此，我们就得到了下图所示的二维 $dp$ 矩阵，其尺寸与输入网格 $grid$ 相同。
+
+![状态定义与 dp 表](../assets/images/10-算法/298.min_path_sum_solution_state_definition.png)
+
+!!! note
+
+    动态规划和回溯过程可以描述为一个决策序列，而状态由所有决策变量构成。它应当包含描述解题进度的所有变量，其包含了足够的信息，能够用来推导出下一个状态。
+    
+    每个状态都对应一个子问题，我们会定义一个 $dp$ 表来存储所有子问题的解，状态的每个独立变量都是 $dp$ 表的一个维度。从本质上看，$dp$ 表是状态和子问题的解之间的映射。
+
+**第二步：找出最优子结构，进而推导出状态转移方程**
+
+对于状态 $[i, j]$ ，它只能从上边格子 $[i-1, j]$ 和左边格子 $[i, j-1]$ 转移而来。因此最优子结构为：到达 $[i, j]$ 的最小路径和由 $[i, j-1]$ 的最小路径和与 $[i-1, j]$ 的最小路径和中较小的那一个决定。
+
+根据以上分析，可推出下图所示的状态转移方程：
+
+$$
+dp[i, j] = \min(dp[i-1, j], dp[i, j-1]) + grid[i, j]
+$$
+
+![最优子结构与状态转移方程](../assets/images/10-算法/299.min_path_sum_solution_state_transition.png)
+
+!!! note
+
+    根据定义好的 $dp$ 表，思考原问题和子问题的关系，找出通过子问题的最优解来构造原问题的最优解的方法，即最优子结构。
+
+    一旦我们找到了最优子结构，就可以使用它来构建出状态转移方程。
+
+**第三步：确定边界条件和状态转移顺序**
+
+在本题中，处在首行的状态只能从其左边的状态得来，处在首列的状态只能从其上边的状态得来，因此首行 $i = 0$ 和首列 $j = 0$ 是边界条件。
+
+如下图所示，由于每个格子是由其左方格子和上方格子转移而来，因此我们使用循环来遍历矩阵，外循环遍历各行，内循环遍历各列。
+
+![边界条件与状态转移顺序](../assets/images/10-算法/300.min_path_sum_solution_initial_state.png)
+
+!!! note
+
+    边界条件在动态规划中用于初始化 $dp$ 表，在搜索中用于剪枝。
+    
+    状态转移顺序的核心是要保证在计算当前问题的解时，所有它依赖的更小子问题的解都已经被正确地计算出来。
+
+根据以上分析，我们已经可以直接写出动态规划代码。然而子问题分解是一种从顶至底的思想，因此按照“暴力搜索 $\rightarrow$ 记忆化搜索 $\rightarrow$ 动态规划”的顺序实现更加符合思维习惯。
+
+#### 1.45.2.1 方法一：暴力搜索
+
+从状态 $[i, j]$ 开始搜索，不断分解为更小的状态 $[i-1, j]$ 和 $[i, j-1]$ ，递归函数包括以下要素。
+
+- **递归参数**：状态 $[i, j]$ 。
+- **返回值**：从 $[0, 0]$ 到 $[i, j]$ 的最小路径和 $dp[i, j]$ 。
+- **终止条件**：当 $i = 0$ 且 $j = 0$ 时，返回代价 $grid[0, 0]$ 。
+- **剪枝**：当 $i < 0$ 时或 $j < 0$ 时索引越界，此时返回代价 $+\infty$ ，代表不可行。
+
+实现代码如下：
+
+```java
+/* 最小路径和：暴力搜索 */
+int minPathSumDFS(int[][] grid, int i, int j) {
+    // 若为左上角单元格，则终止搜索
+    if (i == 0 && j == 0) {
+        return grid[0][0];
+    }
+    // 若行列索引越界，则返回 +∞ 代价
+    if (i < 0 || j < 0) {
+        return Integer.MAX_VALUE;
+    }
+    // 计算从左上角到 (i-1, j) 和 (i, j-1) 的最小路径代价
+    int up = minPathSumDFS(grid, i - 1, j);
+    int left = minPathSumDFS(grid, i, j - 1);
+    // 返回从左上角到 (i, j) 的最小路径代价
+    return Math.min(left, up) + grid[i][j];
+}
+```
+
+下图给出了以 $dp[2, 1]$ 为根节点的递归树，其中包含一些重叠子问题，其数量会随着网格 `grid` 的尺寸变大而急剧增多。
+
+从本质上看，造成重叠子问题的原因为：**存在多条路径可以从左上角到达某一单元格**。
+
+![暴力搜索递归树](../assets/images/10-算法/301.min_path_sum_dfs.png)
+
+每个状态都有向下和向右两种选择，从左上角走到右下角总共需要 $m + n - 2$ 步，所以最差时间复杂度为 $O(2^{m + n})$ ，其中 $n$ 和 $m$ 分别为网格的行数和列数。请注意，这种计算方式未考虑临近网格边界的情况，当到达网格边界时只剩下一种选择，因此实际的路径数量会少一些。
+
+#### 1.45.2.2 方法二：记忆化搜索
+
+我们引入一个和网格 `grid` 相同尺寸的记忆列表 `mem` ，用于记录各个子问题的解，并将重叠子问题进行剪枝：
+
+```java
+/* 最小路径和：记忆化搜索 */
+int minPathSumDFSMem(int[][] grid, int[][] mem, int i, int j) {
+    // 若为左上角单元格，则终止搜索
+    if (i == 0 && j == 0) {
+        return grid[0][0];
+    }
+    // 若行列索引越界，则返回 +∞ 代价
+    if (i < 0 || j < 0) {
+        return Integer.MAX_VALUE;
+    }
+    // 若已有记录，则直接返回
+    if (mem[i][j] != -1) {
+        return mem[i][j];
+    }
+    // 左边和上边单元格的最小路径代价
+    int up = minPathSumDFSMem(grid, mem, i - 1, j);
+    int left = minPathSumDFSMem(grid, mem, i, j - 1);
+    // 记录并返回左上角到 (i, j) 的最小路径代价
+    mem[i][j] = Math.min(left, up) + grid[i][j];
+    return mem[i][j];
+}
+```
+
+如下图所示，在引入记忆化后，所有子问题的解只需计算一次，因此时间复杂度取决于状态总数，即网格尺寸 $O(nm)$ 。
+
+![记忆化搜索递归树](../assets/images/10-算法/302.min_path_sum_dfs_mem.png)
+
+#### 1.45.2.3 方法三：动态规划
+
+基于迭代实现动态规划解法，代码如下所示：
+
+```java
+/* 最小路径和：动态规划 */
+int minPathSumDP(int[][] grid) {
+    int n = grid.length, m = grid[0].length;
+    // 初始化 dp 表
+    int[][] dp = new int[n][m];
+    dp[0][0] = grid[0][0];
+    // 状态转移：首行
+    for (int j = 1; j < m; j++) {
+        dp[0][j] = dp[0][j - 1] + grid[0][j];
+    }
+    // 状态转移：首列
+    for (int i = 1; i < n; i++) {
+        dp[i][0] = dp[i - 1][0] + grid[i][0];
+    }
+    // 状态转移：其余行和列
+    for (int i = 1; i < n; i++) {
+        for (int j = 1; j < m; j++) {
+            dp[i][j] = Math.min(dp[i][j - 1], dp[i - 1][j]) + grid[i][j];
+        }
+    }
+    return dp[n - 1][m - 1];
+}
+```
+
+下图展示了最小路径和的状态转移过程，其遍历了整个网格，**因此时间复杂度为 $O(nm)$** 。
+
+数组 `dp` 大小为 $n \times m$ ，**因此空间复杂度为 $O(nm)$** 。
+
+=== "<1>"
+    ![最小路径和的动态规划过程](../assets/images/10-算法/303.min_path_sum_dp_step1.png)
+
+=== "<2>"
+    ![min_path_sum_dp_step2](../assets/images/10-算法/304.min_path_sum_dp_step2.png)
+
+=== "<3>"
+    ![min_path_sum_dp_step3](../assets/images/10-算法/305.min_path_sum_dp_step3.png)
+
+=== "<4>"
+    ![min_path_sum_dp_step4](../assets/images/10-算法/306.min_path_sum_dp_step4.png)
+
+=== "<5>"
+    ![min_path_sum_dp_step5](../assets/images/10-算法/307.min_path_sum_dp_step5.png)
+
+=== "<6>"
+    ![min_path_sum_dp_step6](../assets/images/10-算法/308.min_path_sum_dp_step6.png)
+
+=== "<7>"
+    ![min_path_sum_dp_step7](../assets/images/10-算法/309.min_path_sum_dp_step7.png)
+
+=== "<8>"
+    ![min_path_sum_dp_step8](../assets/images/10-算法/310.min_path_sum_dp_step8.png)
+
+=== "<9>"
+    ![min_path_sum_dp_step9](../assets/images/10-算法/311.min_path_sum_dp_step9.png)
+
+=== "<10>"
+    ![min_path_sum_dp_step10](../assets/images/10-算法/312.min_path_sum_dp_step10.png)
+
+=== "<11>"
+    ![min_path_sum_dp_step11](../assets/images/10-算法/313.min_path_sum_dp_step11.png)
+
+=== "<12>"
+    ![min_path_sum_dp_step12](../assets/images/10-算法/314.min_path_sum_dp_step12.png)
+
+#### 1.45.2.4 空间优化
+
+由于每个格子只与其左边和上边的格子有关，因此我们可以只用一个单行数组来实现 $dp$ 表。
+
+请注意，因为数组 `dp` 只能表示一行的状态，所以我们无法提前初始化首列状态，而是在遍历每行时更新它：
+
+```java
+/* 最小路径和：空间优化后的动态规划 */
+int minPathSumDPComp(int[][] grid) {
+    int n = grid.length, m = grid[0].length;
+    // 初始化 dp 表
+    int[] dp = new int[m];
+    // 状态转移：首行
+    dp[0] = grid[0][0];
+    for (int j = 1; j < m; j++) {
+        dp[j] = dp[j - 1] + grid[0][j];
+    }
+    // 状态转移：其余行
+    for (int i = 1; i < n; i++) {
+        // 状态转移：首列
+        dp[0] = dp[0] + grid[i][0];
+        // 状态转移：其余列
+        for (int j = 1; j < m; j++) {
+            dp[j] = Math.min(dp[j - 1], dp[j]) + grid[i][j];
+        }
+    }
+    return dp[m - 1];
+}
+```
+## 1.46 0-1 背包问题
+
+背包问题是一个非常好的动态规划入门题目，是动态规划中最常见的问题形式。其具有很多变种，例如 0-1 背包问题、完全背包问题、多重背包问题等。
+
+在本节中，我们先来求解最常见的 0-1 背包问题。
+
+!!! question
+
+    给定 $n$ 个物品，第 $i$ 个物品的重量为 $wgt[i-1]$、价值为 $val[i-1]$ ，和一个容量为 $cap$ 的背包。每个物品只能选择一次，问在限定背包容量下能放入物品的最大价值。
+
+观察下图，由于物品编号 $i$ 从 $1$ 开始计数，数组索引从 $0$ 开始计数，因此物品 $i$ 对应重量 $wgt[i-1]$ 和价值 $val[i-1]$ 。
+
+![0-1 背包的示例数据](../assets/images/10-算法/315.knapsack_example.png)
+
+我们可以将 0-1 背包问题看作一个由 $n$ 轮决策组成的过程，对于每个物体都有不放入和放入两种决策，因此该问题满足决策树模型。
+
+该问题的目标是求解“在限定背包容量下能放入物品的最大价值”，因此较大概率是一个动态规划问题。
+
+**第一步：思考每轮的决策，定义状态，从而得到 $dp$ 表**
+
+对于每个物品来说，不放入背包，背包容量不变；放入背包，背包容量减小。由此可得状态定义：当前物品编号 $i$ 和背包容量 $c$ ，记为 $[i, c]$ 。
+
+状态 $[i, c]$ 对应的子问题为：**前 $i$ 个物品在容量为 $c$ 的背包中的最大价值**，记为 $dp[i, c]$ 。
+
+待求解的是 $dp[n, cap]$ ，因此需要一个尺寸为 $(n+1) \times (cap+1)$ 的二维 $dp$ 表。
+
+**第二步：找出最优子结构，进而推导出状态转移方程**
+
+当我们做出物品 $i$ 的决策后，剩余的是前 $i-1$ 个物品决策的子问题，可分为以下两种情况。
+
+- **不放入物品 $i$** ：背包容量不变，状态变化为 $[i-1, c]$ 。
+- **放入物品 $i$** ：背包容量减少 $wgt[i-1]$ ，价值增加 $val[i-1]$ ，状态变化为 $[i-1, c-wgt[i-1]]$ 。
+
+上述分析向我们揭示了本题的最优子结构：**最大价值 $dp[i, c]$ 等于不放入物品 $i$ 和放入物品 $i$ 两种方案中价值更大的那一个**。由此可推导出状态转移方程：
+
+$$
+dp[i, c] = \max(dp[i-1, c], dp[i-1, c - wgt[i-1]] + val[i-1])
+$$
+
+需要注意的是，若当前物品重量 $wgt[i - 1]$ 超出剩余背包容量 $c$ ，则只能选择不放入背包。
+
+**第三步：确定边界条件和状态转移顺序**
+
+当无物品或背包容量为 $0$ 时最大价值为 $0$ ，即首列 $dp[i, 0]$ 和首行 $dp[0, c]$ 都等于 $0$ 。
+
+当前状态 $[i, c]$ 从上方的状态 $[i-1, c]$ 和左上方的状态 $[i-1, c-wgt[i-1]]$ 转移而来，因此通过两层循环正序遍历整个 $dp$ 表即可。
+
+根据以上分析，我们接下来按顺序实现暴力搜索、记忆化搜索、动态规划解法。
+
+### 方法一：暴力搜索
+
+搜索代码包含以下要素。
+
+- **递归参数**：状态 $[i, c]$ 。
+- **返回值**：子问题的解 $dp[i, c]$ 。
+- **终止条件**：当物品编号越界 $i = 0$ 或背包剩余容量为 $0$ 时，终止递归并返回价值 $0$ 。
+- **剪枝**：若当前物品重量超出背包剩余容量，则只能选择不放入背包。
+
+```java
+/* 0-1 背包：暴力搜索 */
+int knapsackDFS(int[] wgt, int[] val, int i, int c) {
+    // 若已选完所有物品或背包无剩余容量，则返回价值 0
+    if (i == 0 || c == 0) {
+        return 0;
+    }
+    // 若超过背包容量，则只能选择不放入背包
+    if (wgt[i - 1] > c) {
+        return knapsackDFS(wgt, val, i - 1, c);
+    }
+    // 计算不放入和放入物品 i 的最大价值
+    int no = knapsackDFS(wgt, val, i - 1, c);
+    int yes = knapsackDFS(wgt, val, i - 1, c - wgt[i - 1]) + val[i - 1];
+    // 返回两种方案中价值更大的那一个
+    return Math.max(no, yes);
+}
+```
+
+如下图所示，由于每个物品都会产生不选和选两条搜索分支，因此时间复杂度为 $O(2^n)$ 。
+
+观察递归树，容易发现其中存在重叠子问题，例如 $dp[1, 10]$ 等。而当物品较多、背包容量较大，尤其是相同重量的物品较多时，重叠子问题的数量将会大幅增多。
+
+![0-1 背包问题的暴力搜索递归树](../assets/images/10-算法/316.knapsack_dfs.png)
+
+### 方法二：记忆化搜索
+
+为了保证重叠子问题只被计算一次，我们借助记忆列表 `mem` 来记录子问题的解，其中 `mem[i][c]` 对应 $dp[i, c]$ 。
+
+引入记忆化之后，**时间复杂度取决于子问题数量**，也就是 $O(n \times cap)$ 。实现代码如下：
+
+```java
+/* 0-1 背包：记忆化搜索 */
+int knapsackDFSMem(int[] wgt, int[] val, int[][] mem, int i, int c) {
+    // 若已选完所有物品或背包无剩余容量，则返回价值 0
+    if (i == 0 || c == 0) {
+        return 0;
+    }
+    // 若已有记录，则直接返回
+    if (mem[i][c] != -1) {
+        return mem[i][c];
+    }
+    // 若超过背包容量，则只能选择不放入背包
+    if (wgt[i - 1] > c) {
+        return knapsackDFSMem(wgt, val, mem, i - 1, c);
+    }
+    // 计算不放入和放入物品 i 的最大价值
+    int no = knapsackDFSMem(wgt, val, mem, i - 1, c);
+    int yes = knapsackDFSMem(wgt, val, mem, i - 1, c - wgt[i - 1]) + val[i - 1];
+    // 记录并返回两种方案中价值更大的那一个
+    mem[i][c] = Math.max(no, yes);
+    return mem[i][c];
+}
+```
+
+下图展示了在记忆化搜索中被剪掉的搜索分支。
+
+![0-1 背包问题的记忆化搜索递归树](../assets/images/10-算法/317.knapsack_dfs_mem.png)
+
+### 方法三：动态规划
+
+动态规划实质上就是在状态转移中填充 $dp$ 表的过程，代码如下所示：
+
+```java
+/* 0-1 背包：动态规划 */
+int knapsackDP(int[] wgt, int[] val, int cap) {
+    int n = wgt.length;
+    // 初始化 dp 表
+    int[][] dp = new int[n + 1][cap + 1];
+    // 状态转移
+    for (int i = 1; i <= n; i++) {
+        for (int c = 1; c <= cap; c++) {
+            if (wgt[i - 1] > c) {
+                // 若超过背包容量，则不选物品 i
+                dp[i][c] = dp[i - 1][c];
+            } else {
+                // 不选和选物品 i 这两种方案的较大值
+                dp[i][c] = Math.max(dp[i - 1][c], dp[i - 1][c - wgt[i - 1]] + val[i - 1]);
+            }
+        }
+    }
+    return dp[n][cap];
+}
+```
+
+如下图所示，时间复杂度和空间复杂度都由数组 `dp` 大小决定，即 $O(n \times cap)$ 。
+
+=== "<1>"
+    ![0-1 背包问题的动态规划过程](../assets/images/10-算法/318.knapsack_dp_step1.png)
+
+=== "<2>"
+    ![knapsack_dp_step2](../assets/images/10-算法/319.knapsack_dp_step2.png)
+
+=== "<3>"
+    ![knapsack_dp_step3](../assets/images/10-算法/320.knapsack_dp_step3.png)
+
+=== "<4>"
+    ![knapsack_dp_step4](../assets/images/10-算法/321.knapsack_dp_step4.png)
+
+=== "<5>"
+    ![knapsack_dp_step5](../assets/images/10-算法/322.knapsack_dp_step5.png)
+
+=== "<6>"
+    ![knapsack_dp_step6](../assets/images/10-算法/323.knapsack_dp_step6.png)
+
+=== "<7>"
+    ![knapsack_dp_step7](../assets/images/10-算法/324.knapsack_dp_step7.png)
+
+=== "<8>"
+    ![knapsack_dp_step8](../assets/images/10-算法/325.knapsack_dp_step8.png)
+
+=== "<9>"
+    ![knapsack_dp_step9](../assets/images/10-算法/326.knapsack_dp_step9.png)
+
+=== "<10>"
+    ![knapsack_dp_step10](../assets/images/10-算法/327.knapsack_dp_step10.png)
+
+=== "<11>"
+    ![knapsack_dp_step11](../assets/images/10-算法/328.knapsack_dp_step11.png)
+
+=== "<12>"
+    ![knapsack_dp_step12](../assets/images/10-算法/329.knapsack_dp_step12.png)
+
+=== "<13>"
+    ![knapsack_dp_step13](../assets/images/10-算法/330.knapsack_dp_step13.png)
+
+=== "<14>"
+    ![knapsack_dp_step14](../assets/images/10-算法/331.knapsack_dp_step14.png)
+
+### 空间优化
+
+由于每个状态都只与其上一行的状态有关，因此我们可以使用两个数组滚动前进，将空间复杂度从 $O(n^2)$ 降至 $O(n)$ 。
+
+进一步思考，我们能否仅用一个数组实现空间优化呢？观察可知，每个状态都是由正上方或左上方的格子转移过来的。假设只有一个数组，当开始遍历第 $i$ 行时，该数组存储的仍然是第 $i-1$ 行的状态。
+
+- 如果采取正序遍历，那么遍历到 $dp[i, j]$ 时，左上方 $dp[i-1, 1]$ ~ $dp[i-1, j-1]$ 值可能已经被覆盖，此时就无法得到正确的状态转移结果。
+- 如果采取倒序遍历，则不会发生覆盖问题，状态转移可以正确进行。
+
+下图展示了在单个数组下从第 $i = 1$ 行转换至第 $i = 2$ 行的过程。请思考正序遍历和倒序遍历的区别。
+
+=== "<1>"
+    ![0-1 背包的空间优化后的动态规划过程](../assets/images/10-算法/332.knapsack_dp_comp_step1.png)
+
+=== "<2>"
+    ![knapsack_dp_comp_step2](../assets/images/10-算法/333.knapsack_dp_comp_step2.png)
+
+=== "<3>"
+    ![knapsack_dp_comp_step3](../assets/images/10-算法/334.knapsack_dp_comp_step3.png)
+
+=== "<4>"
+    ![knapsack_dp_comp_step4](../assets/images/10-算法/335.knapsack_dp_comp_step4.png)
+
+=== "<5>"
+    ![knapsack_dp_comp_step5](../assets/images/10-算法/336.knapsack_dp_comp_step5.png)
+
+=== "<6>"
+    ![knapsack_dp_comp_step6](../assets/images/10-算法/337.knapsack_dp_comp_step6.png)
+
+在代码实现中，我们仅需将数组 `dp` 的第一维 $i$ 直接删除，并且把内循环更改为倒序遍历即可：
+
+```java
+/* 0-1 背包：空间优化后的动态规划 */
+int knapsackDPComp(int[] wgt, int[] val, int cap) {
+    int n = wgt.length;
+    // 初始化 dp 表
+    int[] dp = new int[cap + 1];
+    // 状态转移
+    for (int i = 1; i <= n; i++) {
+        // 倒序遍历
+        for (int c = cap; c >= 1; c--) {
+            if (wgt[i - 1] <= c) {
+                // 不选和选物品 i 这两种方案的较大值
+                dp[c] = Math.max(dp[c], dp[c - wgt[i - 1]] + val[i - 1]);
+            }
+        }
+    }
+    return dp[cap];
+}
+```
+## 1.47 完全背包问题
+
+在本节中，我们先求解另一个常见的背包问题：完全背包，再了解它的一种特例：零钱兑换。
+
+### 1.47.1 完全背包问题
+
+!!! question
+
+    给定 $n$ 个物品，第 $i$ 个物品的重量为 $wgt[i-1]$、价值为 $val[i-1]$ ，和一个容量为 $cap$ 的背包。**每个物品可以重复选取**，问在限定背包容量下能放入物品的最大价值。示例如下图所示。
+
+![完全背包问题的示例数据](../assets/images/10-算法/338.unbounded_knapsack_example.png)
+
+#### 1.47.1.1 动态规划思路
+
+完全背包问题和 0-1 背包问题非常相似，**区别仅在于不限制物品的选择次数**。
+
+- 在 0-1 背包问题中，每种物品只有一个，因此将物品 $i$ 放入背包后，只能从前 $i-1$ 个物品中选择。
+- 在完全背包问题中，每种物品的数量是无限的，因此将物品 $i$ 放入背包后，**仍可以从前 $i$ 个物品中选择**。
+
+在完全背包问题的规定下，状态 $[i, c]$ 的变化分为两种情况。
+
+- **不放入物品 $i$** ：与 0-1 背包问题相同，转移至 $[i-1, c]$ 。
+- **放入物品 $i$** ：与 0-1 背包问题不同，转移至 $[i, c-wgt[i-1]]$ 。
+
+从而状态转移方程变为：
+
+$$
+dp[i, c] = \max(dp[i-1, c], dp[i, c - wgt[i-1]] + val[i-1])
+$$
+
+#### 1.47.1.2 代码实现
+
+对比两道题目的代码，状态转移中有一处从 $i-1$ 变为 $i$ ，其余完全一致：
+
+```java
+/* 完全背包：动态规划 */
+int unboundedKnapsackDP(int[] wgt, int[] val, int cap) {
+    int n = wgt.length;
+    // 初始化 dp 表
+    int[][] dp = new int[n + 1][cap + 1];
+    // 状态转移
+    for (int i = 1; i <= n; i++) {
+        for (int c = 1; c <= cap; c++) {
+            if (wgt[i - 1] > c) {
+                // 若超过背包容量，则不选物品 i
+                dp[i][c] = dp[i - 1][c];
+            } else {
+                // 不选和选物品 i 这两种方案的较大值
+                dp[i][c] = Math.max(dp[i - 1][c], dp[i][c - wgt[i - 1]] + val[i - 1]);
+            }
+        }
+    }
+    return dp[n][cap];
+}
+```
+
+#### 1.47.1.3 空间优化
+
+由于当前状态是从左边和上边的状态转移而来的，**因此空间优化后应该对 $dp$ 表中的每一行进行正序遍历**。
+
+这个遍历顺序与 0-1 背包正好相反。请借助下图来理解两者的区别。
+
+=== "<1>"
+    ![完全背包问题在空间优化后的动态规划过程](../assets/images/10-算法/339.unbounded_knapsack_dp_comp_step1.png)
+
+=== "<2>"
+    ![unbounded_knapsack_dp_comp_step2](../assets/images/10-算法/340.unbounded_knapsack_dp_comp_step2.png)
+
+=== "<3>"
+    ![unbounded_knapsack_dp_comp_step3](../assets/images/10-算法/341.unbounded_knapsack_dp_comp_step3.png)
+
+=== "<4>"
+    ![unbounded_knapsack_dp_comp_step4](../assets/images/10-算法/342.unbounded_knapsack_dp_comp_step4.png)
+
+=== "<5>"
+    ![unbounded_knapsack_dp_comp_step5](../assets/images/10-算法/343.unbounded_knapsack_dp_comp_step5.png)
+
+=== "<6>"
+    ![unbounded_knapsack_dp_comp_step6](../assets/images/10-算法/344.unbounded_knapsack_dp_comp_step6.png)
+
+代码实现比较简单，仅需将数组 `dp` 的第一维删除：
+
+```java
+/* 完全背包：空间优化后的动态规划 */
+int unboundedKnapsackDPComp(int[] wgt, int[] val, int cap) {
+    int n = wgt.length;
+    // 初始化 dp 表
+    int[] dp = new int[cap + 1];
+    // 状态转移
+    for (int i = 1; i <= n; i++) {
+        for (int c = 1; c <= cap; c++) {
+            if (wgt[i - 1] > c) {
+                // 若超过背包容量，则不选物品 i
+                dp[c] = dp[c];
+            } else {
+                // 不选和选物品 i 这两种方案的较大值
+                dp[c] = Math.max(dp[c], dp[c - wgt[i - 1]] + val[i - 1]);
+            }
+        }
+    }
+    return dp[cap];
+}
+```
+
+### 1.47.2 零钱兑换问题
+
+背包问题是一大类动态规划问题的代表，其拥有很多变种，例如零钱兑换问题。
+
+!!! question
+
+    给定 $n$ 种硬币，第 $i$ 种硬币的面值为 $coins[i - 1]$ ，目标金额为 $amt$ ，**每种硬币可以重复选取**，问能够凑出目标金额的最少硬币数量。如果无法凑出目标金额，则返回 $-1$ 。示例如下图所示。
+
+![零钱兑换问题的示例数据](../assets/images/10-算法/345.coin_change_example.png)
+
+#### 1.47.2.1 动态规划思路
+
+**零钱兑换可以看作完全背包问题的一种特殊情况**，两者具有以下联系与不同点。
+
+- 两道题可以相互转换，“物品”对应“硬币”、“物品重量”对应“硬币面值”、“背包容量”对应“目标金额”。
+- 优化目标相反，完全背包问题是要最大化物品价值，零钱兑换问题是要最小化硬币数量。
+- 完全背包问题是求“不超过”背包容量下的解，零钱兑换是求“恰好”凑到目标金额的解。
+
+**第一步：思考每轮的决策，定义状态，从而得到 $dp$ 表**
+
+状态 $[i, a]$ 对应的子问题为：**前 $i$ 种硬币能够凑出金额 $a$ 的最少硬币数量**，记为 $dp[i, a]$ 。
+
+二维 $dp$ 表的尺寸为 $(n+1) \times (amt+1)$ 。
+
+**第二步：找出最优子结构，进而推导出状态转移方程**
+
+本题与完全背包问题的状态转移方程存在以下两点差异。
+
+- 本题要求最小值，因此需将运算符 $\max()$ 更改为 $\min()$ 。
+- 优化主体是硬币数量而非商品价值，因此在选中硬币时执行 $+1$ 即可。
+
+$$
+dp[i, a] = \min(dp[i-1, a], dp[i, a - coins[i-1]] + 1)
+$$
+
+**第三步：确定边界条件和状态转移顺序**
+
+当目标金额为 $0$ 时，凑出它的最少硬币数量为 $0$ ，即首列所有 $dp[i, 0]$ 都等于 $0$ 。
+
+当无硬币时，**无法凑出任意 $> 0$ 的目标金额**，即是无效解。为使状态转移方程中的 $\min()$ 函数能够识别并过滤无效解，我们考虑使用 $+ \infty$ 来表示它们，即令首行所有 $dp[0, a]$ 都等于 $+ \infty$ 。
+
+#### 1.47.2.2 代码实现
+
+大多数编程语言并未提供 $+ \infty$ 变量，只能使用整型 `int` 的最大值来代替。而这又会导致大数越界：状态转移方程中的 $+ 1$ 操作可能发生溢出。
+
+为此，我们采用数字 $amt + 1$ 来表示无效解，因为凑出 $amt$ 的硬币数量最多为 $amt$ 。最后返回前，判断 $dp[n, amt]$ 是否等于 $amt + 1$ ，若是则返回 $-1$ ，代表无法凑出目标金额。代码如下所示：
+
+```java
+/* 零钱兑换：动态规划 */
+int coinChangeDP(int[] coins, int amt) {
+    int n = coins.length;
+    int MAX = amt + 1;
+    // 初始化 dp 表
+    int[][] dp = new int[n + 1][amt + 1];
+    // 状态转移：首行首列
+    for (int a = 1; a <= amt; a++) {
+        dp[0][a] = MAX;
+    }
+    // 状态转移：其余行和列
+    for (int i = 1; i <= n; i++) {
+        for (int a = 1; a <= amt; a++) {
+            if (coins[i - 1] > a) {
+                // 若超过目标金额，则不选硬币 i
+                dp[i][a] = dp[i - 1][a];
+            } else {
+                // 不选和选硬币 i 这两种方案的较小值
+                dp[i][a] = Math.min(dp[i - 1][a], dp[i][a - coins[i - 1]] + 1);
+            }
+        }
+    }
+    return dp[n][amt] != MAX ? dp[n][amt] : -1;
+}
+```
+
+下图展示了零钱兑换的动态规划过程，和完全背包问题非常相似。
+
+=== "<1>"
+    ![零钱兑换问题的动态规划过程](../assets/images/10-算法/346.coin_change_dp_step1.png)
+
+=== "<2>"
+    ![coin_change_dp_step2](../assets/images/10-算法/347.coin_change_dp_step2.png)
+
+=== "<3>"
+    ![coin_change_dp_step3](../assets/images/10-算法/348.coin_change_dp_step3.png)
+
+=== "<4>"
+    ![coin_change_dp_step4](../assets/images/10-算法/349.coin_change_dp_step4.png)
+
+=== "<5>"
+    ![coin_change_dp_step5](../assets/images/10-算法/350.coin_change_dp_step5.png)
+
+=== "<6>"
+    ![coin_change_dp_step6](../assets/images/10-算法/351.coin_change_dp_step6.png)
+
+=== "<7>"
+    ![coin_change_dp_step7](../assets/images/10-算法/352.coin_change_dp_step7.png)
+
+=== "<8>"
+    ![coin_change_dp_step8](../assets/images/10-算法/353.coin_change_dp_step8.png)
+
+=== "<9>"
+    ![coin_change_dp_step9](../assets/images/10-算法/354.coin_change_dp_step9.png)
+
+=== "<10>"
+    ![coin_change_dp_step10](../assets/images/10-算法/355.coin_change_dp_step10.png)
+
+=== "<11>"
+    ![coin_change_dp_step11](../assets/images/10-算法/356.coin_change_dp_step11.png)
+
+=== "<12>"
+    ![coin_change_dp_step12](../assets/images/10-算法/357.coin_change_dp_step12.png)
+
+=== "<13>"
+    ![coin_change_dp_step13](../assets/images/10-算法/358.coin_change_dp_step13.png)
+
+=== "<14>"
+    ![coin_change_dp_step14](../assets/images/10-算法/359.coin_change_dp_step14.png)
+
+=== "<15>"
+    ![coin_change_dp_step15](../assets/images/10-算法/360.coin_change_dp_step15.png)
+
+#### 1.47.2.3 空间优化
+
+零钱兑换的空间优化的处理方式和完全背包问题一致：
+
+```java
+/* 零钱兑换：空间优化后的动态规划 */
+int coinChangeDPComp(int[] coins, int amt) {
+    int n = coins.length;
+    int MAX = amt + 1;
+    // 初始化 dp 表
+    int[] dp = new int[amt + 1];
+    Arrays.fill(dp, MAX);
+    dp[0] = 0;
+    // 状态转移
+    for (int i = 1; i <= n; i++) {
+        for (int a = 1; a <= amt; a++) {
+            if (coins[i - 1] > a) {
+                // 若超过目标金额，则不选硬币 i
+                dp[a] = dp[a];
+            } else {
+                // 不选和选硬币 i 这两种方案的较小值
+                dp[a] = Math.min(dp[a], dp[a - coins[i - 1]] + 1);
+            }
+        }
+    }
+    return dp[amt] != MAX ? dp[amt] : -1;
+}
+```
+
+### 1.47.3 零钱兑换问题 II
+
+!!! question
+
+    给定 $n$ 种硬币，第 $i$ 种硬币的面值为 $coins[i - 1]$ ，目标金额为 $amt$ ，每种硬币可以重复选取，**问凑出目标金额的硬币组合数量**。示例如下图所示。
+
+![零钱兑换问题 II 的示例数据](../assets/images/10-算法/361.coin_change_ii_example.png)
+
+#### 1.47.3.1 动态规划思路
+
+相比于上一题，本题目标是求组合数量，因此子问题变为：**前 $i$ 种硬币能够凑出金额 $a$ 的组合数量**。而 $dp$ 表仍然是尺寸为 $(n+1) \times (amt + 1)$ 的二维矩阵。
+
+当前状态的组合数量等于不选当前硬币与选当前硬币这两种决策的组合数量之和。状态转移方程为：
+
+$$
+dp[i, a] = dp[i-1, a] + dp[i, a - coins[i-1]]
+$$
+
+当目标金额为 $0$ 时，无须选择任何硬币即可凑出目标金额，因此应将首列所有 $dp[i, 0]$ 都初始化为 $1$ 。当无硬币时，无法凑出任何 $>0$ 的目标金额，因此首行所有 $dp[0, a]$ 都等于 $0$ 。
+
+#### 1.47.3.2 代码实现
+
+```java
+/* 零钱兑换 II：动态规划 */
+int coinChangeIIDP(int[] coins, int amt) {
+    int n = coins.length;
+    // 初始化 dp 表
+    int[][] dp = new int[n + 1][amt + 1];
+    // 初始化首列
+    for (int i = 0; i <= n; i++) {
+        dp[i][0] = 1;
+    }
+    // 状态转移
+    for (int i = 1; i <= n; i++) {
+        for (int a = 1; a <= amt; a++) {
+            if (coins[i - 1] > a) {
+                // 若超过目标金额，则不选硬币 i
+                dp[i][a] = dp[i - 1][a];
+            } else {
+                // 不选和选硬币 i 这两种方案之和
+                dp[i][a] = dp[i - 1][a] + dp[i][a - coins[i - 1]];
+            }
+        }
+    }
+    return dp[n][amt];
+}
+```
+
+#### 1.47.3.3 空间优化
+
+空间优化处理方式相同，删除硬币维度即可：
+
+```java
+/* 零钱兑换 II：空间优化后的动态规划 */
+int coinChangeIIDPComp(int[] coins, int amt) {
+    int n = coins.length;
+    // 初始化 dp 表
+    int[] dp = new int[amt + 1];
+    dp[0] = 1;
+    // 状态转移
+    for (int i = 1; i <= n; i++) {
+        for (int a = 1; a <= amt; a++) {
+            if (coins[i - 1] > a) {
+                // 若超过目标金额，则不选硬币 i
+                dp[a] = dp[a];
+            } else {
+                // 不选和选硬币 i 这两种方案之和
+                dp[a] = dp[a] + dp[a - coins[i - 1]];
+            }
+        }
+    }
+    return dp[amt];
+}
+```
+## 1.48 编辑距离问题
+
+编辑距离，也称 Levenshtein 距离，指两个字符串之间互相转换的最少修改次数，通常用于在信息检索和自然语言处理中度量两个序列的相似度。
+
+!!! question
+
+    输入两个字符串 $s$ 和 $t$ ，返回将 $s$ 转换为 $t$ 所需的最少编辑步数。
+    
+    你可以在一个字符串中进行三种编辑操作：插入一个字符、删除一个字符、将字符替换为任意一个字符。
+
+如下图所示，将 `kitten` 转换为 `sitting` 需要编辑 3 步，包括 2 次替换操作与 1 次添加操作；将 `hello` 转换为 `algo` 需要 3 步，包括 2 次替换操作和 1 次删除操作。
+
+![编辑距离的示例数据](../assets/images/10-算法/362.edit_distance_example.png)
+
+**编辑距离问题可以很自然地用决策树模型来解释**。字符串对应树节点，一轮决策（一次编辑操作）对应树的一条边。
+
+如下图所示，在不限制操作的情况下，每个节点都可以派生出许多条边，每条边对应一种操作，这意味着从 `hello` 转换到 `algo` 有许多种可能的路径。
+
+从决策树的角度看，本题的目标是求解节点 `hello` 和节点 `algo` 之间的最短路径。
+
+![基于决策树模型表示编辑距离问题](../assets/images/10-算法/363.edit_distance_decision_tree.png)
+
+### 1.48.1 动态规划思路
+
+**第一步：思考每轮的决策，定义状态，从而得到 $dp$ 表**
+
+每一轮的决策是对字符串 $s$ 进行一次编辑操作。
+
+我们希望在编辑操作的过程中，问题的规模逐渐缩小，这样才能构建子问题。设字符串 $s$ 和 $t$ 的长度分别为 $n$ 和 $m$ ，我们先考虑两字符串尾部的字符 $s[n-1]$ 和 $t[m-1]$ 。
+
+- 若 $s[n-1]$ 和 $t[m-1]$ 相同，我们可以跳过它们，直接考虑 $s[n-2]$ 和 $t[m-2]$ 。
+- 若 $s[n-1]$ 和 $t[m-1]$ 不同，我们需要对 $s$ 进行一次编辑（插入、删除、替换），使得两字符串尾部的字符相同，从而可以跳过它们，考虑规模更小的问题。
+
+也就是说，我们在字符串 $s$ 中进行的每一轮决策（编辑操作），都会使得 $s$ 和 $t$ 中剩余的待匹配字符发生变化。因此，状态为当前在 $s$ 和 $t$ 中考虑的第 $i$ 和第 $j$ 个字符，记为 $[i, j]$ 。
+
+状态 $[i, j]$ 对应的子问题：**将 $s$ 的前 $i$ 个字符更改为 $t$ 的前 $j$ 个字符所需的最少编辑步数**。
+
+至此，得到一个尺寸为 $(i+1) \times (j+1)$ 的二维 $dp$ 表。
+
+**第二步：找出最优子结构，进而推导出状态转移方程**
+
+考虑子问题 $dp[i, j]$ ，其对应的两个字符串的尾部字符为 $s[i-1]$ 和 $t[j-1]$ ，可根据不同编辑操作分为下图所示的三种情况。
+
+1. 在 $s[i-1]$ 之后添加 $t[j-1]$ ，则剩余子问题 $dp[i, j-1]$ 。
+2. 删除 $s[i-1]$ ，则剩余子问题 $dp[i-1, j]$ 。
+3. 将 $s[i-1]$ 替换为 $t[j-1]$ ，则剩余子问题 $dp[i-1, j-1]$ 。
+
+![编辑距离的状态转移](../assets/images/10-算法/364.edit_distance_state_transfer.png)
+
+根据以上分析，可得最优子结构：$dp[i, j]$ 的最少编辑步数等于 $dp[i, j-1]$、$dp[i-1, j]$、$dp[i-1, j-1]$ 三者中的最少编辑步数，再加上本次的编辑步数 $1$ 。对应的状态转移方程为：
+
+$$
+dp[i, j] = \min(dp[i, j-1], dp[i-1, j], dp[i-1, j-1]) + 1
+$$
+
+请注意，**当 $s[i-1]$ 和 $t[j-1]$ 相同时，无须编辑当前字符**，这种情况下的状态转移方程为：
+
+$$
+dp[i, j] = dp[i-1, j-1]
+$$
+
+**第三步：确定边界条件和状态转移顺序**
+
+当两字符串都为空时，编辑步数为 $0$ ，即 $dp[0, 0] = 0$ 。当 $s$ 为空但 $t$ 不为空时，最少编辑步数等于 $t$ 的长度，即首行 $dp[0, j] = j$ 。当 $s$ 不为空但 $t$ 为空时，最少编辑步数等于 $s$ 的长度，即首列 $dp[i, 0] = i$ 。
+
+观察状态转移方程，解 $dp[i, j]$ 依赖左方、上方、左上方的解，因此通过两层循环正序遍历整个 $dp$ 表即可。
+
+### 1.48.2 代码实现
+
+```java
+/* 编辑距离：动态规划 */
+int editDistanceDP(String s, String t) {
+    int n = s.length(), m = t.length();
+    int[][] dp = new int[n + 1][m + 1];
+    // 状态转移：首行首列
+    for (int i = 1; i <= n; i++) {
+        dp[i][0] = i;
+    }
+    for (int j = 1; j <= m; j++) {
+        dp[0][j] = j;
+    }
+    // 状态转移：其余行和列
+    for (int i = 1; i <= n; i++) {
+        for (int j = 1; j <= m; j++) {
+            if (s.charAt(i - 1) == t.charAt(j - 1)) {
+                // 若两字符相等，则直接跳过此两字符
+                dp[i][j] = dp[i - 1][j - 1];
+            } else {
+                // 最少编辑步数 = 插入、删除、替换这三种操作的最少编辑步数 + 1
+                dp[i][j] = Math.min(Math.min(dp[i][j - 1], dp[i - 1][j]), dp[i - 1][j - 1]) + 1;
+            }
+        }
+    }
+    return dp[n][m];
+}
+```
+
+如下图所示，编辑距离问题的状态转移过程与背包问题非常类似，都可以看作填写一个二维网格的过程。
+
+=== "<1>"
+    ![编辑距离的动态规划过程](../assets/images/10-算法/365.edit_distance_dp_step1.png)
+
+=== "<2>"
+    ![edit_distance_dp_step2](../assets/images/10-算法/366.edit_distance_dp_step2.png)
+
+=== "<3>"
+    ![edit_distance_dp_step3](../assets/images/10-算法/367.edit_distance_dp_step3.png)
+
+=== "<4>"
+    ![edit_distance_dp_step4](../assets/images/10-算法/368.edit_distance_dp_step4.png)
+
+=== "<5>"
+    ![edit_distance_dp_step5](../assets/images/10-算法/369.edit_distance_dp_step5.png)
+
+=== "<6>"
+    ![edit_distance_dp_step6](../assets/images/10-算法/370.edit_distance_dp_step6.png)
+
+=== "<7>"
+    ![edit_distance_dp_step7](../assets/images/10-算法/371.edit_distance_dp_step7.png)
+
+=== "<8>"
+    ![edit_distance_dp_step8](../assets/images/10-算法/372.edit_distance_dp_step8.png)
+
+=== "<9>"
+    ![edit_distance_dp_step9](../assets/images/10-算法/373.edit_distance_dp_step9.png)
+
+=== "<10>"
+    ![edit_distance_dp_step10](../assets/images/10-算法/374.edit_distance_dp_step10.png)
+
+=== "<11>"
+    ![edit_distance_dp_step11](../assets/images/10-算法/375.edit_distance_dp_step11.png)
+
+=== "<12>"
+    ![edit_distance_dp_step12](../assets/images/10-算法/376.edit_distance_dp_step12.png)
+
+=== "<13>"
+    ![edit_distance_dp_step13](../assets/images/10-算法/377.edit_distance_dp_step13.png)
+
+=== "<14>"
+    ![edit_distance_dp_step14](../assets/images/10-算法/378.edit_distance_dp_step14.png)
+
+=== "<15>"
+    ![edit_distance_dp_step15](../assets/images/10-算法/379.edit_distance_dp_step15.png)
+
+### 1.48.3 空间优化
+
+由于 $dp[i,j]$ 是由上方 $dp[i-1, j]$、左方 $dp[i, j-1]$、左上方 $dp[i-1, j-1]$ 转移而来的，而正序遍历会丢失左上方 $dp[i-1, j-1]$ ，倒序遍历无法提前构建 $dp[i, j-1]$ ，因此两种遍历顺序都不可取。
+
+为此，我们可以使用一个变量 `leftup` 来暂存左上方的解 $dp[i-1, j-1]$ ，从而只需考虑左方和上方的解。此时的情况与完全背包问题相同，可使用正序遍历。代码如下所示：
+
+```java
+/* 编辑距离：空间优化后的动态规划 */
+int editDistanceDPComp(String s, String t) {
+    int n = s.length(), m = t.length();
+    int[] dp = new int[m + 1];
+    // 状态转移：首行
+    for (int j = 1; j <= m; j++) {
+        dp[j] = j;
+    }
+    // 状态转移：其余行
+    for (int i = 1; i <= n; i++) {
+        // 状态转移：首列
+        int leftup = dp[0]; // 暂存 dp[i-1, j-1]
+        dp[0] = i;
+        // 状态转移：其余列
+        for (int j = 1; j <= m; j++) {
+            int temp = dp[j];
+            if (s.charAt(i - 1) == t.charAt(j - 1)) {
+                // 若两字符相等，则直接跳过此两字符
+                dp[j] = leftup;
+            } else {
+                // 最少编辑步数 = 插入、删除、替换这三种操作的最少编辑步数 + 1
+                dp[j] = Math.min(Math.min(dp[j - 1], dp[j]), leftup) + 1;
+            }
+            leftup = temp; // 更新为下一轮的 dp[i-1, j-1]
+        }
+    }
+    return dp[m];
+}
+```
+
+
 # 三、算法题目详解
