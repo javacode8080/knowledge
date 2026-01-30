@@ -7990,6 +7990,162 @@ int climbingStairsDPComp(int n) {
 
 在动态规划问题中，当前状态往往仅与前面有限个状态有关，这时我们可以只保留必要的状态，通过“降维”来节省内存空间。**这种空间优化技巧被称为“滚动变量”或“滚动数组”**。
 
+### 爬楼梯问题 - 代码demo
+```java
+package MyTest.dynamicProgramming;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * 给定一个共有 n阶的楼梯，你每步可以上 1 阶或者 2阶，请问有多少种方案可以爬到楼顶？
+ **/
+public class GoUpTheSteps {
+
+    /*****************************解法5：动态规划的空间优化 dp[i]=dp[i-1]+dp[i-2]********************************************/
+    public static int climbingStairsDPComp(int n) {
+        if (n == 1 || n == 2)
+            return n;
+        int dp1 = 1;
+        int dp2 = 2;
+        for (int i = 3; i <= n; i++) {
+            int temp = dp2;
+            dp2 = dp1 + dp2;
+            dp1 = temp;
+        }
+        return dp2;
+    }
+
+    /*****************************解法4：动态规划 dp[i]=dp[i-1]+dp[i-2]********************************************/
+    public static int climbingStairsDP(int n) {
+        if (n == 1 || n == 2)
+            return n;
+        int[] dp = new int[n + 1];
+        dp[1] = 1;
+        dp[2] = 2;
+        for (int i = 3; i <= n; i++) {
+            dp[i] = dp[i - 1] + dp[i - 2];
+        }
+        return dp[n];
+    }
+
+    /*****************************解法3：记忆化搜索 dp[i]=dp[i-1]+dp[i-2]********************************************/
+    /* 爬楼梯：记忆化搜索 */
+    public static int climbingStairsDFSMem(int n) {
+        // mem[i] 记录爬到第 i 阶的方案总数，-1 代表无记录
+        int[] mem = new int[n + 1];
+        Arrays.fill(mem, -1);
+        return dfs(n, mem);
+    }
+
+    /* 记忆化搜索 */
+    private static int dfs(int i, int[] mem) {
+        // 已知 dp[1] 和 dp[2] ，返回之
+        if (i == 1 || i == 2)
+            return i;
+        // 若存在记录 dp[i] ，则直接返回之
+        if (mem[i] != -1)
+            return mem[i];
+        // dp[i] = dp[i-1] + dp[i-2]
+        int count = dfs(i - 1, mem) + dfs(i - 2, mem);
+        // 记录 dp[i]
+        mem[i] = count;
+        return count;
+    }
+
+    /*****************************解法2：暴力搜索dp[i]=dp[i-1]+dp[i-2]********************************************/
+    public static int dfs(int n) {
+        if (n == 1 || n == 2) {
+            return n;
+        }
+        return dfs(n - 1) + dfs(n - 2);
+    }
+
+    /*****************************解法1：回溯********************************************/
+    public static List<List<Integer>> goUpTheSteps(int n) {
+        List<List<Integer>> res = new ArrayList<>();
+        List<Integer> state = new ArrayList<>();
+        backtrack(state, n, res);
+        return res;
+    }
+
+    private static void backtrack(List<Integer> state, int n, List<List<Integer>> res) {
+        //1.如果是结果则记录
+        if (isSolution(state, n)) {
+            solutionRecord(state, res);
+            return;
+        }
+        //2.循环判断条件选择
+        for (int i = 1; i <= 2; i++) {
+            if (isValid(i, state, n)) {
+                choice(state, i);
+                backtrack(state, n, res);
+                undoChoice(state);
+            }
+        }
+    }
+
+    private static void undoChoice(List<Integer> state) {
+        state.remove(state.size() - 1);
+    }
+
+    private static void choice(List<Integer> state, int i) {
+        state.add(i);
+    }
+
+    private static boolean isValid(int i, List<Integer> state, int n) {
+        return sum(state) + i <= n;
+    }
+
+    private static boolean isSolution(List<Integer> state, int n) {
+        return sum(state) == n;
+    }
+
+    private static void solutionRecord(List<Integer> state, List<List<Integer>> res) {
+        res.add(new ArrayList<>(state));
+    }
+
+    private static int sum(List<Integer> state) {
+        int sum = 0;
+        for (Integer i : state) {
+            sum += i;
+        }
+        return sum;
+    }
+
+    public static void print(List<List<Integer>> lists) {
+        for (List<Integer> list : lists) {
+            System.out.print("[");
+            for (int i = 0; i < list.size(); i++) {
+                Integer val = list.get(i);
+                System.out.print(val);
+                if (i != list.size() - 1) {
+                    System.out.print(", ");
+                }
+            }
+            System.out.println("]");
+        }
+    }
+
+
+    public static void main(String[] args) {
+        //1. 这个可以记录每一个步骤的方法
+        List<List<Integer>> goUpTheSteps = goUpTheSteps(9);
+        System.out.println(goUpTheSteps.size());
+        //2. 暴力搜索只能记录一共有多少种方法
+        System.out.println(dfs(9));
+        //3. 记忆方法有效的减少不必要的重复递归
+        System.out.println(climbingStairsDFSMem(9));
+        //4. 动态规划：不需要递归
+        System.out.println(climbingStairsDP(9));
+        //5. 动态规划：空间优化
+        System.out.println(climbingStairsDPComp(9));
+    }
+
+}
+```
+
 ## 1.44 动态规划问题特性
 
 在上一节中，我们学习了动态规划是如何通过子问题分解来求解原问题的。实际上，子问题分解是一种通用的算法思路，在分治、动态规划、回溯中的侧重点不同。
@@ -8136,6 +8292,99 @@ int climbingStairsConstraintDP(int n) {
 在这个问题中，下次跳跃依赖过去所有的状态，因为每一次跳跃都会在更高的阶梯上设置障碍，并影响未来的跳跃。对于这类问题，动态规划往往难以解决。
 
 实际上，许多复杂的组合优化问题（例如旅行商问题）不满足无后效性。对于这类问题，我们通常会选择使用其他方法，例如启发式搜索、遗传算法、强化学习等，从而在有限时间内得到可用的局部最优解。
+
+### 爬楼梯进阶 - 代码demo
+```java
+package MyTest.dynamicProgramming;
+
+
+/**
+ * 爬楼梯问题进阶
+ **/
+public class GoUpTheSteps2 {
+
+    /**
+     * 给定一个楼梯，你每步可以上1阶或者2阶，每一阶楼梯上都贴有一个非负整数，表示你在该台阶所需要付出的代价。给定一个非负整数数组cost，
+     * 其中cost[i]表示在第i个台阶需要付出的代价，cost[0]为地面（起始点）。
+     * 请计算最少需要付出多少代价才能到达顶部？
+     **/
+
+    public static int minCostClimbingStairsDP(int[] cost) {
+        int n = cost.length - 1;
+        if (n == 1 || n == 2) {
+            return cost[n];
+        }
+        int dp1 = cost[1];
+        int dp2 = cost[2];
+        for (int i = 3; i <= n; i++) {
+            int temp = dp2;
+            dp2 = Math.min(dp1, dp2) + cost[i];
+            dp1 = temp;
+        }
+        return dp2;
+    }
+
+    /**
+     * 给定一个共有n阶的楼梯，你每步可以上1阶或者2阶，但不能连续两轮跳1阶，请问有多少种方案可以爬到楼顶？(空间优化)
+     * dp[i][1] = dp[i-1,2]
+     * dp[i,2] = dp[i-2,1] + dp[i-2,2]
+     **/
+    public static int climbingStairsConstraintDP(int n) {
+        if (n == 1 || n == 2) {
+            return 1;
+        }
+        //dp1_1代表的是dp[i-2,1],dp1_2代表的是dp[i-2,2],dp2_1代表的是dp[i-1,1],dp2_1代表的是dp[i-1,2],
+        int dp1_1 = 1;//初始化：上一个台阶到1的方案1种
+        int dp1_2 = 0;//初始化：上两个台阶到1的方案0种
+        int dp2_1 = 0;//初始化：上一个台阶到2的方案0种，因为只有[1,1]，这是不被允许的
+        int dp2_2 = 1;//初始化：上两个台阶到2的方案1种
+        for (int i = 3; i <= n; i++) {
+            int temp1 = dp2_1;
+            int temp2 = dp2_2;
+            //当前台阶的方案数量
+            //上一个台阶的dp[i][1] = dp[i-1,2]
+            dp2_1 = dp2_2;
+            //上两个台阶的dp[i,2] = dp[i-2,1] + dp[i-2,2]
+            dp2_2 = dp1_1 + dp1_2;
+            dp1_1 = temp1;
+            dp1_2 = temp2;
+        }
+        return dp2_1 + dp2_2;
+    }
+
+    /**
+     * 给定一个共有n阶的楼梯，你每步可以上1阶或者2阶，但不能连续两轮跳1阶，请问有多少种方案可以爬到楼顶？(无空间优化)
+     * dp[i][1] = dp[i-1,2]
+     * dp[i,2] = dp[i-2,1] + dp[i-2,2]
+     **/
+    /* 带约束爬楼梯：动态规划 */
+    public static int climbingStairsConstraintDP2(int n) {
+        if (n == 1 || n == 2) {
+            return 1;
+        }
+        // 初始化 dp 表，用于存储子问题的解
+        int[][] dp = new int[n + 1][3];
+        // 初始状态：预设最小子问题的解
+        dp[1][1] = 1;
+        dp[1][2] = 0;
+        dp[2][1] = 0;
+        dp[2][2] = 1;
+        // 状态转移：从较小子问题逐步求解较大子问题
+        for (int i = 3; i <= n; i++) {
+            dp[i][1] = dp[i - 1][2];
+            dp[i][2] = dp[i - 2][1] + dp[i - 2][2];
+        }
+        return dp[n][1] + dp[n][2];
+    }
+
+    public static void main(String[] args) {
+        System.out.println(minCostClimbingStairsDP(new int[]{1, 2, 3, 4, 5, 6, 7}));
+        System.out.println(climbingStairsConstraintDP(5));
+        System.out.println(climbingStairsConstraintDP2(5));
+    }
+}
+
+```
 
 ## 1.45 动态规划解题思路
 
@@ -8396,6 +8645,73 @@ int minPathSumDPComp(int[][] grid) {
     return dp[m - 1];
 }
 ```
+
+### 最小路径和 -- 代码demo
+```java
+package MyTest.dynamicProgramming;
+
+/**
+ * 给定一个 n x m 的二维网格 grid ，网格中的每个单元格包含一个非负整数，表示该单元格的代价。
+ * 机器人以左上角单元格为起始点，每次只能向下或者向右移动一步，直至到达右下角单元格。
+ * 请返回从左上角到右下角的最小路径和。
+ **/
+public class MinPathSum {
+
+    // dp[i,j] = min(dp[i-1,j],dp[i,j-1])+grid(i,j)
+    public static int minPathSumDp(int[][] nums) {
+        int row = nums.length;
+        int col = nums[0].length;
+        int[][] dp = new int[row][col];
+        //初始化边界
+        dp[0][0] = nums[0][0];
+        for (int i = 1; i < row; i++) {
+            dp[i][0] = nums[i][0] + dp[i - 1][0];
+        }
+        for (int i = 1; i < col; i++) {
+            dp[0][i] = nums[0][i] + dp[0][i - 1];
+        }
+        // 状态转移矩阵
+        for (int i = 1; i < row; i++) {
+            for (int j = 1; j < col; j++) {
+                dp[i][j] = Math.min(dp[i - 1][j], dp[i][j - 1]) + nums[i][j];
+            }
+        }
+        return dp[row - 1][col - 1];
+    }
+
+
+    // dp[i,j] = min(dp[i-1,j],dp[i,j-1])+grid(i,j) -- 空间优化，一行一行的来计算，最后只保留一行的元素
+    public static int minPathSumDp2(int[][] nums) {
+        int row = nums.length;
+        int col = nums[0].length;
+        int[] dp = new int[col];
+        //初始化第一行
+        dp[0] = nums[0][0];
+        for (int i = 1; i < col; i++) {
+            dp[i] = dp[i - 1] + nums[0][i];
+        }
+        for (int i = 1; i < row; i++) {
+            //行数切换首位元素更新
+            dp[0] = dp[0] + nums[i][0];
+            for (int j = 1; j < col; j++) {
+                dp[j] = Math.min(dp[j - 1], dp[j]) + nums[i][j];
+            }
+        }
+        return dp[col - 1];
+    }
+
+    public static void main(String[] args) {
+        int[][] grid = {
+                { 1, 3, 1, 5 },
+                { 2, 2, 4, 2 },
+                { 5, 3, 2, 1 },
+                { 4, 3, 5, 2 }
+        };
+        System.out.println(minPathSumDp(grid));
+        System.out.println(minPathSumDp2(grid));
+    }
+}
+```
 ## 1.46 0-1 背包问题
 
 背包问题是一个非常好的动态规划入门题目，是动态规划中最常见的问题形式。其具有很多变种，例如 0-1 背包问题、完全背包问题、多重背包问题等。
@@ -8631,6 +8947,67 @@ int knapsackDPComp(int[] wgt, int[] val, int cap) {
         }
     }
     return dp[cap];
+}
+```
+
+### 0-1背包问题 - 代码demo
+```java
+package MyTest.dynamicProgramming;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 0-1 背包问题
+ * 给定 n 个物品，第 i个物品的重量为wgt[i-1]、价值为val[i-1]，和一个容量为cap的背包。
+ * 每个物品只能选择一次，问在限定背包容量下能放入物品的最大价值。
+ **/
+public class Knapsack {
+
+    /**************************解法1：回溯-暴力破解(自己写的，按照回溯的模板，但是不是回溯最优解，原书给的方法更优)*************************************************/
+    public static int knapsackDFS(int[] wgt, int[] val, int maxCap) {
+        List<Integer> maxVals = new ArrayList<>();
+        maxVals.add(0);
+        knapsackDFS(wgt, val, maxVals, 0, maxCap, 0, 0);
+        return maxVals.get(0);
+    }
+
+    public static void knapsackDFS(int[] wgt, int[] val, List<Integer> maxVal, int nowCap, int maxCap, int nowVal, int start) {
+        // 如果是一个更大的结果则保存这个更大的结果
+        if (nowVal > maxVal.get(0)) {
+            maxVal.set(0, nowVal);
+        }
+        for (int i = start; i < wgt.length; i++) {
+            //剪枝：是否超出背包容量
+            if (nowCap + wgt[i] <= maxCap) {
+                // 缓存当前的价值
+                int temp1 = nowVal;
+                //缓存当前的重量
+                int temp2 = nowCap;
+                // 选择后的价值
+                nowVal = nowVal + val[i];
+                // 选择后的容量
+                nowCap = nowCap + wgt[i];
+                // 回溯
+                knapsackDFS(wgt, val, maxVal, nowCap, maxCap, nowVal, start + 1);
+                // 回退
+                nowVal = temp1;
+                nowCap = temp2;
+
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        int[] wgt = {10, 20, 30, 40, 50};
+        int[] val = {50, 120, 150, 210, 240};
+//        int[] val = {50, 120, 160, 210, 290};
+        int cap = 50;
+
+        // 暴力搜索
+        int res = knapsackDFS(wgt, val, cap);
+        System.out.println("不超过背包容量的最大物品价值为 " + res);
+    }
 }
 ```
 ## 1.47 完全背包问题
