@@ -8964,7 +8964,7 @@ import java.util.List;
  **/
 public class Knapsack {
 
-    /**************************解法1：回溯-暴力破解(自己写的，按照回溯的模板，但是不是回溯最优解，原书给的方法更优)*************************************************/
+    /**************************解法1：回溯-暴力破解*************************************************/
     public static int knapsackDFS(int[] wgt, int[] val, int maxCap) {
         List<Integer> maxVals = new ArrayList<>();
         maxVals.add(0);
@@ -8998,17 +8998,116 @@ public class Knapsack {
         }
     }
 
+    /**************************解法2：暴力破解 - 按照状态转移方程实现*************************************************/
+    /**
+     * 状态转移方程是什么？，首先我们状态的推导时放入第i个商品的时候容量还剩下c。即当前物品编号i和当前背包容量c。注意这里的c是指背包中已经装了的两，而不是剩下的量
+     * dp[i][c] = MAX(dp[i-1][c], dp[i-1][c-wgt[i-1]]+val[i-1])
+     * 也就是说当前的价值是看上一次的容量为c的时候且这次不放进去的价值，和上次容量为c-wgt[i-1]的价值加上放进去这次的价值的和两者之间的最大值就是最优解
+     * 这个过程是一个从最终结果往前推的过程
+     */
+    public static int knapsackDFS2(int[] wgt, int[] val, int i, int c) {
+        // 若已选完所有物品或背包无剩余容量，则返回价值 0
+        if (i == 0 || c == 0) {
+            return 0;
+        }
+        // 若超过背包容量，则只能选择不放入背包
+        if (wgt[i - 1] > c) {
+            return knapsackDFS2(wgt, val, i - 1, c);
+        }
+        //1.放入
+        int yes = knapsackDFS2(wgt, val, i - 1, c - wgt[i - 1]) + val[i - 1];
+        //2.不放入
+        int no = knapsackDFS2(wgt, val, i - 1, c);
+        return Math.max(yes, no);
+    }
+
+    /**************************解法3：记忆法 - 按照状态转移方程实现，记录下计算过的结果*************************************************/
+    public static int knapsackDFS3(int[] wgt, int[] val, int[][] mems, int i, int c) {
+        // 若已选完所有物品或背包无剩余容量，则返回价值 0
+        if (i == 0 || c == 0) {
+            return 0;
+        }
+        // 若已有记录，则直接返回
+        if (mems[i][c] != -1) {
+            return mems[i][c];
+        }
+        // 若超过背包容量，则只能选择不放入背包
+        if (wgt[i - 1] > c) {
+            return knapsackDFS3(wgt, val, mems, i - 1, c);
+        }
+        // 计算不放入和放入物品 i 的最大价值
+        int no = knapsackDFS3(wgt, val, mems, i - 1, c);
+        int yes = knapsackDFS3(wgt, val, mems, i - 1, c - wgt[i - 1]) + val[i - 1];
+        // 记录并返回两种方案中价值更大的那一个
+        mems[i][c] = Math.max(no, yes);
+        return mems[i][c];
+    }
+
+    /**************************解法4：动态规划*************************************************/
+    public static int knapsackDFS4(int[] wgt, int[] val, int cap) {
+        //1.初始化
+        int[][] dp = new int[wgt.length + 1][cap + 1];
+        //2.状态转移方程
+        for (int i = 1; i < dp.length; i++) {
+            for (int c = 1; c < dp[0].length; c++) {
+                if (wgt[i - 1] > c) {
+                    // 若超过背包容量，则不选物品 i
+                    dp[i][c] = dp[i - 1][c];
+                } else {
+                    // 不选和选物品 i 这两种方案的较大值
+                    dp[i][c] = Math.max(dp[i - 1][c], dp[i - 1][c - wgt[i - 1]] + val[i - 1]);
+                }
+            }
+        }
+        return dp[wgt.length][cap];
+    }
+
+    /**************************解法5：动态规划 - 空间优化*************************************************/
+    public static int knapsackDFS5(int[] wgt, int[] val, int cap) {
+        //1.初始化
+        int[] dp = new int[cap + 1];
+        int row = 1;
+        //2.状态转移方程
+        while (row <= wgt.length) {
+            // 注意这里倒序很重要，因为状态转移方程利用了前面的记录，如果是正序的话会存在覆盖的情况
+            for (int c = cap; c > 0; c--) {
+                if (wgt[row - 1] <= c) {
+                    dp[c] = Math.max(dp[c], dp[c - wgt[row - 1]] + val[row - 1]);
+                }
+            }
+            row++;
+        }
+        return dp[cap];
+    }
+
     public static void main(String[] args) {
         int[] wgt = {10, 20, 30, 40, 50};
         int[] val = {50, 120, 150, 210, 240};
-//        int[] val = {50, 120, 160, 210, 290};
+//        int[] val = {50, 120, 180, 210, 290};
         int cap = 50;
 
-        // 暴力搜索
+        // 1.暴力搜索 - 回溯
         int res = knapsackDFS(wgt, val, cap);
-        System.out.println("不超过背包容量的最大物品价值为 " + res);
+        System.out.println("1.不超过背包容量的最大物品价值为 " + res);
+        // 2. 暴力搜索 - 状态转移方程
+        int res2 = knapsackDFS2(wgt, val, wgt.length, cap);
+        System.out.println("2.不超过背包容量的最大物品价值为 " + res2);
+        // 2. 暴力搜索 - 状态转移方程
+        int[][] mems = new int[wgt.length + 1][cap + 1];
+        for (int i = 0; i < mems.length; i++) {
+            for (int j = 0; j < mems[0].length; j++) {
+                mems[i][j] = -1;
+            }
+        }
+        int res3 = knapsackDFS3(wgt, val, mems, wgt.length, cap);
+        System.out.println("3.不超过背包容量的最大物品价值为 " + res3);
+        int res4 = knapsackDFS4(wgt, val, cap);
+        System.out.println("4.不超过背包容量的最大物品价值为 " + res4);
+        int res5 = knapsackDFS5(wgt, val, cap);
+        System.out.println("5.不超过背包容量的最大物品价值为 " + res5);
     }
 }
+
 ```
 ## 1.47 完全背包问题
 
@@ -9111,6 +9210,168 @@ int unboundedKnapsackDPComp(int[] wgt, int[] val, int cap) {
         }
     }
     return dp[cap];
+}
+```
+
+### 完全背包问题 - 代码demo
+```java
+package MyTest.dynamicProgramming;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 完全背包问题
+ * 给定 n 个物品，第 i个物品的重量为wgt[i-1]、价值为val[i-1]，和一个容量为cap的背包。
+ * 每个物品可重复，问在限定背包容量下能放入物品的最大价值。
+ **/
+public class Knapsack2 {
+
+    /**************************解法1：回溯-暴力破解*************************************************/
+    // 回溯方法0-1背包和完全背包不同的地方就在于，下一次选择是否需要从上一个递归之后开始搜索，也就是start可以去掉
+    public static int knapsackDFS(int[] wgt, int[] val, int maxCap) {
+        List<Integer> maxVals = new ArrayList<>();
+        maxVals.add(0);
+        knapsackDFS(wgt, val, maxVals, 0, maxCap, 0);
+        return maxVals.get(0);
+    }
+
+    public static void knapsackDFS(int[] wgt, int[] val, List<Integer> maxVal, int nowCap, int maxCap, int nowVal) {
+        // 如果是一个更大的结果则保存这个更大的结果
+        if (nowVal > maxVal.get(0)) {
+            maxVal.set(0, nowVal);
+        }
+        for (int i = 0; i < wgt.length; i++) {
+            //剪枝：是否超出背包容量
+            if (nowCap + wgt[i] <= maxCap) {
+                // 缓存当前的价值
+                int temp1 = nowVal;
+                //缓存当前的重量
+                int temp2 = nowCap;
+                // 选择后的价值
+                nowVal = nowVal + val[i];
+                // 选择后的容量
+                nowCap = nowCap + wgt[i];
+                // 回溯
+                knapsackDFS(wgt, val, maxVal, nowCap, maxCap, nowVal);
+                // 回退
+                nowVal = temp1;
+                nowCap = temp2;
+
+            }
+        }
+    }
+
+    /**************************解法2：暴力破解 - 按照状态转移方程实现*************************************************/
+    /**
+     * 状态转移方程不同的地方在于对于可以重复选择的情况下，放入当前物品i的时候考虑的是dp[i][c-wgt[i-1]]+val[i-1])而不是dp[i-1][c-wgt[i-1]]+val[i-1])
+     * dp[i][c] = MAX(dp[i-1][c], dp[i][c-wgt[i-1]]+val[i-1])
+     * 也就是说当前的价值是看上一次的容量为c的时候且这次不放进去的价值，和上次容量为c-wgt[i-1]的价值加上放进去这次的价值的和两者之间的最大值就是最优解
+     * 这个过程是一个从最终结果往前推的过程
+     */
+    public static int knapsackDFS2(int[] wgt, int[] val, int i, int c) {
+        // 若已选完所有物品或背包无剩余容量，则返回价值 0
+        if (i == 0 || c == 0) {
+            return 0;
+        }
+        // 若超过背包容量，则只能选择不放入背包
+        if (wgt[i - 1] > c) {
+            return knapsackDFS2(wgt, val, i - 1, c);
+        }
+        //1.放入
+        int yes = knapsackDFS2(wgt, val, i, c - wgt[i - 1]) + val[i - 1];
+        //2.不放入
+        int no = knapsackDFS2(wgt, val, i - 1, c);
+        return Math.max(yes, no);
+    }
+
+    /**************************解法3：记忆法 - 按照状态转移方程实现，记录下计算过的结果*************************************************/
+    public static int knapsackDFS3(int[] wgt, int[] val, int[][] mems, int i, int c) {
+        // 若已选完所有物品或背包无剩余容量，则返回价值 0
+        if (i == 0 || c == 0) {
+            return 0;
+        }
+        // 若已有记录，则直接返回
+        if (mems[i][c] != -1) {
+            return mems[i][c];
+        }
+        // 若超过背包容量，则只能选择不放入背包
+        if (wgt[i - 1] > c) {
+            return knapsackDFS3(wgt, val, mems, i - 1, c);
+        }
+        // 计算不放入和放入物品 i 的最大价值
+        int no = knapsackDFS3(wgt, val, mems, i - 1, c);
+        int yes = knapsackDFS3(wgt, val, mems, i, c - wgt[i - 1]) + val[i - 1];
+        // 记录并返回两种方案中价值更大的那一个
+        mems[i][c] = Math.max(no, yes);
+        return mems[i][c];
+    }
+
+    /**************************解法4：动态规划*************************************************/
+    public static int knapsackDFS4(int[] wgt, int[] val, int cap) {
+        //1.初始化
+        int[][] dp = new int[wgt.length + 1][cap + 1];
+        //2.状态转移方程
+        for (int i = 1; i < dp.length; i++) {
+            for (int c = 1; c < dp[0].length; c++) {
+                if (wgt[i - 1] > c) {
+                    // 若超过背包容量，则不选物品 i
+                    dp[i][c] = dp[i - 1][c];
+                } else {
+                    // 不选和选物品 i 这两种方案的较大值
+                    dp[i][c] = Math.max(dp[i - 1][c], dp[i][c - wgt[i - 1]] + val[i - 1]);
+                }
+            }
+        }
+        return dp[wgt.length][cap];
+    }
+
+    /**************************解法5：动态规划 - 空间优化*************************************************/
+    //注意：对于可重复选择和不可重复选择的区别
+    //1.不可重复选择下的状态转移方程依赖的以前的元素，所以要倒叙才能不会出现覆盖的情况
+    //2.可以重复选择的时候依赖的是当前的元素，因此必须郑旭否则获取不到当前元素的正确值(倒叙时当前元素是上一次row的最优解而不是这一次的)
+    public static int knapsackDFS5(int[] wgt, int[] val, int cap) {
+        //1.初始化
+        int[] dp = new int[cap + 1];
+        int row = 1;
+        //2.状态转移方程
+        while (row <= wgt.length) {
+            for (int c = 0; c <= cap; c++) {
+                if (wgt[row - 1] <= c) {
+                    dp[c] = Math.max(dp[c], dp[c - wgt[row - 1]] + val[row - 1]);
+                }
+            }
+            row++;
+        }
+        return dp[cap];
+    }
+
+    public static void main(String[] args) {
+        int[] wgt = {10, 20, 30, 40, 50};
+        int[] val = {50, 120, 150, 210, 240};
+//        int[] val = {50, 120, 180, 210, 290};
+        int cap = 50;
+
+        // 1.暴力搜索 - 回溯
+        int res = knapsackDFS(wgt, val, cap);
+        System.out.println("1.不超过背包容量的最大物品价值为 " + res);
+        // 2. 暴力搜索 - 状态转移方程
+        int res2 = knapsackDFS2(wgt, val, wgt.length, cap);
+        System.out.println("2.不超过背包容量的最大物品价值为 " + res2);
+        // 2. 暴力搜索 - 状态转移方程
+        int[][] mems = new int[wgt.length + 1][cap + 1];
+        for (int i = 0; i < mems.length; i++) {
+            for (int j = 0; j < mems[0].length; j++) {
+                mems[i][j] = -1;
+            }
+        }
+        int res3 = knapsackDFS3(wgt, val, mems, wgt.length, cap);
+        System.out.println("3.不超过背包容量的最大物品价值为 " + res3);
+        int res4 = knapsackDFS4(wgt, val, cap);
+        System.out.println("4.不超过背包容量的最大物品价值为 " + res4);
+        int res5 = knapsackDFS5(wgt, val, cap);
+        System.out.println("5.不超过背包容量的最大物品价值为 " + res5);
+    }
 }
 ```
 
@@ -9263,6 +9524,107 @@ int coinChangeDPComp(int[] coins, int amt) {
     return dp[amt] != MAX ? dp[amt] : -1;
 }
 ```
+#### 零钱兑换1 - 代码demo
+```java
+package MyTest.dynamicProgramming;
+
+import java.util.Arrays;
+
+/**
+ * 给定 i 种硬币，第 i 种硬币的面值为 coins[i-1]，目标金额为 amt，
+ * 每种硬币可以重复选取，问能够凑出目标金额的最少硬币数量。
+ * 如果无法凑出目标金额，则返回 -1 。
+ */
+public class ChangeExchange {
+
+    /*我自己实现的方法，有点麻烦，这里把目标金额是0元和不能完成(-1)这两种情况没有区分，导致在yes条件下判断条件变多*/
+    public static int changeExchange(int[] coins, int amt) {
+        int[][] dp = new int[coins.length + 1][amt + 1];
+        for (int i = 1; i <= coins.length; i++) {
+            for (int j = 1; j <= amt; j++) {
+                if (coins[i - 1] > j) {
+                    dp[i][j] = dp[i - 1][j];
+                } else {
+                    int no = dp[i - 1][j];
+                    //这里需要判断一下就是dp[i][j - coins[i - 1]]不存在但是j刚好和现在的金额匹配这个可以+1
+                    int yes = dp[i][j - coins[i - 1]] == 0 && j != coins[i - 1] ? 0 : dp[i][j - coins[i - 1]] + 1;
+                    if (no != 0 && yes != 0) {
+                        dp[i][j] = Math.min(yes, no);
+                    } else if (no != 0) {
+                        dp[i][j] = no;
+                    } else {
+                        dp[i][j] = yes;
+                    }
+                }
+            }
+        }
+        return dp[coins.length][amt] == 0 ? -1 : dp[coins.length][amt];
+    }
+
+    /* 零钱兑换：动态规划 - 书中代码
+     * 他这个好处就是用0和无穷区分了0元和不可能两种情况，这样的话就不需要判断会不会存在一种情况是
+     * dp[i][j - coins[i - 1]]不存在但是刚好现在i的钱数就和目标钱数相同的情况，因为如果是这个情况的话那么一定存在一个空出这么多钱的时候就是目标金额是0元的时候
+     * 其实这应该是对的做法，要区分出目标0元和不能够实现这两种本质上不是一回事
+     *  */
+    public static int changeExchange2(int[] coins, int amt) {
+        int n = coins.length;
+        int MAX = amt + 1;
+        // 初始化 dp 表
+        int[][] dp = new int[n + 1][amt + 1];
+        // 状态转移：首行首列
+        for (int a = 1; a <= amt; a++) {
+            dp[0][a] = MAX;
+        }
+        // 状态转移：其余行和列
+        for (int i = 1; i <= n; i++) {
+            for (int a = 1; a <= amt; a++) {
+                if (coins[i - 1] > a) {
+                    // 若超过目标金额，则不选硬币 i
+                    dp[i][a] = dp[i - 1][a];
+                } else {
+                    // 不选和选硬币 i 这两种方案的较小值
+                    dp[i][a] = Math.min(dp[i - 1][a], dp[i][a - coins[i - 1]] + 1);
+                }
+            }
+        }
+        return dp[n][amt] != MAX ? dp[n][amt] : -1;
+    }
+
+    /* 零钱兑换：空间优化后的动态规划 */
+    public static int changeExchange3(int[] coins, int amt) {
+        int n = coins.length;
+        int MAX = amt + 1;
+        // 初始化 dp 表
+        int[] dp = new int[amt + 1];
+        Arrays.fill(dp, MAX);
+        dp[0] = 0;
+        // 状态转移
+        for (int i = 1; i <= n; i++) {
+            for (int a = 1; a <= amt; a++) {
+                if (coins[i - 1] > a) {
+                    // 若超过目标金额，则不选硬币 i
+                    dp[a] = dp[a];
+                } else {
+                    // 不选和选硬币 i 这两种方案的较小值
+                    dp[a] = Math.min(dp[a], dp[a - coins[i - 1]] + 1);
+                }
+            }
+        }
+        return dp[amt] != MAX ? dp[amt] : -1;
+    }
+
+    public static void main(String[] args) {
+//        int[] coins = {1, 2, 5, 10, 20};
+//        int amt = 50;
+        int[] coins = {3, 5};
+        int amt = 25;
+        int res1 = changeExchange(coins, amt);
+        int res2 = changeExchange2(coins, amt);
+        System.out.println(res1);
+        System.out.println(res2);
+    }
+}
+```
 
 ### 1.47.3 零钱兑换问题 II
 
@@ -9336,6 +9698,60 @@ int coinChangeIIDPComp(int[] coins, int amt) {
         }
     }
     return dp[amt];
+}
+```
+#### 零钱兑换2 - 代码demo
+```java
+package MyTest.dynamicProgramming;
+
+/**
+ * 给定 i 种硬币，第 i 种硬币的面值为 coins[i-1]，目标金额为 amt，
+ * 每种硬币可以重复选取，问凑出目标金额的硬币组合数量。
+ */
+public class ChangeExchange2 {
+
+    public static int changeExchange(int[] coins, int amt) {
+        int[][] dp = new int[coins.length + 1][amt + 1];
+        for (int i = 0; i <= coins.length; i++) {
+            dp[i][0] = 1;
+        }
+
+        for (int i = 1; i <= coins.length; i++) {
+            for (int j = 1; j <= amt; j++) {
+                if (coins[i - 1] > j) {
+                    dp[i][j] = dp[i - 1][j];
+                } else {
+                    dp[i][j] = dp[i - 1][j] + dp[i][j - coins[i - 1]];
+                }
+            }
+        }
+        return dp[coins.length][amt];
+    }
+
+    /**
+     * 空间优化
+     */
+    public static int changeExchange2(int[] coins, int amt) {
+        int[] dp = new int[amt + 1];
+        dp[0] = 1;
+
+        for (int i = 1; i <= coins.length; i++) {
+            for (int j = 1; j <= amt; j++) {
+                if (coins[i - 1] <= j) {
+                    dp[j] = dp[j] + dp[j - coins[i - 1]];
+                }
+            }
+        }
+        return dp[amt];
+    }
+
+
+    public static void main(String[] args) {
+        int[] coins = {1, 2, 5, 10, 20};
+        int amt = 50;
+        System.out.println(changeExchange(coins, amt));
+        System.out.println(changeExchange2(coins, amt));
+    }
 }
 ```
 ## 1.48 编辑距离问题
@@ -9516,6 +9932,88 @@ int editDistanceDPComp(String s, String t) {
         }
     }
     return dp[m];
+}
+```
+### 编辑距离问题 - 代码demo
+```java
+package MyTest.dynamicProgramming;
+
+/**
+ * 输入两个字符串 s 和 t ，返回将 s 转换为 t 所需的最少编辑步数。
+ * 你可以在一个字符串中进行三种编辑操作：插入一个字符、删除一个字符、将字符替换为任意一个字符
+ */
+public class Levenshtein {
+
+    public static int levenshtein(String src, String target) {
+        int[][] dp = new int[src.length() + 1][target.length() + 1];
+        //1.初始化
+        for (int i = 0; i < src.length() + 1; i++) {
+            dp[i][0] = i;
+        }
+        for (int j = 0; j < target.length() + 1; j++) {
+            dp[0][j] = j;
+        }
+
+        for (int i = 1; i <= src.length(); i++) {
+            for (int j = 1; j <= target.length(); j++) {
+                if (src.charAt(i - 1) == target.charAt(j - 1)) {
+                    dp[i][j] = dp[i - 1][j - 1];
+                } else {
+                    //新增
+                    int insert = dp[i - 1][j];
+                    //删除
+                    int delete = dp[i][j - 1];
+                    //修改
+                    int modify = dp[i - 1][j - 1];
+                    dp[i][j] = Math.min(Math.min(insert, delete), modify) + 1;
+                }
+            }
+        }
+        return dp[src.length()][target.length()];
+    }
+
+    public static int levenshtein2(String src, String target) {
+        int[] dp = new int[target.length() + 1];
+        //1.初始化
+        for (int j = 0; j < target.length() + 1; j++) {
+            dp[j] = j;
+        }
+
+        for (int i = 1; i <= src.length(); i++) {
+            int temp = dp[0];
+            dp[0] = i;
+            for (int j = 1; j <= target.length(); j++) {
+                if (src.charAt(i - 1) == target.charAt(j - 1)) {
+                    int temp2 = dp[j];
+                    dp[j] = temp;
+                    temp = temp2;
+                } else {
+                    //新增
+                    int insert = dp[j];
+                    //删除
+                    int delete = dp[j - 1];
+                    //修改
+                    int modify = temp;
+                    temp = dp[j];
+                    dp[j] = Math.min(Math.min(insert, delete), modify) + 1;
+                }
+            }
+        }
+        return dp[target.length()];
+    }
+
+    public static void main(String[] args) {
+        String s = "bag";
+        String t = "pack";
+        // 动态规划
+        int res1 = levenshtein(s, t);
+        System.out.println("将 " + s + " 更改为 " + t + " 最少需要编辑 " + res1 + " 步");
+
+        // 空间优化后的动态规划
+        int res2 = levenshtein2(s, t);
+        System.out.println("将 " + s + " 更改为 " + t + " 最少需要编辑 " + res2 + " 步");
+    }
+
 }
 ```
 ## 1.49 贪心算法
