@@ -10718,4 +10718,594 @@ public class MaxProductCutting {
 | greedy algorithm               | 贪心算法       | 貪婪演算法     |
 
 
-# 三、算法题目详解
+# 三、算法题目详解(LeetCode100题)
+## 1. 两数之和
+- 给定一个整数数组 `nums` 和一个整数目标值 `target`，请你在该数组中找出 和为目标值 `target`  的那 `两个` 整数，并返回它们的数组下标。
+
+你可以假设每种输入只会对应一个答案，并且你不能使用两次相同的元素。
+
+你可以按任意顺序返回答案。
+
+
+示例 1：
+```
+输入：nums = [2,7,11,15], target = 9
+输出：[0,1]
+解释：因为 nums[0] + nums[1] == 9 ，返回 [0, 1] 。
+```
+示例 2：
+```
+输入：nums = [3,2,4], target = 6
+输出：[1,2]
+```
+示例 3：
+```
+输入：nums = [3,3], target = 6
+输出：[0,1]
+ ```
+
+提示：
+```
+2 <= nums.length <= 104
+-109 <= nums[i] <= 109
+-109 <= target <= 109
+```
+只会存在一个有效答案
+
+- 答案：
+```java
+public class TowSum {
+    public static int[] towSum(int[] nums, int target) {
+        Map<Integer, Integer> map = new HashMap<>();
+        for (int i = 0; i < nums.length; i++) {
+            if (map.containsKey(target - nums[i])) {
+                return new int[]{map.get(target - nums[i]), i};
+            } else {
+                map.put(nums[i], i);
+            }
+        }
+        return new int[0];
+    }
+
+    public static void main(String[] args) {
+        int[] nums = new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9};
+        int target = 10;
+        int[] ints = towSum(nums, target);
+        print(ints);
+    }
+
+    private static void print(int[] ints) {
+        System.out.print("[");
+        for (int i = 0; i < ints.length; i++) {
+            System.out.print(ints[i]);
+            if (i != ints.length - 1) {
+                System.out.print(",");
+            }
+        }
+        System.out.println("]");
+    }
+```
+## 2.三数之和(扩展)
+
+- 给你一个整数数组 nums ，判断是否存在三元组 `[nums[i], nums[j], nums[k]]` 满足 `i != j`、`i != k` 且 `j != k` ，同时还满足 `nums[i] + nums[j] + nums[k] == 0`。请你返回所有和为 0 且不重复的三元组。
+
+注意：答案中不可以包含重复的三元组。
+
+ 
+
+ 
+
+示例 1：
+```
+输入：nums = [-1,0,1,2,-1,-4]
+输出：[[-1,-1,2],[-1,0,1]]
+解释：
+nums[0] + nums[1] + nums[2] = (-1) + 0 + 1 = 0 。
+nums[1] + nums[2] + nums[4] = 0 + 1 + (-1) = 0 。
+nums[0] + nums[3] + nums[4] = (-1) + 2 + (-1) = 0 。
+不同的三元组是 [-1,0,1] 和 [-1,-1,2] 。
+注意，输出的顺序和三元组的顺序并不重要。
+```
+示例 2：
+```
+输入：nums = [0,1,1]
+输出：[]
+解释：唯一可能的三元组和不为 0 。
+```
+示例 3：
+```
+输入：nums = [0,0,0]
+输出：[[0,0,0]]
+解释：唯一可能的三元组和为 0 。
+```
+ 
+
+提示：
+```
+3 <= nums.length <= 3000
+-105 <= nums[i] <= 105
+```
+- 答案
+```java
+public class ThreeSum {
+    public static List<List<Integer>> threeSum(int[] nums) {
+        List<List<Integer>> res = new ArrayList<>();
+        //1.排序
+        Arrays.sort(nums);
+        //2.取值
+        for (int i = 0; i < nums.length; i++) {
+            //3.重复值直接跳过
+            // 跳过重复的第一个数,这样就不会出现把同一个数当作计算点的情况，结果中就不会重复了
+            if (i > 0 && nums[i] == nums[i - 1]) {
+                continue;
+            }
+            //4. 以第一个分非重复值开始后面开始设置双指针
+            int left = i + 1;
+            int right = nums.length - 1;
+            while (left < right) {
+                //5. 求和
+                int sum = nums[i] + nums[left] + nums[right];
+                //6.判断
+                if (sum == 0) {
+                    res.add(Arrays.asList(nums[i], nums[left], nums[right]));
+                    // 跳过重复的 left 和 right
+                    while (left < right && nums[left] == nums[left + 1]) left++;
+                    while (left < right && nums[right] == nums[right - 1]) right--;
+                    left++;
+                    right--;
+                } else if (sum > 0) {
+                    //大于0 说明数太大，让right--
+                    right--;
+                } else {
+                    //小于0 说明数太小让left++
+                    left++;
+                }
+            }
+        }
+        return res;
+    }
+
+    public static void main(String[] args) {
+        int[] nums = new int[]{0, 3, 0, 1, 1, -1, -5, -5, 3, -3, -3, 0};
+        List<List<Integer>> result = threeSum(nums);
+        for (List<Integer> integers : result) {
+            System.out.println(integers);
+        }
+    }
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
