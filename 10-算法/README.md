@@ -10216,7 +10216,67 @@ double fractionalKnapsack(int[] wgt, int[] val, int cap) {
 
 ![分数背包问题的几何表示](../assets/images/10-算法/385.fractional_knapsack_area_chart.png)
 
+### 分数背包 - 代码demo
+```java
+package MyTest.greedy;
 
+import java.util.Arrays;
+import java.util.Comparator;
+
+/**
+ * 分数背包问题：
+ * 给定 n 个物品，第 i 个物品的重量为 wgt[i-1]、价值为 val[i-1] ，
+ * 和一个容量为 cap 的背包。
+ * 每个物品只能选择一次，**但可以选择物品的一部分，价值根据选择的重量比例计算**，
+ * 问在限定背包容量下背包中物品的最大价值。
+ */
+public class FractionalKnapsack {
+
+    public static double fractionalKnapsack(int[] wgt, int[] val, int cap) {
+        //首先按照物品的单位重量价值排序
+        Item[] items = new Item[wgt.length];
+        for (int i = 0; i < wgt.length; i++) {
+            items[i] = new Item(wgt[i], val[i]);
+        }
+        //按照物品单位价值排序
+        Arrays.sort(items, Comparator.comparingDouble(item -> -((double) item.val / item.wgt)));
+        //贪心
+        double res = 0;
+        for (Item item : items) {
+            if (item.wgt <= cap) {
+                cap -= item.wgt;
+                res += item.val;
+            } else {
+                res += ((double) item.val / item.wgt) * cap;
+                //已经放满了，跳出循环即可
+                break;
+            }
+        }
+        return res;
+    }
+
+
+    static class Item {
+        int wgt;
+        int val;
+
+        public Item(int wgt, int val) {
+            this.wgt = wgt;
+            this.val = val;
+        }
+    }
+
+    public static void main(String[] args) {
+        int[] wgt = { 10, 20, 30, 40, 50 };
+        int[] val = { 50, 120, 150, 210, 240 };
+        int cap = 50;
+
+        // 贪心算法
+        double res = fractionalKnapsack(wgt, val, cap);
+        System.out.println("不超过背包容量的最大物品价值为 " + res);
+    }
+}
+```
 ## 1.51 最大容量问题
 
 !!! question
@@ -10336,6 +10396,47 @@ $$
 
 以上分析说明，移动短板的操作是“安全”的，贪心策略是有效的。
 
+### 最大容量问题 - 代码demo
+```java
+package MyTest.greedy;
+
+/**
+ * 最大容量问题
+ * <p>
+ * 输入一个数组 ht ，其中的每个元素代表一个垂直隔板的高度。数组中的任意两个隔板，以及它们之间的空间可以组成一个容器。
+ * 容器的容量等于高度和宽度的乘积（面积），其中高度由较短的隔板决定，宽度是两个隔板的数组索引之差。
+ * 请在数组中选择两个隔板，使得组成的容器的容量最大，返回最大容量。
+ */
+public class MaxCapacity {
+    public static int maxCapacity(int[] nums) {
+        //1.初始化指针
+        int i = 0;
+        int j = nums.length - 1;
+        int res = 0;
+        while (i < j) {
+            int num1 = nums[i];
+            int num2 = nums[j];
+            if (num2 > num1) {
+                res = Math.max(num1 * (j - i), res);
+                i++;
+            } else {
+                res = Math.max(num2 * (j - i), res);
+                j--;
+            }
+        }
+        return res;
+    }
+
+    public static void main(String[] args) {
+        int[] ht = {3, 8, 5, 2, 7, 7, 3, 4};
+
+        // 贪心算法
+        int res = maxCapacity(ht);
+        System.out.println("最大容量为 " + res);
+    }
+}
+```
+
 ## 1.52 最大切分乘积问题
 
 !!! question
@@ -10440,6 +10541,43 @@ int maxProductCutting(int n) {
 1. **所有因子 $\leq 3$** ：假设最优切分方案中存在 $\geq 4$ 的因子 $x$ ，那么一定可以将其继续划分为 $2(x-2)$ ，从而获得更大（或相等）的乘积。这与假设矛盾。
 2. **切分方案不包含 $1$** ：假设最优切分方案中存在一个因子 $1$ ，那么它一定可以合并入另外一个因子中，以获得更大的乘积。这与假设矛盾。
 3. **切分方案最多包含两个 $2$** ：假设最优切分方案中包含三个 $2$ ，那么一定可以替换为两个 $3$ ，乘积更大。这与假设矛盾。
+### 最大切分乘积 - 代码demo
+```java
+package MyTest.greedy;
+
+/**
+ * 给定一个正整数 n ，将其切分为至少两个正整数的和，求切分后所有整数的乘积最大是多少，
+ */
+public class MaxProductCutting {
+
+    public static int maxProductCutting(int num) {
+        // 当 n <= 3 时，必须切分出一个 1
+        if (num <= 3) {
+            return 1 * (num - 1);
+        }
+        //通过数学计算，按照3进行切分，如果余数为0或2则不必处理，余数为1时则2*2>3*1，就切换为2*2
+        int res = 1;
+        while (num > 3) {
+            num -= 3;
+            res *= 3;
+        }
+        if (num == 1) {
+            res = res / 3 * 2 * 2;
+        } else {
+            res *= num;
+        }
+        return res;
+    }
+
+    public static void main(String[] args) {
+        int n = 2;
+
+        // 贪心算法
+        int res = maxProductCutting(n);
+        System.out.println("最大切分乘积为 " + res);
+    }
+}
+```
 
 ## 1.53 术语表
 
